@@ -339,7 +339,7 @@ async function carregarDashboard() {
 }
 
 async function carregarClientes() {
-  const { data, error } = await sb.from('clientes').select('*, funcionarios(nome)').order('nome');
+  const { data, error } = await sb.from('clientes').select('id, nome, cpf, telefone, endereco, cobrador_id').order('nome');
   if (error) { document.getElementById('lista-clientes').innerHTML = 'Erro ao carregar.'; return; }
   todosClientes = data || [];
   renderClientes(todosClientes);
@@ -355,7 +355,7 @@ function renderClientes(lista) {
           <td>${c.nome}</td>
           <td>${c.cpf||'—'}</td>
           <td>${c.telefone||'—'}</td>
-          <td>${c.funcionarios?.nome||'—'}</td>
+          <td>—</td>
           <td>${c.endereco||'—'}</td>
           <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarCliente('${c.id}')">Editar</button></td>
         </tr>`).join('')}
