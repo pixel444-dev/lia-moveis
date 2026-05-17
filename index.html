@@ -237,7 +237,6 @@ async function carregarDashboard() {
   const totalVendas = vendas ? vendas.reduce((a, v) => a + Number(v.valor), 0) : 0;
   const { data: cobrancas } = await sb.from('movimentacoes_cobranca').select('valor').eq('tipo', 'cobranca');
   const totalCob = cobrancas ? cobrancas.reduce((a, v) => a + Number(v.valor), 0) : 0;
-
   document.getElementById('metricas-dashboard').innerHTML = `
     <div class="card-metrica"><div class="label">Clientes cadastrados</div><div class="valor azul">${(clientes||[]).length}</div></div>
     <div class="card-metrica"><div class="label">Funcionários</div><div class="valor">${(funcionarios||[]).length}</div></div>
@@ -278,7 +277,6 @@ async function carregarFuncionarios() {
     </table></div>`;
 }
 
-
 async function carregarCobrancas() {
   const { data, error } = await sb.from('movimentacoes_cobranca').select('*, funcionarios(nome), clientes(nome)').order('data_hora', {ascending: false}).limit(50);
   if (error) { document.getElementById('lista-cobrancas').innerHTML = 'Erro ao carregar.'; return; }
@@ -301,15 +299,15 @@ async function carregarCiclos() {
 }
 
 function abrirCadastroCliente() { alert('Cadastro de cliente — em breve!'); }
+
 function abrirCadastroFuncionario() {
-  const modal = document.getElementById('modal-funcionario');
   document.getElementById('func-id').value = '';
   document.getElementById('func-nome').value = '';
   document.getElementById('func-telefone').value = '';
   document.getElementById('func-tipo').value = 'vendedor';
   document.getElementById('func-rota').value = '';
   document.getElementById('modal-func-titulo').textContent = 'Novo funcionário';
-  modal.style.display = 'flex';
+  document.getElementById('modal-funcionario').style.display = 'flex';
 }
 
 async function salvarFuncionario() {
