@@ -298,8 +298,62 @@ async function carregarCiclos() {
     </table></div>`;
 }
 
-function abrirCadastroCliente() { alert('Cadastro de cliente — em breve!'); }
+function abrirCadastroCliente() {
+  document.getElementById('cli-id').value = '';
+  document.getElementById('cli-nome').value = '';
+  document.getElementById('cli-cpf').value = '';
+  document.getElementById('cli-telefone').value = '';
+  document.getElementById('cli-endereco').value = '';
+  document.getElementById('cli-referencia').value = '';
+  document.getElementById('cli-cobrador').value = '';
+  document.getElementById('modal-cli-titulo').textContent = 'Novo cliente';
+  carregarCobrадoresSelect();
+  document.getElementById('modal-cliente').style.display = 'flex';
+}
 
+async function carregarCobradoresSelect() {
+  const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+  const sel = document.getElementById('cli-cobrador');
+  sel.innerHTML = '<option value="">Selecione o cobrador...</option>' +
+    (data||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+}
+
+async function carregarClientes() {
+  const { data, error } = await sb.from('clientes').select('*, funcionarios(nome)').order('nome');
+  if (error) { document.getElementById('lista-clientes').innerHTML = 'Erro ao carregar.'; return; }
+  if (!data.length) { document.getElementById('lista-clientes').innerHTML = '<p style="color:#888;padding:1rem;">Nenhum cliente cadastrado ainda.</p>'; return; }
+  document.getElementById('lista-clientes').innerHTML = `
+    <div class="tabela-wrap"><table>
+      <thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>Cobrador</th><th>Endereço</th><th>Ações</th></tr></thead>
+      <tbody>${data.map(c => `
+        <tr>
+          <td>${c.nome}</td>
+          <td>${c.cpf||'—'}</td>
+          <td>${c.telefone||'—'}</td>
+          <td>${c.funcionarios?.nome||'—'}</td>
+          <td>${c.endereco||'—'}</td>
+          <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarCliente('${c.id}')">Editar</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+  fecharModal('modal-cliente');
+  carregarClientes();
+}
+
+async function editarCliente(id) {
+  const { data } = await sb.from('clientes').select('*').eq('id', id).single();
+  document.getElementById('cli-id').value = data.id;
+  document.getElementById('cli-nome').value = data.nome;
+  document.getElementById('cli-cpf').value = data.cpf || '';
+  document.getElementById('cli-telefone').value = data.telefone || '';
+  document.getElementById('cli-endereco').value = data.endereco || '';
+  document.getElementById('cli-referencia').value = data.referencia || '';
+  await carregarCobradoresSelect();
+  document.getElementById('cli-cobrador').value = data.cobrador_id || '';
+  document.getElementById('modal-cli-titulo').textContent = 'Editar cliente';
+  document.getElementById('modal-cliente').style.display = 'flex';
+}
 function abrirCadastroFuncionario() {
   document.getElementById('func-id').value = '';
   document.getElementById('func-nome').value = '';
@@ -392,5 +446,46 @@ if (localStorage.getItem('usuario')) {
 </div>
 
 </body>
-</html></body>
+</html><!-- MODAL CLIENTE -->
+<div id="modal-cliente" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;padding:1.5rem;width:100%;max-width:480px;margin:1rem;max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+      <strong id="modal-cli-titulo">Novo cliente</strong>
+      <button onclick="fecharModal('modal-cliente')" style="background:none;border:none;font-size:20px;cursor:pointer;color:#888;">×</button>
+    </div>
+    <input type="hidden" id="cli-id">
+    <div style="margin-bottom:.75rem;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Nome completo *</label>
+      <input id="cli-nome" type="text" placeholder="Nome do cliente" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:.75rem;">
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">CPF</label>
+        <input id="cli-cpf" type="text" placeholder="000.000.000-00" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+      </div>
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Telefone</label>
+        <input id="cli-telefone" type="text" placeholder="(88) 99999-9999" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+      </div>
+    </div>
+    <div style="margin-bottom:.75rem;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Endereço completo</label>
+      <input id="cli-endereco" type="text" placeholder="Rua, número, bairro, cidade" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+    </div>
+    <div style="margin-bottom:.75rem;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Referência pessoal</label>
+      <input id="cli-referencia" type="text" placeholder="Nome e telefone de referência" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+    </div>
+    <div style="margin-bottom:1rem;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Cobrador responsável</label>
+      <select id="cli-cobrador" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+        <option value="">Selecione o cobrador...</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="fecharModal('modal-cliente')">Cancelar</button>
+      <button class="btn primario" onclick="salvarCliente()">Salvar cliente</button>
+    </div>
+  </div>
+</div></body>
 </html>
