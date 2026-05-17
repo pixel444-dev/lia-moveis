@@ -277,7 +277,7 @@ async function carregarFuncionarios() {
       </tbody>
     </table></div>`;
 }
-}
+
 
 async function carregarCobrancas() {
   const { data, error } = await sb.from('movimentacoes_cobranca').select('*, funcionarios(nome), clientes(nome)').order('data_hora', {ascending: false}).limit(50);
