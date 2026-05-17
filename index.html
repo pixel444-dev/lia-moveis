@@ -257,13 +257,26 @@ async function carregarClientes() {
 }
 
 async function carregarFuncionarios() {
-  const { data, error } = await sb.from('funcionarios').select('*').order('nome');
+  const { data, error } = await sb.from('funcionarios').select('*').order('tipo').order('nome');
   if (error) { document.getElementById('lista-funcionarios').innerHTML = 'Erro ao carregar.'; return; }
   document.getElementById('lista-funcionarios').innerHTML = `
     <div class="tabela-wrap"><table>
-      <thead><tr><th>Nome</th><th>Tipo</th><th>Rota</th><th>Telefone</th><th>Ativo</th></tr></thead>
-      <tbody>${data.map(f => `<tr><td>${f.nome}</td><td><span class="badge ${f.tipo==='cobrador'?'azul':'verde'}">${f.tipo}</span></td><td>${f.rota||'—'}</td><td>${f.telefone||'—'}</td><td><span class="badge ${f.ativo?'verde':'cinza'}">${f.ativo?'Sim':'Não'}</span></td></tr>`).join('')}</tbody>
+      <thead><tr><th>Nome</th><th>Tipo</th><th>Rota</th><th>Telefone</th><th>Ativo</th><th>Ações</th></tr></thead>
+      <tbody>${data.map(f => `
+        <tr>
+          <td>${f.nome}</td>
+          <td><span class="badge ${f.tipo==='cobrador'?'azul':'verde'}">${f.tipo}</span></td>
+          <td>${f.rota||'—'}</td>
+          <td>${f.telefone||'—'}</td>
+          <td><span class="badge ${f.ativo?'verde':'cinza'}">${f.ativo?'Ativo':'Inativo'}</span></td>
+          <td>
+            <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarFuncionario('${f.id}')">Editar</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="toggleAtivo('${f.id}',${f.ativo})">${f.ativo?'Desativar':'Ativar'}</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
     </table></div>`;
+}
 }
 
 async function carregarCobrancas() {
@@ -288,7 +301,55 @@ async function carregarCiclos() {
 }
 
 function abrirCadastroCliente() { alert('Cadastro de cliente — em breve!'); }
-function abrirCadastroFuncionario() { alert('Cadastro de funcionário — em breve!'); }
+function abrirCadastroFuncionario() {
+  const modal = document.getElementById('modal-funcionario');
+  document.getElementById('func-id').value = '';
+  document.getElementById('func-nome').value = '';
+  document.getElementById('func-telefone').value = '';
+  document.getElementById('func-tipo').value = 'vendedor';
+  document.getElementById('func-rota').value = '';
+  document.getElementById('modal-func-titulo').textContent = 'Novo funcionário';
+  modal.style.display = 'flex';
+}
+
+async function salvarFuncionario() {
+  const id = document.getElementById('func-id').value;
+  const dados = {
+    nome: document.getElementById('func-nome').value.trim(),
+    telefone: document.getElementById('func-telefone').value.trim(),
+    tipo: document.getElementById('func-tipo').value,
+    rota: document.getElementById('func-rota').value.trim(),
+    ativo: true
+  };
+  if (!dados.nome) { alert('Digite o nome!'); return; }
+  if (id) {
+    await sb.from('funcionarios').update(dados).eq('id', id);
+  } else {
+    await sb.from('funcionarios').insert(dados);
+  }
+  fecharModal('modal-funcionario');
+  carregarFuncionarios();
+}
+
+async function editarFuncionario(id) {
+  const { data } = await sb.from('funcionarios').select('*').eq('id', id).single();
+  document.getElementById('func-id').value = data.id;
+  document.getElementById('func-nome').value = data.nome;
+  document.getElementById('func-telefone').value = data.telefone || '';
+  document.getElementById('func-tipo').value = data.tipo;
+  document.getElementById('func-rota').value = data.rota || '';
+  document.getElementById('modal-func-titulo').textContent = 'Editar funcionário';
+  document.getElementById('modal-funcionario').style.display = 'flex';
+}
+
+async function toggleAtivo(id, ativo) {
+  await sb.from('funcionarios').update({ ativo: !ativo }).eq('id', id);
+  carregarFuncionarios();
+}
+
+function fecharModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
 
 if (localStorage.getItem('usuario')) {
   document.getElementById('tela-login').style.display = 'none';
@@ -296,5 +357,42 @@ if (localStorage.getItem('usuario')) {
   carregarDashboard();
 }
 </script>
+<!-- MODAL FUNCIONÁRIO -->
+<div id="modal-funcionario" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;padding:1.5rem;width:100%;max-width:440px;margin:1rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+      <strong id="modal-func-titulo">Novo funcionário</strong>
+      <button onclick="fecharModal('modal-funcionario')" style="background:none;border:none;font-size:20px;cursor:pointer;color:#888;">×</button>
+    </div>
+    <input type="hidden" id="func-id">
+    <div style="margin-bottom:.75rem;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Nome completo</label>
+      <input id="func-nome" type="text" placeholder="Nome do funcionário" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:.75rem;">
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Tipo</label>
+        <select id="func-tipo" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+          <option value="vendedor">Vendedor</option>
+          <option value="cobrador">Cobrador</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Telefone</label>
+        <input id="func-telefone" type="text" placeholder="(88) 99999-9999" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+      </div>
+    </div>
+    <div style="margin-bottom:1rem;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Rota (para cobradores)</label>
+      <input id="func-rota" type="text" placeholder="Ex: Granja, Tianguá..." style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="fecharModal('modal-funcionario')">Cancelar</button>
+      <button class="btn primario" onclick="salvarFuncionario()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 </body>
+</html></body>
 </html>
