@@ -51,11 +51,13 @@ tr:hover td{background:#fafafa;}
 .badge.amarelo{background:#FAEEDA;color:#854F0B;}
 .badge.azul{background:#E6F1FB;color:#185FA5;}
 .badge.cinza{background:#F1EFE8;color:#5F5E5A;}
+.badge.roxo{background:#EEEDFE;color:#3C3489;}
 .btn{padding:6px 14px;font-size:13px;border-radius:8px;border:1px solid #ddd;background:#fff;color:#1a1a1a;cursor:pointer;}
 .btn:hover{background:#f5f5f5;}
 .btn.primario{background:#185FA5;color:#fff;border-color:#185FA5;}
 .btn.primario:hover{background:#0C447C;}
-.btn.perigo{background:#FCEBEB;color:#A32D2D;border-color:#f5c6c6;}
+.btn.verde{background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;}
+.btn.verde:hover{background:#c0dd97;}
 .topbar-pg{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;}
 .logout{padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;}
 .logout button{width:100%;padding:8px;background:none;border:1px solid #ddd;border-radius:8px;font-size:12px;color:#888;cursor:pointer;}
@@ -79,6 +81,10 @@ tr:hover td{background:#fafafa;}
 .codigo-badge{background:#f0f0f0;color:#555;padding:2px 8px;border-radius:6px;font-size:12px;font-family:monospace;}
 .cpf-valido{color:#3B6D11;font-size:11px;margin-top:3px;}
 .cpf-invalido{color:#A32D2D;font-size:11px;margin-top:3px;}
+.cliente-encontrado{background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;}
+.cliente-nao-encontrado{background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;}
+.secao{font-size:12px;font-weight:600;color:#185FA5;margin:.875rem 0 .5rem;padding-bottom:4px;border-bottom:1px solid #e0e0e0;}
+.parcelas-preview{background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;padding:10px 14px;margin-top:.5rem;font-size:12px;color:#555;}
 </style>
 </head>
 <body>
@@ -163,8 +169,14 @@ tr:hover td{background:#fafafa;}
     </div>
 
     <div class="page" id="page-vendas">
-      <div class="page-title">Vendas</div>
-      <div id="lista-vendas">Em construção...</div>
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">Vendas</div>
+        <button class="btn primario" onclick="abrirNovaVenda()">+ Nova venda</button>
+      </div>
+      <div class="busca-wrap">
+        <input class="busca" type="text" placeholder="Buscar por código da venda ou cliente..." oninput="buscarVenda(this.value)">
+      </div>
+      <div id="lista-vendas">Carregando...</div>
     </div>
 
     <div class="page" id="page-equipes">
@@ -202,6 +214,127 @@ tr:hover td{background:#fafafa;}
       <div id="lista-relatorios">Em construção...</div>
     </div>
 
+  </div>
+</div>
+
+<!-- MODAL NOVA VENDA -->
+<div class="modal-bg" id="modal-venda">
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-header">
+      <strong>Nova venda</strong>
+      <button onclick="fecharModal('modal-venda')">×</button>
+    </div>
+
+    <div class="secao">1. Identificar o cliente pelo CPF</div>
+    <div class="campo">
+      <label>CPF do cliente *</label>
+      <div style="display:flex;gap:8px;">
+        <input id="venda-cpf-busca" type="text" placeholder="000.000.000-00" style="flex:1;">
+        <button class="btn primario" onclick="buscarClientePorCPF()">Buscar</button>
+      </div>
+    </div>
+    <div id="resultado-busca-cliente"></div>
+    <input type="hidden" id="venda-cliente-id">
+
+    <div id="form-novo-cliente-venda" style="display:none;">
+      <div class="secao">Cadastrar novo cliente</div>
+      <div class="campo">
+        <label>Nome completo *</label>
+        <input id="vnc-nome" type="text" placeholder="Nome do cliente">
+      </div>
+      <div class="grid2">
+        <div class="campo">
+          <label>Celular</label>
+          <input id="vnc-telefone" type="text" placeholder="(88) 99999-9999">
+        </div>
+        <div class="campo">
+          <label>Data de nascimento</label>
+          <input id="vnc-nascimento" type="date">
+        </div>
+      </div>
+      <div class="campo">
+        <label>Endereço</label>
+        <input id="vnc-endereco" type="text" placeholder="Rua e número">
+      </div>
+      <div class="grid2">
+        <div class="campo">
+          <label>Bairro</label>
+          <input id="vnc-bairro" type="text" placeholder="Bairro">
+        </div>
+        <div class="campo">
+          <label>Cidade</label>
+          <input id="vnc-cidade" type="text" placeholder="Cidade">
+        </div>
+      </div>
+      <div class="campo">
+        <label>Ponto de referência</label>
+        <input id="vnc-referencia" type="text" placeholder="Próximo ao mercado X...">
+      </div>
+      <div class="campo">
+        <label>Cobrador responsável</label>
+        <select id="vnc-cobrador">
+          <option value="">Selecione...</option>
+        </select>
+      </div>
+      <button class="btn verde" onclick="salvarNovoClienteVenda()" style="margin-bottom:.75rem;">✓ Salvar cliente e continuar</button>
+    </div>
+
+    <div id="form-dados-venda" style="display:none;">
+      <div class="secao">2. Dados da venda</div>
+      <div class="grid2">
+        <div class="campo">
+          <label>Código da venda</label>
+          <input id="venda-codigo" type="text" readonly style="background:#f9f9f9;color:#888;">
+        </div>
+        <div class="campo">
+          <label>Vendedor responsável</label>
+          <select id="venda-vendedor">
+            <option value="">Selecione...</option>
+          </select>
+        </div>
+      </div>
+      <div class="campo">
+        <label>Produto(s)</label>
+        <input id="venda-produto" type="text" placeholder="Ex: Sofá 3 lugares, guarda-roupa...">
+      </div>
+      <div class="grid2">
+        <div class="campo">
+          <label>Tipo de venda</label>
+          <select id="venda-tipo" onchange="atualizarFormVenda()">
+            <option value="avista">À vista</option>
+            <option value="entrada">Entrada de crediário</option>
+            <option value="parcela">Parcela avulsa</option>
+            <option value="devolucao">Troca / devolução</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label>Valor (R$) *</label>
+          <input id="venda-valor" type="number" placeholder="0,00" oninput="atualizarPreviewParcelas()">
+        </div>
+      </div>
+      <div id="campo-parcelas" style="display:none;">
+        <div class="grid2">
+          <div class="campo">
+            <label>Número de parcelas</label>
+            <input id="venda-parcelas" type="number" placeholder="Ex: 10" min="1" oninput="atualizarPreviewParcelas()">
+          </div>
+          <div class="campo">
+            <label>Dia de vencimento</label>
+            <input id="venda-dia-venc" type="number" placeholder="Ex: 10" min="1" max="31">
+          </div>
+        </div>
+        <div id="preview-parcelas"></div>
+      </div>
+      <div class="campo">
+        <label>Observação</label>
+        <input id="venda-obs" type="text" placeholder="Opcional">
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-venda')">Cancelar</button>
+      <button class="btn primario" id="btn-salvar-venda" style="display:none;" onclick="salvarVenda()">Registrar venda</button>
+    </div>
   </div>
 </div>
 
@@ -311,6 +444,7 @@ const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const USUARIOS = { 'gabriel': { senha: 'lia2026', nome: 'Gabriel', perfil: 'gestor' } };
 let todosClientes = [];
+let todasVendas = [];
 
 function entrar() {
   const u = document.getElementById('usuario').value.trim().toLowerCase();
@@ -339,6 +473,7 @@ function pg(nome, el) {
   el.classList.add('active');
   if (nome === 'clientes') carregarClientes();
   if (nome === 'funcionarios') carregarFuncionarios();
+  if (nome === 'vendas') carregarVendas();
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'ciclos') carregarCiclos();
 }
@@ -380,8 +515,13 @@ function validarCPFCampo(input) {
 async function gerarCodigoCliente() {
   const { data } = await sb.from('clientes').select('codigo').not('codigo', 'is', null).order('codigo', { ascending: false }).limit(1);
   if (!data || !data.length || !data[0].codigo) return '00001';
-  const ultimo = parseInt(data[0].codigo);
-  return String(ultimo + 1).padStart(5, '0');
+  return String(parseInt(data[0].codigo) + 1).padStart(5, '0');
+}
+
+async function gerarCodigoVenda() {
+  const { data } = await sb.from('vendas').select('codigo').not('codigo', 'is', null).order('codigo', { ascending: false }).limit(1);
+  if (!data || !data.length || !data[0].codigo) return '00001';
+  return String(parseInt(data[0].codigo) + 1).padStart(5, '0');
 }
 
 async function carregarDashboard() {
@@ -391,11 +531,14 @@ async function carregarDashboard() {
   const totalVendas = vendas ? vendas.reduce((a, v) => a + Number(v.valor), 0) : 0;
   const { data: cobrancas } = await sb.from('movimentacoes_cobranca').select('valor').eq('tipo', 'cobranca');
   const totalCob = cobrancas ? cobrancas.reduce((a, v) => a + Number(v.valor), 0) : 0;
+  const { data: vendasHoje } = await sb.from('vendas').select('valor').gte('data_venda', new Date().toISOString().split('T')[0]);
+  const totalHoje = vendasHoje ? vendasHoje.reduce((a, v) => a + Number(v.valor), 0) : 0;
   document.getElementById('metricas-dashboard').innerHTML = `
     <div class="card-metrica"><div class="label">Clientes cadastrados</div><div class="valor azul">${(clientes||[]).length}</div></div>
     <div class="card-metrica"><div class="label">Funcionários</div><div class="valor">${(funcionarios||[]).length}</div></div>
+    <div class="card-metrica"><div class="label">Vendas hoje</div><div class="valor verde">R$ ${totalHoje.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
     <div class="card-metrica"><div class="label">Total vendido</div><div class="valor verde">R$ ${totalVendas.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
-    <div class="card-metrica"><div class="label">Total cobrado</div><div class="valor verde">R$ ${totalCob.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>`;
+    <div class="card-metrica"><div class="label">Total cobrado</div><div class="valor azul">R$ ${totalCob.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>`;
 }
 
 async function carregarClientes() {
@@ -447,29 +590,32 @@ async function abrirCadastroCliente() {
   document.getElementById('cli-referencia').value = '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Novo cliente';
-  await carregarCobradoresSelect();
+  await carregarCobradoresSelect('cli-cobrador');
   document.getElementById('modal-cliente').style.display = 'flex';
 }
 
-async function carregarCobradoresSelect() {
+async function carregarCobradoresSelect(elId) {
   const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
-  const sel = document.getElementById('cli-cobrador');
+  const sel = document.getElementById(elId);
   sel.innerHTML = '<option value="">Selecione o cobrador...</option>' +
+    (data||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+}
+
+async function carregarVendedoresSelect(elId) {
+  const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome');
+  const sel = document.getElementById(elId);
+  sel.innerHTML = '<option value="">Selecione o vendedor...</option>' +
     (data||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
 }
 
 async function salvarCliente() {
   const id = document.getElementById('cli-id').value;
   const cpf = document.getElementById('cli-cpf').value.trim();
-  if (cpf && !validarCPF(cpf)) {
-    alert('CPF inválido! Verifique e tente novamente.');
-    return;
-  }
+  if (cpf && !validarCPF(cpf)) { alert('CPF inválido!'); return; }
   const dados = {
     codigo: document.getElementById('cli-codigo').value,
     nome: document.getElementById('cli-nome').value.trim(),
-    cpf: cpf,
-    telefone: document.getElementById('cli-telefone').value.trim(),
+    cpf, telefone: document.getElementById('cli-telefone').value.trim(),
     data_nascimento: document.getElementById('cli-nascimento').value || null,
     endereco: document.getElementById('cli-endereco').value.trim(),
     bairro: document.getElementById('cli-bairro').value.trim(),
@@ -477,12 +623,9 @@ async function salvarCliente() {
     referencia: document.getElementById('cli-referencia').value.trim(),
     cobrador_id: document.getElementById('cli-cobrador').value || null,
   };
-  if (!dados.nome) { alert('Digite o nome do cliente!'); return; }
-  if (id) {
-    await sb.from('clientes').update(dados).eq('id', id);
-  } else {
-    await sb.from('clientes').insert(dados);
-  }
+  if (!dados.nome) { alert('Digite o nome!'); return; }
+  if (id) { await sb.from('clientes').update(dados).eq('id', id); }
+  else { await sb.from('clientes').insert(dados); }
   fecharModal('modal-cliente');
   carregarClientes();
 }
@@ -501,7 +644,7 @@ async function editarCliente(id) {
   document.getElementById('cli-referencia').value = data.referencia || '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Editar cliente';
-  await carregarCobradoresSelect();
+  await carregarCobradoresSelect('cli-cobrador');
   document.getElementById('cli-cobrador').value = data.cobrador_id || '';
   document.getElementById('modal-cliente').style.display = 'flex';
 }
@@ -548,11 +691,8 @@ async function salvarFuncionario() {
     ativo: true
   };
   if (!dados.nome) { alert('Digite o nome!'); return; }
-  if (id) {
-    await sb.from('funcionarios').update(dados).eq('id', id);
-  } else {
-    await sb.from('funcionarios').insert(dados);
-  }
+  if (id) { await sb.from('funcionarios').update(dados).eq('id', id); }
+  else { await sb.from('funcionarios').insert(dados); }
   fecharModal('modal-funcionario');
   carregarFuncionarios();
 }
@@ -571,6 +711,176 @@ async function editarFuncionario(id) {
 async function toggleAtivo(id, ativo) {
   await sb.from('funcionarios').update({ ativo: !ativo }).eq('id', id);
   carregarFuncionarios();
+}
+
+async function abrirNovaVenda() {
+  document.getElementById('venda-cpf-busca').value = '';
+  document.getElementById('resultado-busca-cliente').innerHTML = '';
+  document.getElementById('venda-cliente-id').value = '';
+  document.getElementById('form-novo-cliente-venda').style.display = 'none';
+  document.getElementById('form-dados-venda').style.display = 'none';
+  document.getElementById('btn-salvar-venda').style.display = 'none';
+  document.getElementById('modal-venda').style.display = 'flex';
+}
+
+async function buscarClientePorCPF() {
+  const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
+  const div = document.getElementById('resultado-busca-cliente');
+  if (cpf.length < 11) { div.innerHTML = '<div class="cliente-nao-encontrado">Digite o CPF completo (11 dígitos).</div>'; return; }
+  if (!validarCPF(cpf)) { div.innerHTML = '<div class="cliente-nao-encontrado">✗ CPF inválido. Verifique e tente novamente.</div>'; return; }
+  const { data } = await sb.from('clientes').select('*').eq('cpf', cpf).single();
+  if (data) {
+    document.getElementById('venda-cliente-id').value = data.id;
+    div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>`;
+    document.getElementById('form-novo-cliente-venda').style.display = 'none';
+    await mostrarFormVenda();
+  } else {
+    div.innerHTML = `<div class="cliente-nao-encontrado">Cliente não encontrado. Preencha os dados abaixo para cadastrar.</div>`;
+    document.getElementById('form-dados-venda').style.display = 'none';
+    document.getElementById('btn-salvar-venda').style.display = 'none';
+    await carregarCobradoresSelect('vnc-cobrador');
+    document.getElementById('form-novo-cliente-venda').style.display = 'block';
+    document.getElementById('vnc-nome').value = '';
+    document.getElementById('vnc-telefone').value = '';
+    document.getElementById('vnc-nascimento').value = '';
+    document.getElementById('vnc-endereco').value = '';
+    document.getElementById('vnc-bairro').value = '';
+    document.getElementById('vnc-cidade').value = '';
+    document.getElementById('vnc-referencia').value = '';
+  }
+}
+
+async function salvarNovoClienteVenda() {
+  const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
+  const nome = document.getElementById('vnc-nome').value.trim();
+  if (!nome) { alert('Digite o nome do cliente!'); return; }
+  const codigo = await gerarCodigoCliente();
+  const dados = {
+    codigo, nome, cpf,
+    telefone: document.getElementById('vnc-telefone').value.trim(),
+    data_nascimento: document.getElementById('vnc-nascimento').value || null,
+    endereco: document.getElementById('vnc-endereco').value.trim(),
+    bairro: document.getElementById('vnc-bairro').value.trim(),
+    cidade: document.getElementById('vnc-cidade').value.trim(),
+    referencia: document.getElementById('vnc-referencia').value.trim(),
+    cobrador_id: document.getElementById('vnc-cobrador').value || null,
+  };
+  const { data, error } = await sb.from('clientes').insert(dados).select().single();
+  if (error) { alert('Erro ao cadastrar cliente.'); return; }
+  document.getElementById('venda-cliente-id').value = data.id;
+  document.getElementById('resultado-busca-cliente').innerHTML = `<div class="cliente-encontrado">✓ Cliente cadastrado: <strong>${data.nome}</strong> — Código ${data.codigo}</div>`;
+  document.getElementById('form-novo-cliente-venda').style.display = 'none';
+  await mostrarFormVenda();
+}
+
+async function mostrarFormVenda() {
+  const codigo = await gerarCodigoVenda();
+  document.getElementById('venda-codigo').value = codigo;
+  document.getElementById('venda-produto').value = '';
+  document.getElementById('venda-valor').value = '';
+  document.getElementById('venda-obs').value = '';
+  document.getElementById('venda-tipo').value = 'avista';
+  document.getElementById('campo-parcelas').style.display = 'none';
+  document.getElementById('preview-parcelas').innerHTML = '';
+  await carregarVendedoresSelect('venda-vendedor');
+  document.getElementById('form-dados-venda').style.display = 'block';
+  document.getElementById('btn-salvar-venda').style.display = 'inline-block';
+}
+
+function atualizarFormVenda() {
+  const tipo = document.getElementById('venda-tipo').value;
+  document.getElementById('campo-parcelas').style.display = tipo === 'entrada' ? 'block' : 'none';
+  if (tipo !== 'entrada') document.getElementById('preview-parcelas').innerHTML = '';
+}
+
+function atualizarPreviewParcelas() {
+  const valor = parseFloat(document.getElementById('venda-valor').value);
+  const parcelas = parseInt(document.getElementById('venda-parcelas').value);
+  const div = document.getElementById('preview-parcelas');
+  if (!valor || !parcelas || parcelas < 1) { div.innerHTML = ''; return; }
+  const vlrParcela = valor / parcelas;
+  div.innerHTML = `<div class="parcelas-preview">Serão geradas <strong>${parcelas} parcelas</strong> de <strong>R$ ${vlrParcela.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong> cada.</div>`;
+}
+
+async function salvarVenda() {
+  const clienteId = document.getElementById('venda-cliente-id').value;
+  if (!clienteId) { alert('Selecione o cliente!'); return; }
+  const valor = parseFloat(document.getElementById('venda-valor').value);
+  if (!valor || valor <= 0) { alert('Digite o valor da venda!'); return; }
+  const produto = document.getElementById('venda-produto').value.trim();
+  if (!produto) { alert('Digite o produto!'); return; }
+  const tipo = document.getElementById('venda-tipo').value;
+  const vendedorId = document.getElementById('venda-vendedor').value || null;
+  const dados = {
+    codigo: document.getElementById('venda-codigo').value,
+    cliente_id: clienteId,
+    vendedor_id: vendedorId,
+    tipo, produto, valor,
+    num_parcelas: tipo === 'entrada' ? parseInt(document.getElementById('venda-parcelas').value) || null : null,
+    observacao: document.getElementById('venda-obs').value.trim(),
+  };
+  const { data: venda, error } = await sb.from('vendas').insert(dados).select().single();
+  if (error) { alert('Erro ao registrar venda!'); return; }
+  if (tipo === 'entrada' && dados.num_parcelas) {
+    const parcelas = [];
+    const diaVenc = parseInt(document.getElementById('venda-dia-venc').value) || 10;
+    const vlrParcela = valor / dados.num_parcelas;
+    const hoje = new Date();
+    for (let i = 1; i <= dados.num_parcelas; i++) {
+      const dt = new Date(hoje.getFullYear(), hoje.getMonth() + i, diaVenc);
+      parcelas.push({
+        venda_id: venda.id,
+        cliente_id: clienteId,
+        numero: i,
+        total_parcelas: dados.num_parcelas,
+        valor: vlrParcela,
+        data_vencimento: dt.toISOString().split('T')[0],
+        pago: false,
+        cobrador_id: null
+      });
+    }
+    await sb.from('parcelas').insert(parcelas);
+  }
+  fecharModal('modal-venda');
+  alert(`Venda registrada com sucesso! Código: ${dados.codigo}`);
+  carregarVendas();
+  carregarDashboard();
+}
+
+async function carregarVendas() {
+  const { data, error } = await sb.from('vendas').select('*, clientes(nome, codigo), funcionarios(nome)').order('data_venda', { ascending: false }).limit(100);
+  if (error) { document.getElementById('lista-vendas').innerHTML = 'Erro ao carregar.'; return; }
+  todasVendas = data || [];
+  renderVendas(todasVendas);
+}
+
+function renderVendas(lista) {
+  if (!lista.length) { document.getElementById('lista-vendas').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma venda registrada ainda.</p>'; return; }
+  document.getElementById('lista-vendas').innerHTML = `
+    <div class="tabela-wrap"><table>
+      <thead><tr><th>Código</th><th>Data</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Tipo</th><th>Valor</th><th>Parcelas</th></tr></thead>
+      <tbody>${lista.map(v => `
+        <tr>
+          <td><span class="codigo-badge">${v.codigo||'—'}</span></td>
+          <td>${new Date(v.data_venda).toLocaleDateString('pt-BR')}</td>
+          <td>${v.clientes?.nome||'—'} <span style="font-size:10px;color:#aaa;">${v.clientes?.codigo?'#'+v.clientes.codigo:''}</span></td>
+          <td>${v.produto||'—'}</td>
+          <td>${v.funcionarios?.nome||'—'}</td>
+          <td><span class="badge ${v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':v.tipo==='parcela'?'roxo':'vermelho'}">${v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':v.tipo==='parcela'?'Parcela avulsa':'Devolução'}</span></td>
+          <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+          <td>${v.num_parcelas ? v.num_parcelas+'x' : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+function buscarVenda(termo) {
+  const t = termo.toLowerCase();
+  const filtrado = todasVendas.filter(v =>
+    (v.codigo && v.codigo.includes(t)) ||
+    (v.clientes?.nome && v.clientes.nome.toLowerCase().includes(t))
+  );
+  renderVendas(filtrado);
 }
 
 async function carregarCobrancas() {
