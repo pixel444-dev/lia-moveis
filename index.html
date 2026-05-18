@@ -312,19 +312,23 @@ tr:hover td{background:#fafafa;}
           <input id="venda-valor" type="number" placeholder="0,00" oninput="atualizarPreviewParcelas()">
         </div>
       </div>
-      <div id="campo-parcelas" style="display:none;">
-        <div class="grid2">
-          <div class="campo">
-            <label>Número de parcelas</label>
-            <input id="venda-parcelas" type="number" placeholder="Ex: 10" min="1" oninput="atualizarPreviewParcelas()">
-          </div>
-          <div class="campo">
-            <label>Dia de vencimento</label>
-            <input id="venda-dia-venc" type="number" placeholder="Ex: 10" min="1" max="31">
-          </div>
-        </div>
-        <div id="preview-parcelas"></div>
-      </div>
+     <div id="campo-parcelas" style="display:none;">
+  <div class="grid2">
+    <div class="campo">
+      <label>Número de parcelas</label>
+      <input id="venda-parcelas" type="number" placeholder="Ex: 10" min="1" oninput="atualizarPreviewParcelas()">
+    </div>
+    <div class="campo">
+      <label>Entrada (opcional)</label>
+      <input id="venda-entrada" type="number" placeholder="R$ 0,00" min="0" oninput="atualizarPreviewParcelas()">
+    </div>
+  </div>
+  <div class="campo">
+    <label>Data da primeira parcela</label>
+    <input id="venda-data-primeira" type="date" oninput="atualizarPreviewParcelas()">
+  </div>
+  <div id="preview-parcelas"></div>
+</div>
       <div class="campo">
         <label>Observação</label>
         <input id="venda-obs" type="text" placeholder="Opcional">
@@ -782,6 +786,8 @@ async function mostrarFormVenda() {
   document.getElementById('venda-tipo').value = 'avista';
   document.getElementById('campo-parcelas').style.display = 'none';
   document.getElementById('preview-parcelas').innerHTML = '';
+  document.getElementById('venda-entrada').value = '';
+  document.getElementById('venda-data-primeira').value = '';
   await carregarVendedoresSelect('venda-vendedor');
   document.getElementById('form-dados-venda').style.display = 'block';
   document.getElementById('btn-salvar-venda').style.display = 'inline-block';
@@ -794,12 +800,31 @@ function atualizarFormVenda() {
 }
 
 function atualizarPreviewParcelas() {
-  const valor = parseFloat(document.getElementById('venda-valor').value);
-  const parcelas = parseInt(document.getElementById('venda-parcelas').value);
+  const valor = parseFloat(document.getElementById('venda-valor').value) || 0;
+  const entrada = parseFloat(document.getElementById('venda-entrada').value) || 0;
+  const parcelas = parseInt(document.getElementById('venda-parcelas').value) || 0;
+  const dataPrimeira = document.getElementById('venda-data-primeira').value;
   const div = document.getElementById('preview-parcelas');
   if (!valor || !parcelas || parcelas < 1) { div.innerHTML = ''; return; }
-  const vlrParcela = valor / parcelas;
-  div.innerHTML = `<div class="parcelas-preview">Serão geradas <strong>${parcelas} parcelas</strong> de <strong>R$ ${vlrParcela.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong> cada.</div>`;
+  const saldo = valor - entrada;
+  if (saldo <= 0) { div.innerHTML = '<div class="parcelas-preview" style="color:#A32D2D;">A entrada não pode ser maior ou igual ao valor total!</div>'; return; }
+  const vlrParcela = saldo / parcelas;
+  let linhas = '';
+  if (dataPrimeira) {
+    for (let i = 0; i < parcelas; i++) {
+      const dt = new Date(dataPrimeira + 'T12:00:00');
+      dt.setMonth(dt.getMonth() + i);
+      linhas += `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #eee;">
+        <span>Parcela ${i+1}/${parcelas} — ${dt.toLocaleDateString('pt-BR')}</span>
+        <span style="font-weight:500;">R$ ${vlrParcela.toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
+      </div>`;
+    }
+  }
+  div.innerHTML = `<div class="parcelas-preview">
+    ${entrada > 0 ? `<div style="margin-bottom:8px;color:#3B6D11;font-weight:500;">Entrada: R$ ${entrada.toLocaleString('pt-BR',{minimumFractionDigits:2})} (já paga) · Saldo: R$ ${saldo.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>` : ''}
+    <div style="margin-bottom:6px;">${parcelas} parcelas de R$ ${vlrParcela.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+    ${linhas}
+  </div>`;
 }
 
 async function salvarVenda() {
@@ -817,6 +842,7 @@ async function salvarVenda() {
     vendedor_id: vendedorId,
     tipo, produto, valor,
     num_parcelas: tipo === 'entrada' ? parseInt(document.getElementById('venda-parcelas').value) || null : null,
+entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada').value) || 0 : 0,
     observacao: document.getElementById('venda-obs').value.trim(),
   };
   const { data: venda, error } = await sb.from('vendas').insert(dados).select().single();
@@ -824,14 +850,18 @@ async function salvarVenda() {
   if (tipo === 'entrada' && dados.num_parcelas) {
     const parcelas = [];
     const diaVenc = parseInt(document.getElementById('venda-dia-venc').value) || 10;
-    const vlrParcela = valor / dados.num_parcelas;
-    const hoje = new Date();
-    for (let i = 1; i <= dados.num_parcelas; i++) {
-      const dt = new Date(hoje.getFullYear(), hoje.getMonth() + i, diaVenc);
+    const entrada = parseFloat(document.getElementById('venda-entrada').value) || 0;
+const saldo = valor - entrada;
+const vlrParcela = saldo / dados.num_parcelas;
+const dataPrimeira = document.getElementById('venda-data-primeira').value;
+for (let i = 0; i < dados.num_parcelas; i++) {
+  const dt = new Date(dataPrimeira + 'T12:00:00');
+  dt.setMonth(dt.getMonth() + i);
       parcelas.push({
         venda_id: venda.id,
         cliente_id: clienteId,
-        numero: i,
+        numero: i + 1,
+pago: i === 0 && entrada > 0,
         total_parcelas: dados.num_parcelas,
         valor: vlrParcela,
         data_vencimento: dt.toISOString().split('T')[0],
