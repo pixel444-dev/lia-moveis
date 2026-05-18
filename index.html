@@ -849,7 +849,6 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
   if (error) { alert('Erro ao registrar venda!'); return; }
   if (tipo === 'entrada' && dados.num_parcelas) {
     const parcelas = [];
-    const diaVenc = parseInt(document.getElementById('venda-dia-venc').value) || 10;
     const entrada = parseFloat(document.getElementById('venda-entrada').value) || 0;
 const saldo = valor - entrada;
 const vlrParcela = saldo / dados.num_parcelas;
