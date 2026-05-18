@@ -190,9 +190,15 @@ tr:hover td{background:#fafafa;}
     </div>
 
     <div class="page" id="page-cobrancas">
-      <div class="page-title">Cobranças</div>
-      <div id="lista-cobrancas">Carregando...</div>
-    </div>
+  <div class="topbar-pg">
+    <div class="page-title" style="margin:0">Cobranças — dar baixa em parcelas</div>
+  </div>
+  <div class="busca-wrap">
+    <input class="busca" type="text" placeholder="Buscar cliente por nome, CPF ou código..." oninput="buscarClienteCobranca(this.value)">
+  </div>
+  <div id="resultado-cobranca-cliente"></div>
+  <div id="lista-parcelas-cliente"></div>
+</div>
 
     <div class="page" id="page-ciclos">
       <div class="page-title">Ciclos de cobrança</div>
@@ -912,20 +918,149 @@ function buscarVenda(termo) {
 }
 
 async function carregarCobrancas() {
-  const { data, error } = await sb.from('movimentacoes_cobranca').select('*, funcionarios(nome), clientes(nome)').order('data_hora', {ascending: false}).limit(50);
-  if (error) { document.getElementById('lista-cobrancas').innerHTML = 'Erro ao carregar.'; return; }
-  if (!data || !data.length) { document.getElementById('lista-cobrancas').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma cobrança registrada ainda.</p>'; return; }
-  document.getElementById('lista-cobrancas').innerHTML = `
+  document.getElementById('resultado-cobranca-cliente').innerHTML = '';
+  document.getElementById('lista-parcelas-cliente').innerHTML = '';
+}
+
+let clientesCobranca = [];
+
+async function buscarClienteCobranca(termo) {
+  if (termo.length < 2) { document.getElementById('resultado-cobranca-cliente').innerHTML = ''; document.getElementById('lista-parcelas-cliente').innerHTML = ''; return; }
+  const { data } = await sb.from('clientes').select('id, codigo, nome, cpf, telefone').or(`nome.ilike.%${termo}%,cpf.ilike.%${termo}%,codigo.ilike.%${termo}%`).limit(10);
+  clientesCobranca = data || [];
+  if (!clientesCobranca.length) {
+    document.getElementById('resultado-cobranca-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhum cliente encontrado.</p>';
+    document.getElementById('lista-parcelas-cliente').innerHTML = '';
+    return;
+  }
+  document.getElementById('resultado-cobranca-cliente').innerHTML = `
     <div class="tabela-wrap"><table>
-      <thead><tr><th>Data</th><th>Cobrador</th><th>Cliente</th><th>Tipo</th><th>Valor</th></tr></thead>
-      <tbody>${data.map(c => `<tr>
-        <td>${new Date(c.data_hora).toLocaleDateString('pt-BR')}</td>
-        <td>${c.funcionarios?.nome||'—'}</td>
-        <td>${c.clientes?.nome||'—'}</td>
-        <td><span class="badge ${c.tipo==='cobranca'?'verde':c.tipo==='deposito'?'azul':'amarelo'}">${c.tipo}</span></td>
-        <td>R$ ${Number(c.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-      </tr>`).join('')}</tbody>
+      <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Celular</th><th></th></tr></thead>
+      <tbody>${clientesCobranca.map(c => `
+        <tr>
+          <td><span class="codigo-badge">${c.codigo||'—'}</span></td>
+          <td>${c.nome}</td>
+          <td>${c.cpf||'—'}</td>
+          <td>${c.telefone||'—'}</td>
+          <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasCliente('${c.id}','${c.nome}')">Ver parcelas</button></td>
+        </tr>`).join('')}
+      </tbody>
     </table></div>`;
+}
+
+async function verParcelasCliente(clienteId, nomeCliente) {
+  const { data, error } = await sb.from('parcelas').select('*, vendas(codigo, produto)').eq('cliente_id', clienteId).order('data_vencimento');
+  if (error || !data) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Erro ao carregar parcelas.</p>'; return; }
+  if (!data.length) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma parcela encontrada para este cliente.</p>'; return; }
+  const emAberto = data.filter(p => !p.pago);
+  const pagas = data.filter(p => p.pago);
+  document.getElementById('lista-parcelas-cliente').innerHTML = `
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${nomeCliente} — ${emAberto.length} parcela(s) em aberto</div>
+      ${emAberto.length ? `
+      <div class="tabela-wrap"><table>
+        <thead><tr><th>Venda</th><th>Produto</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
+        <tbody>${emAberto.map(p => {
+          const vencimento = new Date(p.data_vencimento + 'T12:00:00');
+          const hoje = new Date();
+          const atrasada = vencimento < hoje;
+          const valorPago = p.valor_pago || 0;
+          const saldo = p.valor - valorPago;
+          return `<tr style="background:${atrasada?'#FCEBEB':valorPago>0?'#FAEEDA':''}">
+            <td><span class="codigo-badge">${p.vendas?.codigo||'—'}</span></td>
+            <td>${p.vendas?.produto||'—'}</td>
+            <td>${p.numero}/${p.total_parcelas}</td>
+            <td style="color:${atrasada?'#A32D2D':'#1a1a1a'};font-weight:${atrasada?'500':'400'}">${vencimento.toLocaleDateString('pt-BR')}</td>
+            <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
+            <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
+            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${p.vendas?.produto||''}')">Dar baixa</button></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>` : '<p style="color:#3B6D11;padding:.5rem;">Nenhuma parcela em aberto.</p>'}
+      ${pagas.length ? `
+      <div style="margin-top:1rem;">
+        <div style="font-size:13px;font-weight:500;color:#888;margin-bottom:.5rem;">${pagas.length} parcela(s) paga(s)</div>
+        <div class="tabela-wrap"><table>
+          <thead><tr><th>Venda</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th></tr></thead>
+          <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
+            <td><span class="codigo-badge">${p.vendas?.codigo||'—'}</span></td>
+            <td>${p.numero}/${p.total_parcelas}</td>
+            <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
+            <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+            <td><span class="badge verde">Paga</span></td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>` : ''}
+    </div>`;
+}
+
+async function abrirBaixa(parcelaId, numero, total, valor, produto) {
+  document.getElementById('baixa-parcela-id').value = parcelaId;
+  document.getElementById('baixa-valor-total').value = valor;
+  document.getElementById('baixa-tipo').value = 'completa';
+  document.getElementById('campo-valor-baixa').style.display = 'none';
+  document.getElementById('baixa-valor').value = '';
+  document.getElementById('msg-saldo-baixa').innerHTML = '';
+  document.getElementById('baixa-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('baixa-forma').value = 'dinheiro';
+  document.getElementById('info-parcela-baixa').innerHTML = `
+    <strong>Parcela ${numero}/${total}</strong> — ${produto}<br>
+    <span style="color:#185FA5;">Valor: R$ ${Number(valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>`;
+  await carregarCobradoresSelect('baixa-cobrador');
+  document.getElementById('modal-baixa').style.display = 'flex';
+}
+
+function atualizarTipoBaixa() {
+  const tipo = document.getElementById('baixa-tipo').value;
+  document.getElementById('campo-valor-baixa').style.display = tipo === 'parcial' ? 'block' : 'none';
+  document.getElementById('msg-saldo-baixa').innerHTML = '';
+}
+
+function atualizarSaldoBaixa() {
+  const valorTotal = parseFloat(document.getElementById('baixa-valor-total').value) || 0;
+  const valorPago = parseFloat(document.getElementById('baixa-valor').value) || 0;
+  const saldo = valorTotal - valorPago;
+  const msg = document.getElementById('msg-saldo-baixa');
+  if (valorPago <= 0) { msg.innerHTML = ''; return; }
+  if (valorPago >= valorTotal) { msg.innerHTML = '<span style="color:#A32D2D;">Valor maior ou igual ao total — use baixa completa.</span>'; return; }
+  msg.innerHTML = `Saldo restante: <strong>R$ ${saldo.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong>`;
+}
+
+async function confirmarBaixa() {
+  const parcelaId = document.getElementById('baixa-parcela-id').value;
+  const tipo = document.getElementById('baixa-tipo').value;
+  const valorTotal = parseFloat(document.getElementById('baixa-valor-total').value) || 0;
+  const valorPago = tipo === 'completa' ? valorTotal : parseFloat(document.getElementById('baixa-valor').value) || 0;
+  const forma = document.getElementById('baixa-forma').value;
+  const data = document.getElementById('baixa-data').value;
+  const cobradorId = document.getElementById('baixa-cobrador').value || null;
+  if (tipo === 'parcial' && valorPago <= 0) { alert('Digite o valor recebido!'); return; }
+  if (tipo === 'parcial' && valorPago >= valorTotal) { alert('Para pagamento total use baixa completa!'); return; }
+  const pago = tipo === 'completa';
+  const atualizacao = {
+    pago,
+    data_pagamento: pago ? new Date(data).toISOString() : null,
+    cobrador_id: cobradorId,
+    valor_pago: valorPago,
+    forma_pagamento: forma,
+  };
+  const { error } = await sb.from('parcelas').update(atualizacao).eq('id', parcelaId);
+  if (error) { alert('Erro ao dar baixa!'); return; }
+  const { data: parcela } = await sb.from('parcelas').select('cliente_id, valor, vendas(codigo)').eq('id', parcelaId).single();
+  await sb.from('movimentacoes_cobranca').insert({
+    cobrador_id: cobradorId,
+    cliente_id: parcela?.cliente_id,
+    tipo: 'cobranca',
+    descricao: `Parcela venda ${parcela?.vendas?.codigo||''} — ${tipo === 'parcial' ? 'parcial' : 'completa'}`,
+    valor: valorPago,
+    forma_pagamento: forma,
+  });
+  fecharModal('modal-baixa');
+  const nomeCliente = document.querySelector('#lista-parcelas-cliente [style*="185FA5"]')?.textContent?.split('—')[0]?.trim() || '';
+  const clienteId = parcela?.cliente_id;
+  if (clienteId) verParcelasCliente(clienteId, nomeCliente);
+  carregarDashboard();
 }
 
 async function carregarCiclos() {
@@ -950,5 +1085,51 @@ if (localStorage.getItem('usuario')) {
   carregarDashboard();
 }
 </script>
-</body>
+<!-- MODAL BAIXA PARCELA -->
+<div class="modal-bg" id="modal-baixa">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <strong>Dar baixa na parcela</strong>
+      <button onclick="fecharModal('modal-baixa')">×</button>
+    </div>
+    <div id="info-parcela-baixa" style="background:#f9f9f9;border-radius:8px;padding:10px 14px;margin-bottom:.875rem;font-size:13px;"></div>
+    <div class="campo">
+      <label>Tipo de baixa</label>
+      <select id="baixa-tipo" onchange="atualizarTipoBaixa()">
+        <option value="completa">Baixa completa</option>
+        <option value="parcial">Baixa parcial</option>
+      </select>
+    </div>
+    <div id="campo-valor-baixa" style="display:none;">
+      <div class="campo">
+        <label>Valor recebido (R$)</label>
+        <input id="baixa-valor" type="number" placeholder="0,00" oninput="atualizarSaldoBaixa()">
+        <div id="msg-saldo-baixa" style="font-size:11px;margin-top:4px;color:#854F0B;"></div>
+      </div>
+    </div>
+    <div class="campo">
+      <label>Forma de pagamento</label>
+      <select id="baixa-forma">
+        <option value="dinheiro">Dinheiro</option>
+        <option value="pix">PIX</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label>Data do recebimento</label>
+      <input id="baixa-data" type="date">
+    </div>
+    <div class="campo">
+      <label>Cobrador</label>
+      <select id="baixa-cobrador">
+        <option value="">Selecione...</option>
+      </select>
+    </div>
+    <input type="hidden" id="baixa-parcela-id">
+    <input type="hidden" id="baixa-valor-total">
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-baixa')">Cancelar</button>
+      <button class="btn primario" onclick="confirmarBaixa()">Confirmar baixa</button>
+    </div>
+  </div>
+</div></body>
 </html>
