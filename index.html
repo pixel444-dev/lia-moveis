@@ -155,7 +155,7 @@ tr:hover td{background:#fafafa;}
         <button class="btn primario" onclick="abrirCadastroCliente()">+ Novo cliente</button>
       </div>
       <div class="busca-wrap">
-        <input class="busca" type="text" placeholder="Buscar por nome, CPF ou código..." oninput="buscarCliente(this.value)">
+        <input class="busca" type="text" placeholder="Buscar por nome, CPF, código do cliente ou código da venda..." oninput="buscarClienteCobranca(this.value)">
       </div>
       <div id="lista-clientes">Carregando...</div>
     </div>
@@ -925,11 +925,46 @@ async function carregarCobrancas() {
 let clientesCobranca = [];
 
 async function buscarClienteCobranca(termo) {
-  if (termo.length < 2) { document.getElementById('resultado-cobranca-cliente').innerHTML = ''; document.getElementById('lista-parcelas-cliente').innerHTML = ''; return; }
-  const { data } = await sb.from('clientes').select('id, codigo, nome, cpf, telefone').or(`nome.ilike.%${termo}%,cpf.ilike.%${termo}%,codigo.ilike.%${termo}%`).limit(10);
+  if (termo.length < 2) {
+    document.getElementById('resultado-cobranca-cliente').innerHTML = '';
+    document.getElementById('lista-parcelas-cliente').innerHTML = '';
+    return;
+  }
+  const t = termo.trim();
+
+  // Tenta buscar por código de venda primeiro
+  const { data: vendaEncontrada } = await sb.from('vendas')
+    .select('id, codigo, produto, cliente_id, clientes(id, codigo, nome, cpf, telefone)')
+    .ilike('codigo', `%${t}%`)
+    .limit(5);
+
+  if (vendaEncontrada && vendaEncontrada.length) {
+    document.getElementById('resultado-cobranca-cliente').innerHTML = `
+      <div class="tabela-wrap"><table>
+        <thead><tr><th>Cód. Venda</th><th>Produto</th><th>Cliente</th><th>CPF</th><th></th></tr></thead>
+        <tbody>${vendaEncontrada.map(v => `
+          <tr>
+            <td><span class="codigo-badge">${v.codigo}</span></td>
+            <td>${v.produto||'—'}</td>
+            <td>${v.clientes?.nome||'—'}</td>
+            <td>${v.clientes?.cpf||'—'}</td>
+            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasVenda('${v.id}','${v.clientes?.id}','${v.clientes?.nome}','${v.codigo}')">Ver parcelas</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+    document.getElementById('lista-parcelas-cliente').innerHTML = '';
+    return;
+  }
+
+  // Senão busca por cliente
+  const { data } = await sb.from('clientes')
+    .select('id, codigo, nome, cpf, telefone')
+    .or(`nome.ilike.%${t}%,cpf.ilike.%${t}%,codigo.ilike.%${t}%`)
+    .limit(10);
+
   clientesCobranca = data || [];
   if (!clientesCobranca.length) {
-    document.getElementById('resultado-cobranca-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhum cliente encontrado.</p>';
+    document.getElementById('resultado-cobranca-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhum cliente ou venda encontrado.</p>';
     document.getElementById('lista-parcelas-cliente').innerHTML = '';
     return;
   }
@@ -946,6 +981,54 @@ async function buscarClienteCobranca(termo) {
         </tr>`).join('')}
       </tbody>
     </table></div>`;
+}
+async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
+  const { data, error } = await sb.from('parcelas')
+    .select('*, vendas(codigo, produto)')
+    .eq('venda_id', vendaId)
+    .order('numero');
+  if (error || !data) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;">Erro ao carregar parcelas.</p>'; return; }
+  if (!data.length) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma parcela encontrada para esta venda.</p>'; return; }
+  const emAberto = data.filter(p => !p.pago);
+  const pagas = data.filter(p => p.pago);
+  document.getElementById('lista-parcelas-cliente').innerHTML = `
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
+        Venda ${codigoVenda} — ${nomeCliente} — ${emAberto.length} parcela(s) em aberto
+      </div>
+      ${emAberto.length ? `
+      <div class="tabela-wrap"><table>
+        <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
+        <tbody>${emAberto.map(p => {
+          const vencimento = new Date(p.data_vencimento + 'T12:00:00');
+          const hoje = new Date();
+          const atrasada = vencimento < hoje;
+          const valorPago = p.valor_pago || 0;
+          const saldo = p.valor - valorPago;
+          return `<tr style="background:${atrasada?'#FCEBEB':valorPago>0?'#FAEEDA':''}">
+            <td>${p.numero}/${p.total_parcelas}</td>
+            <td style="color:${atrasada?'#A32D2D':'#1a1a1a'};font-weight:${atrasada?'500':'400'}">${vencimento.toLocaleDateString('pt-BR')}</td>
+            <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
+            <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
+            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${p.vendas?.produto||''}')">Dar baixa</button></td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>` : '<p style="color:#3B6D11;padding:.5rem;">Todas as parcelas desta venda estão pagas!</p>'}
+      ${pagas.length ? `
+      <div style="margin-top:1rem;">
+        <div style="font-size:13px;font-weight:500;color:#888;margin-bottom:.5rem;">${pagas.length} parcela(s) paga(s)</div>
+        <div class="tabela-wrap"><table>
+          <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th></tr></thead>
+          <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
+            <td>${p.numero}/${p.total_parcelas}</td>
+            <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
+            <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+            <td><span class="badge verde">Paga</span></td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>` : ''}
+    </div>`;
 }
 
 async function verParcelasCliente(clienteId, nomeCliente) {
