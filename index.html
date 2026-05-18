@@ -22,7 +22,7 @@ body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#1a1a1a;}
 .msg.erro{background:#FCEBEB;color:#A32D2D;}
 .msg.ok{background:#EAF3DE;color:#3B6D11;}
 .app{display:none;min-height:100vh;}
-.sidebar{width:200px;background:#fff;border-right:1px solid #e0e0e0;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;padding:0;display:flex;flex-direction:column;}
+.sidebar{width:200px;background:#fff;border-right:1px solid #e0e0e0;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column;}
 .sidebar-logo{padding:1rem;border-bottom:1px solid #e0e0e0;}
 .sidebar-logo .nome{font-size:15px;font-weight:600;color:#185FA5;}
 .sidebar-logo .sub{font-size:11px;color:#888;}
@@ -38,7 +38,6 @@ body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#1a1a1a;}
 .card-metrica{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.875rem 1rem;}
 .card-metrica .label{font-size:11px;color:#888;margin-bottom:4px;}
 .card-metrica .valor{font-size:20px;font-weight:600;color:#1a1a1a;}
-.card-metrica .sub{font-size:11px;color:#aaa;margin-top:2px;}
 .valor.verde{color:#3B6D11;}.valor.vermelho{color:#A32D2D;}.valor.azul{color:#185FA5;}.valor.amarelo{color:#854F0B;}
 .tabela-wrap{background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;margin-bottom:1.5rem;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
@@ -56,16 +55,13 @@ tr:hover td{background:#fafafa;}
 .btn:hover{background:#f5f5f5;}
 .btn.primario{background:#185FA5;color:#fff;border-color:#185FA5;}
 .btn.primario:hover{background:#0C447C;}
+.btn.perigo{background:#FCEBEB;color:#A32D2D;border-color:#f5c6c6;}
 .topbar-pg{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;}
-.alerta{padding:10px 14px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:8px;}
-.alerta.vermelho{background:#FCEBEB;color:#A32D2D;}
-.alerta.amarelo{background:#FAEEDA;color:#854F0B;}
-.alerta.verde{background:#EAF3DE;color:#3B6D11;}
 .logout{padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;}
 .logout button{width:100%;padding:8px;background:none;border:1px solid #ddd;border-radius:8px;font-size:12px;color:#888;cursor:pointer;}
-.logout button:hover{background:#f5f5f5;color:#1a1a1a;}
+.logout button:hover{background:#f5f5f5;}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center;}
-.modal-box{background:#fff;border-radius:12px;padding:1.5rem;width:100%;max-width:480px;margin:1rem;max-height:90vh;overflow-y:auto;}
+.modal-box{background:#fff;border-radius:12px;padding:1.5rem;width:100%;max-width:520px;margin:1rem;max-height:90vh;overflow-y:auto;}
 .modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;}
 .modal-header strong{font-size:15px;}
 .modal-header button{background:none;border:none;font-size:22px;cursor:pointer;color:#888;line-height:1;}
@@ -73,9 +69,16 @@ tr:hover td{background:#fafafa;}
 .campo label{font-size:12px;color:#666;display:block;margin-bottom:4px;}
 .campo input,.campo select,.campo textarea{width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:system-ui,sans-serif;}
 .campo input:focus,.campo select:focus{outline:none;border-color:#185FA5;}
+.campo input.erro{border-color:#A32D2D;}
+.campo .msg-erro{font-size:11px;color:#A32D2D;margin-top:3px;}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
 .modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:1rem;}
-.busca{padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:280px;margin-bottom:1rem;}
+.busca-wrap{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;}
+.busca{padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;flex:1;min-width:200px;}
+.codigo-badge{background:#f0f0f0;color:#555;padding:2px 8px;border-radius:6px;font-size:12px;font-family:monospace;}
+.cpf-valido{color:#3B6D11;font-size:11px;margin-top:3px;}
+.cpf-invalido{color:#A32D2D;font-size:11px;margin-top:3px;}
 </style>
 </head>
 <body>
@@ -138,7 +141,6 @@ tr:hover td{background:#fafafa;}
     <div class="page active" id="page-dashboard">
       <div class="page-title">Dashboard — visão geral</div>
       <div class="cards-grid" id="metricas-dashboard"></div>
-      <div id="alertas-dashboard"></div>
     </div>
 
     <div class="page" id="page-clientes">
@@ -146,7 +148,9 @@ tr:hover td{background:#fafafa;}
         <div class="page-title" style="margin:0">Clientes</div>
         <button class="btn primario" onclick="abrirCadastroCliente()">+ Novo cliente</button>
       </div>
-      <input class="busca" type="text" placeholder="Buscar cliente pelo nome..." oninput="buscarCliente(this.value)">
+      <div class="busca-wrap">
+        <input class="busca" type="text" placeholder="Buscar por nome, CPF ou código..." oninput="buscarCliente(this.value)">
+      </div>
       <div id="lista-clientes">Carregando...</div>
     </div>
 
@@ -209,6 +213,16 @@ tr:hover td{background:#fafafa;}
       <button onclick="fecharModal('modal-cliente')">×</button>
     </div>
     <input type="hidden" id="cli-id">
+    <div class="grid2">
+      <div class="campo">
+        <label>Código</label>
+        <input id="cli-codigo" type="text" readonly style="background:#f9f9f9;color:#888;">
+      </div>
+      <div class="campo">
+        <label>Data de nascimento</label>
+        <input id="cli-nascimento" type="date">
+      </div>
+    </div>
     <div class="campo">
       <label>Nome completo *</label>
       <input id="cli-nome" type="text" placeholder="Nome do cliente">
@@ -216,20 +230,31 @@ tr:hover td{background:#fafafa;}
     <div class="grid2">
       <div class="campo">
         <label>CPF</label>
-        <input id="cli-cpf" type="text" placeholder="000.000.000-00">
+        <input id="cli-cpf" type="text" placeholder="000.000.000-00" oninput="validarCPFCampo(this)">
+        <div id="msg-cpf"></div>
       </div>
       <div class="campo">
-        <label>Telefone</label>
+        <label>Celular</label>
         <input id="cli-telefone" type="text" placeholder="(88) 99999-9999">
       </div>
     </div>
     <div class="campo">
-      <label>Endereço completo</label>
-      <input id="cli-endereco" type="text" placeholder="Rua, número, bairro, cidade">
+      <label>Endereço</label>
+      <input id="cli-endereco" type="text" placeholder="Rua e número">
+    </div>
+    <div class="grid2">
+      <div class="campo">
+        <label>Bairro</label>
+        <input id="cli-bairro" type="text" placeholder="Bairro">
+      </div>
+      <div class="campo">
+        <label>Cidade</label>
+        <input id="cli-cidade" type="text" placeholder="Cidade">
+      </div>
     </div>
     <div class="campo">
-      <label>Referência pessoal</label>
-      <input id="cli-referencia" type="text" placeholder="Nome e telefone de referência">
+      <label>Ponto de referência</label>
+      <input id="cli-referencia" type="text" placeholder="Ex: próximo ao mercado X">
     </div>
     <div class="campo">
       <label>Cobrador responsável</label>
@@ -284,9 +309,7 @@ tr:hover td{background:#fafafa;}
 const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
 const USUARIOS = { 'gabriel': { senha: 'lia2026', nome: 'Gabriel', perfil: 'gestor' } };
-
 let todosClientes = [];
 
 function entrar() {
@@ -324,6 +347,43 @@ function fecharModal(id) {
   document.getElementById(id).style.display = 'none';
 }
 
+function validarCPF(cpf) {
+  cpf = cpf.replace(/[^\d]/g, '');
+  if (cpf.length !== 11) return false;
+  if (/^(\d)\1+$/.test(cpf)) return false;
+  let soma = 0;
+  for (let i = 0; i < 9; i++) soma += parseInt(cpf[i]) * (10 - i);
+  let resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  if (resto !== parseInt(cpf[9])) return false;
+  soma = 0;
+  for (let i = 0; i < 10; i++) soma += parseInt(cpf[i]) * (11 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  return resto === parseInt(cpf[10]);
+}
+
+function validarCPFCampo(input) {
+  const cpf = input.value.replace(/[^\d]/g, '');
+  const msg = document.getElementById('msg-cpf');
+  if (cpf.length === 0) { msg.innerHTML = ''; input.classList.remove('erro'); return; }
+  if (cpf.length < 11) { msg.innerHTML = ''; return; }
+  if (validarCPF(cpf)) {
+    msg.innerHTML = '<span class="cpf-valido">✓ CPF válido</span>';
+    input.classList.remove('erro');
+  } else {
+    msg.innerHTML = '<span class="cpf-invalido">✗ CPF inválido</span>';
+    input.classList.add('erro');
+  }
+}
+
+async function gerarCodigoCliente() {
+  const { data } = await sb.from('clientes').select('codigo').not('codigo', 'is', null).order('codigo', { ascending: false }).limit(1);
+  if (!data || !data.length || !data[0].codigo) return '00001';
+  const ultimo = parseInt(data[0].codigo);
+  return String(ultimo + 1).padStart(5, '0');
+}
+
 async function carregarDashboard() {
   const { data: clientes } = await sb.from('clientes').select('id', { count: 'exact' });
   const { data: funcionarios } = await sb.from('funcionarios').select('id', { count: 'exact' });
@@ -339,7 +399,7 @@ async function carregarDashboard() {
 }
 
 async function carregarClientes() {
-  const { data, error } = await sb.from('clientes').select('id, nome, cpf, telefone, endereco, cobrador_id').order('nome');
+  const { data, error } = await sb.from('clientes').select('id, codigo, nome, cpf, telefone, endereco, bairro, cidade, cobrador_id').order('nome');
   if (error) { document.getElementById('lista-clientes').innerHTML = 'Erro ao carregar.'; return; }
   todosClientes = data || [];
   renderClientes(todosClientes);
@@ -349,14 +409,14 @@ function renderClientes(lista) {
   if (!lista.length) { document.getElementById('lista-clientes').innerHTML = '<p style="color:#888;padding:1rem;">Nenhum cliente encontrado.</p>'; return; }
   document.getElementById('lista-clientes').innerHTML = `
     <div class="tabela-wrap"><table>
-      <thead><tr><th>Nome</th><th>CPF</th><th>Telefone</th><th>Cobrador</th><th>Endereço</th><th>Ações</th></tr></thead>
+      <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Celular</th><th>Cidade</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(c => `
         <tr>
+          <td><span class="codigo-badge">${c.codigo||'—'}</span></td>
           <td>${c.nome}</td>
           <td>${c.cpf||'—'}</td>
           <td>${c.telefone||'—'}</td>
-          <td>—</td>
-          <td>${c.endereco||'—'}</td>
+          <td>${c.cidade||'—'}</td>
           <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarCliente('${c.id}')">Editar</button></td>
         </tr>`).join('')}
       </tbody>
@@ -364,17 +424,28 @@ function renderClientes(lista) {
 }
 
 function buscarCliente(termo) {
-  const filtrado = todosClientes.filter(c => c.nome.toLowerCase().includes(termo.toLowerCase()));
+  const t = termo.toLowerCase();
+  const filtrado = todosClientes.filter(c =>
+    c.nome.toLowerCase().includes(t) ||
+    (c.cpf && c.cpf.includes(t)) ||
+    (c.codigo && c.codigo.includes(t))
+  );
   renderClientes(filtrado);
 }
 
 async function abrirCadastroCliente() {
+  const codigo = await gerarCodigoCliente();
   document.getElementById('cli-id').value = '';
+  document.getElementById('cli-codigo').value = codigo;
   document.getElementById('cli-nome').value = '';
   document.getElementById('cli-cpf').value = '';
   document.getElementById('cli-telefone').value = '';
+  document.getElementById('cli-nascimento').value = '';
   document.getElementById('cli-endereco').value = '';
+  document.getElementById('cli-bairro').value = '';
+  document.getElementById('cli-cidade').value = '';
   document.getElementById('cli-referencia').value = '';
+  document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Novo cliente';
   await carregarCobradoresSelect();
   document.getElementById('modal-cliente').style.display = 'flex';
@@ -389,11 +460,20 @@ async function carregarCobradoresSelect() {
 
 async function salvarCliente() {
   const id = document.getElementById('cli-id').value;
+  const cpf = document.getElementById('cli-cpf').value.trim();
+  if (cpf && !validarCPF(cpf)) {
+    alert('CPF inválido! Verifique e tente novamente.');
+    return;
+  }
   const dados = {
+    codigo: document.getElementById('cli-codigo').value,
     nome: document.getElementById('cli-nome').value.trim(),
-    cpf: document.getElementById('cli-cpf').value.trim(),
+    cpf: cpf,
     telefone: document.getElementById('cli-telefone').value.trim(),
+    data_nascimento: document.getElementById('cli-nascimento').value || null,
     endereco: document.getElementById('cli-endereco').value.trim(),
+    bairro: document.getElementById('cli-bairro').value.trim(),
+    cidade: document.getElementById('cli-cidade').value.trim(),
     referencia: document.getElementById('cli-referencia').value.trim(),
     cobrador_id: document.getElementById('cli-cobrador').value || null,
   };
@@ -410,11 +490,16 @@ async function salvarCliente() {
 async function editarCliente(id) {
   const { data } = await sb.from('clientes').select('*').eq('id', id).single();
   document.getElementById('cli-id').value = data.id;
+  document.getElementById('cli-codigo').value = data.codigo || '';
   document.getElementById('cli-nome').value = data.nome;
   document.getElementById('cli-cpf').value = data.cpf || '';
   document.getElementById('cli-telefone').value = data.telefone || '';
+  document.getElementById('cli-nascimento').value = data.data_nascimento || '';
   document.getElementById('cli-endereco').value = data.endereco || '';
+  document.getElementById('cli-bairro').value = data.bairro || '';
+  document.getElementById('cli-cidade').value = data.cidade || '';
   document.getElementById('cli-referencia').value = data.referencia || '';
+  document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Editar cliente';
   await carregarCobradoresSelect();
   document.getElementById('cli-cobrador').value = data.cobrador_id || '';
@@ -491,7 +576,7 @@ async function toggleAtivo(id, ativo) {
 async function carregarCobrancas() {
   const { data, error } = await sb.from('movimentacoes_cobranca').select('*, funcionarios(nome), clientes(nome)').order('data_hora', {ascending: false}).limit(50);
   if (error) { document.getElementById('lista-cobrancas').innerHTML = 'Erro ao carregar.'; return; }
-  if (!data.length) { document.getElementById('lista-cobrancas').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma cobrança registrada ainda.</p>'; return; }
+  if (!data || !data.length) { document.getElementById('lista-cobrancas').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma cobrança registrada ainda.</p>'; return; }
   document.getElementById('lista-cobrancas').innerHTML = `
     <div class="tabela-wrap"><table>
       <thead><tr><th>Data</th><th>Cobrador</th><th>Cliente</th><th>Tipo</th><th>Valor</th></tr></thead>
@@ -501,13 +586,12 @@ async function carregarCobrancas() {
         <td>${c.clientes?.nome||'—'}</td>
         <td><span class="badge ${c.tipo==='cobranca'?'verde':c.tipo==='deposito'?'azul':'amarelo'}">${c.tipo}</span></td>
         <td>R$ ${Number(c.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-      </tr>`).join('')}
-      </tbody>
+      </tr>`).join('')}</tbody>
     </table></div>`;
 }
 
 async function carregarCiclos() {
-  const { data, error } = await sb.from('ciclos_cobranca').select('*, meses_referencia(ano, mes)').order('data_saida');
+  const { data, error } = await sb.from('ciclos_cobranca').select('*').order('data_saida');
   if (error) { document.getElementById('lista-ciclos').innerHTML = 'Erro ao carregar.'; return; }
   document.getElementById('lista-ciclos').innerHTML = `
     <div class="tabela-wrap"><table>
@@ -518,8 +602,7 @@ async function carregarCiclos() {
         <td>${c.data_retorno ? new Date(c.data_retorno).toLocaleDateString('pt-BR') : '—'}</td>
         <td>${c.especial ? '<span class="badge azul">Duplo 30+05</span>' : '—'}</td>
         <td><span class="badge ${c.encerrado?'cinza':'verde'}">${c.encerrado?'Encerrado':'Em andamento'}</span></td>
-      </tr>`).join('')}
-      </tbody>
+      </tr>`).join('')}</tbody>
     </table></div>`;
 }
 
