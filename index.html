@@ -856,17 +856,16 @@ const dataPrimeira = document.getElementById('venda-data-primeira').value;
 for (let i = 0; i < dados.num_parcelas; i++) {
   const dt = new Date(dataPrimeira + 'T12:00:00');
   dt.setMonth(dt.getMonth() + i);
-      parcelas.push({
-        venda_id: venda.id,
-        cliente_id: clienteId,
-        numero: i + 1,
-pago: i === 0 && entrada > 0,
-        total_parcelas: dados.num_parcelas,
-        valor: vlrParcela,
-        data_vencimento: dt.toISOString().split('T')[0],
-        pago: false,
-        cobrador_id: null
-      });
+     parcelas.push({
+  venda_id: venda.id,
+  cliente_id: clienteId,
+  numero: i + 1,
+  total_parcelas: dados.num_parcelas,
+  valor: vlrParcela,
+  data_vencimento: dt.toISOString().split('T')[0],
+  pago: i === 0 && entrada > 0,
+  cobrador_id: null
+});
     }
     await sb.from('parcelas').insert(parcelas);
   }
