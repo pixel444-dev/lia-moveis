@@ -892,7 +892,7 @@ function renderVendas(lista) {
   if (!lista.length) { document.getElementById('lista-vendas').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma venda registrada ainda.</p>'; return; }
   document.getElementById('lista-vendas').innerHTML = `
     <div class="tabela-wrap"><table>
-      <thead><tr><th>Código</th><th>Data</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Tipo</th><th>Valor</th><th>Parcelas</th></tr></thead>
+      <thead><tr><th>Código</th><th>Data</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Tipo</th><th>Valor</th><th>Parcelas</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(v => `
         <tr>
           <td><span class="codigo-badge">${v.codigo||'—'}</span></td>
@@ -900,9 +900,15 @@ function renderVendas(lista) {
           <td>${v.clientes?.nome||'—'} <span style="font-size:10px;color:#aaa;">${v.clientes?.codigo?'#'+v.clientes.codigo:''}</span></td>
           <td>${v.produto||'—'}</td>
           <td>${v.funcionarios?.nome||'—'}</td>
-          <td><span class="badge ${v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':v.tipo==='parcela'?'roxo':'vermelho'}">${v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':v.tipo==='parcela'?'Parcela avulsa':'Devolução'}</span></td>
+          <td><span class="badge ${v.status==='devolvida'?'vermelho':v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':v.tipo==='parcela'?'roxo':'vermelho'}">${v.status==='devolvida'?'Devolvida':v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':v.tipo==='parcela'?'Parcela avulsa':'Devolução'}</span></td>
           <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td>${v.num_parcelas ? v.num_parcelas+'x' : '—'}</td>
+          <td>
+            ${v.status!=='devolvida' ? `
+              <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
+              <button class="btn" style="font-size:11px;padding:3px 8px;color:#A32D2D;border-color:#f5c6c6;margin-left:4px;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>
+            ` : `<span style="font-size:11px;color:#A32D2D;">Devolvida</span>`}
+          </td>
         </tr>`).join('')}
       </tbody>
     </table></div>`;
@@ -1164,6 +1170,39 @@ async function carregarCiclos() {
     </table></div>`;
 }
 
+function abrirDevolucao(vendaId, codigo, produto) {
+  document.getElementById('dev-venda-id').value = vendaId;
+  document.getElementById('dev-observacao').value = '';
+  document.querySelector('input[name="motivo-dev"][value="cliente"]').checked = true;
+  document.getElementById('info-venda-devolucao').innerHTML = `
+    <strong>Venda ${codigo}</strong> — ${produto}<br>
+    <span style="color:#854F0B;">Todas as parcelas serão marcadas como devolvidas.</span>`;
+  document.getElementById('modal-devolucao').style.display = 'flex';
+}
+
+async function confirmarDevolucao() {
+  const vendaId = document.getElementById('dev-venda-id').value;
+  const motivo = document.querySelector('input[name="motivo-dev"]:checked').value;
+  const obs = document.getElementById('dev-observacao').value.trim();
+  if (!confirm('Confirma a devolução desta venda? Esta ação não pode ser desfeita.')) return;
+  await sb.from('vendas').update({
+    status: 'devolvida',
+    motivo_devolucao: motivo,
+    observacao_devolucao: obs
+  }).eq('id', vendaId);
+  await sb.from('parcelas').update({ status: 'devolvida' }).eq('venda_id', vendaId);
+  fecharModal('modal-devolucao');
+  carregarVendas();
+}
+
+async function cancelarVenda(vendaId, codigo) {
+  if (!confirm(`Tem certeza que deseja CANCELAR a venda ${codigo}? Ela será apagada permanentemente do sistema junto com todas as parcelas.`)) return;
+  await sb.from('parcelas').delete().eq('venda_id', vendaId);
+  await sb.from('vendas').delete().eq('id', vendaId);
+  carregarVendas();
+  carregarDashboard();
+}
+  
 if (localStorage.getItem('usuario')) {
   document.getElementById('tela-login').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -1214,6 +1253,35 @@ if (localStorage.getItem('usuario')) {
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-baixa')">Cancelar</button>
       <button class="btn primario" onclick="confirmarBaixa()">Confirmar baixa</button>
+    </div>
+  </div>
+</div><!-- MODAL DEVOLUÇÃO -->
+<div class="modal-bg" id="modal-devolucao">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <strong>Registrar devolução</strong>
+      <button onclick="fecharModal('modal-devolucao')">×</button>
+    </div>
+    <div id="info-venda-devolucao" style="background:#f9f9f9;border-radius:8px;padding:10px 14px;margin-bottom:.875rem;font-size:13px;"></div>
+    <div class="campo">
+      <label>Motivo da devolução *</label>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#1a1a1a;cursor:pointer;">
+          <input type="radio" name="motivo-dev" value="cliente" checked> Devolução pelo cliente
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#1a1a1a;cursor:pointer;">
+          <input type="radio" name="motivo-dev" value="inadimplencia"> Devolução por inadimplência
+        </label>
+      </div>
+    </div>
+    <div class="campo">
+      <label>Observação</label>
+      <textarea id="dev-observacao" rows="3" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:system-ui,sans-serif;resize:vertical;" placeholder="Detalhes sobre a devolução..."></textarea>
+    </div>
+    <input type="hidden" id="dev-venda-id">
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-devolucao')">Cancelar</button>
+      <button class="btn" style="background:#FAEEDA;color:#854F0B;border-color:#FAC775;" onclick="confirmarDevolucao()">Confirmar devolução</button>
     </div>
   </div>
 </div></body>
