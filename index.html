@@ -984,7 +984,7 @@ async function buscarClienteCobranca(termo) {
 }
 async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
   const { data, error } = await sb.from('parcelas')
-    .select('*, vendas(codigo, produto)')
+    .select('*, vendas(codigo, produto), funcionarios(nome)')
     .eq('venda_id', vendaId)
     .order('numero');
   if (error || !data) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;">Erro ao carregar parcelas.</p>'; return; }
@@ -1032,7 +1032,7 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
 }
 
 async function verParcelasCliente(clienteId, nomeCliente) {
-  const { data, error } = await sb.from('parcelas').select('*, vendas(codigo, produto)').eq('cliente_id', clienteId).order('data_vencimento');
+  const { data, error } = await sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').eq('cliente_id', clienteId).order('data_vencimento');
   if (error || !data) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Erro ao carregar parcelas.</p>'; return; }
   if (!data.length) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma parcela encontrada para este cliente.</p>'; return; }
   const emAberto = data.filter(p => !p.pago);
@@ -1065,14 +1065,16 @@ async function verParcelasCliente(clienteId, nomeCliente) {
       <div style="margin-top:1rem;">
         <div style="font-size:13px;font-weight:500;color:#888;margin-bottom:.5rem;">${pagas.length} parcela(s) paga(s)</div>
         <div class="tabela-wrap"><table>
-          <thead><tr><th>Venda</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th></tr></thead>
-          <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
-            <td><span class="codigo-badge">${p.vendas?.codigo||'—'}</span></td>
-            <td>${p.numero}/${p.total_parcelas}</td>
-            <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
-            <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-            <td><span class="badge verde">Paga</span></td>
-          </tr>`).join('')}</tbody>
+          <thead><tr><th>Venda</th><th>Parcela</th><th>Vencimento</th><th>Recebido em</th><th>Cobrador</th><th>Valor</th><th>Status</th></tr></thead>
+<tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
+  <td><span class="codigo-badge">${p.vendas?.codigo||'—'}</span></td>
+  <td>${p.numero}/${p.total_parcelas}</td>
+  <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
+  <td>${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</td>
+  <td>${p.funcionarios?.nome||'—'}</td>
+  <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+  <td><span class="badge verde">Paga</span></td>
+</tr>`).join('')}</tbody>
         </table></div>
       </div>` : ''}
     </div>`;
