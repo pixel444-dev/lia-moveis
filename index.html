@@ -85,6 +85,32 @@ tr:hover td{background:#fafafa;}
 .cliente-nao-encontrado{background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;}
 .secao{font-size:12px;font-weight:600;color:#185FA5;margin:.875rem 0 .5rem;padding-bottom:4px;border-bottom:1px solid #e0e0e0;}
 .parcelas-preview{background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;padding:10px 14px;margin-top:.5rem;font-size:12px;color:#555;}
+.carne-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:.5rem;}
+.carne-item{border:1px solid #333;border-radius:6px;padding:10px 12px;font-size:12px;position:relative;background:#fff;}
+.carne-pago{opacity:.6;background:#f9f9f9;}
+.carne-devolvido{opacity:.6;background:#f9f9f9;}
+.carne-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed #ccc;}
+.carne-empresa{font-weight:700;font-size:13px;color:#185FA5;}
+.carne-codigo{font-size:11px;color:#888;}
+.carne-cliente{font-size:13px;margin-bottom:2px;}
+.carne-produto{font-size:11px;color:#666;margin-bottom:8px;}
+.carne-linha{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;}
+.carne-campo{text-align:center;}
+.carne-label{font-size:10px;color:#888;margin-bottom:2px;}
+.carne-valor-destaque{font-size:13px;font-weight:700;color:#1a1a1a;}
+.carne-assinatura{font-size:10px;color:#888;margin-top:4px;}
+.carne-status-label{font-size:11px;font-weight:700;color:#A32D2D;text-align:center;margin-top:4px;}
+
+@media print {
+  .sidebar, .topbar-pg, .busca-wrap, #resultado-carne > div > button, .btn-login { display: none !important; }
+  .main { margin-left: 0 !important; padding: 0 !important; }
+  .page { display: none !important; }
+  #page-carnes { display: block !important; }
+  #resultado-carne > div { display: none !important; }
+  .carne-grid { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .carne-item { break-inside: avoid; border: 1px solid #333; }
+  body { background: white !important; }
+}
 </style>
 </head>
 <body>
@@ -135,6 +161,7 @@ tr:hover td{background:#fafafa;}
     <div class="nav-grupo">
       <div class="nav-sep">Análise</div>
       <div class="nav-item" onclick="pg('desempenho',this)">Desempenho</div>
+      <div class="nav-item" onclick="pg('carnes',this)">Carnês</div>
       <div class="nav-item" onclick="pg('relatorios',this)">Relatórios</div>
     </div>
     <div class="logout">
@@ -214,7 +241,20 @@ tr:hover td{background:#fafafa;}
       <div class="page-title">Desempenho</div>
       <div id="lista-desempenho">Em construção...</div>
     </div>
-
+<div class="page" id="page-carnes">
+  <div class="topbar-pg">
+    <div class="page-title" style="margin:0">Impressão de carnês</div>
+  </div>
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
+    <div style="font-size:13px;color:#666;margin-bottom:.75rem;">Digite o código da venda para gerar o carnê:</div>
+    <div style="display:flex;gap:8px;">
+      <input id="carne-codigo" type="text" class="busca" placeholder="Ex: 00001" style="max-width:200px;">
+      <button class="btn primario" onclick="buscarVendaCarne()">Buscar venda</button>
+    </div>
+  </div>
+  <div id="resultado-carne"></div>
+  <div id="preview-carne"></div>
+</div>
     <div class="page" id="page-relatorios">
       <div class="page-title">Relatórios</div>
       <div id="lista-relatorios">Em construção...</div>
@@ -1202,7 +1242,65 @@ async function cancelarVenda(vendaId, codigo) {
   carregarVendas();
   carregarDashboard();
 }
-  
+async function buscarVendaCarne() {
+  const codigo = document.getElementById('carne-codigo').value.trim();
+  if (!codigo) { alert('Digite o código da venda!'); return; }
+  const { data, error } = await sb.from('vendas')
+    .select('*, clientes(nome, cpf, endereco, cidade, bairro), funcionarios(nome)')
+    .eq('codigo', codigo)
+    .single();
+  if (error || !data) {
+    document.getElementById('resultado-carne').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Venda não encontrada. Verifique o código.</p>';
+    document.getElementById('preview-carne').innerHTML = '';
+    return;
+  }
+  const { data: parcelas } = await sb.from('parcelas')
+    .select('*')
+    .eq('venda_id', data.id)
+    .order('numero');
+  document.getElementById('resultado-carne').innerHTML = `
+    <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;">
+      ✓ Venda encontrada — <strong>${data.clientes?.nome}</strong> — ${data.produto} — ${parcelas?.length||0} parcelas
+      <button class="btn primario" style="margin-left:12px;font-size:12px;" onclick="imprimirCarne()">🖨️ Imprimir carnê</button>
+    </div>`;
+  if (!parcelas || !parcelas.length) {
+    document.getElementById('preview-carne').innerHTML = '<p style="color:#888;">Nenhuma parcela encontrada para esta venda.</p>';
+    return;
+  }
+  const carnesHtml = parcelas.map(p => {
+    const venc = new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR');
+    const status = p.pago ? 'PAGO' : p.status === 'devolvida' ? 'DEVOLVIDO' : '';
+    return `
+      <div class="carne-item ${p.pago?'carne-pago':p.status==='devolvida'?'carne-devolvido':''}">
+        <div class="carne-header">
+          <span class="carne-empresa">Lia Móveis</span>
+          <span class="carne-codigo">Venda #${data.codigo}</span>
+        </div>
+        <div class="carne-cliente"><strong>${data.clientes?.nome}</strong></div>
+        <div class="carne-produto">${data.produto}</div>
+        <div class="carne-linha">
+          <div class="carne-campo">
+            <div class="carne-label">Parcela</div>
+            <div class="carne-valor-destaque">${p.numero}/${p.total_parcelas}</div>
+          </div>
+          <div class="carne-campo">
+            <div class="carne-label">Vencimento</div>
+            <div class="carne-valor-destaque">${venc}</div>
+          </div>
+          <div class="carne-campo">
+            <div class="carne-label">Valor</div>
+            <div class="carne-valor-destaque">R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+          </div>
+        </div>
+        ${status ? `<div class="carne-status-label">${status}</div>` : '<div class="carne-assinatura">Assinatura: ___________________</div>'}
+      </div>`;
+  }).join('');
+  document.getElementById('preview-carne').innerHTML = `<div class="carne-grid">${carnesHtml}</div>`;
+}
+
+function imprimirCarne() {
+  window.print();
+}  
 if (localStorage.getItem('usuario')) {
   document.getElementById('tela-login').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
