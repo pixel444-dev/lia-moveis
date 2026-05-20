@@ -1376,9 +1376,9 @@ async function imprimirCarne() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  const largura = 105;
+  const largura = 210;
   const altura = 99;
-  const colunas = 2;
+  const colunas = 1;
   const linhasPorPagina = 3;
 
   const carnes = document.querySelectorAll('.carne-item');
@@ -1402,9 +1402,9 @@ async function imprimirCarne() {
     // Linha de corte tracejada
     doc.setDrawColor(180);
     doc.setLineDashPattern([2, 2], 0);
-    if (col === 0 && i + 1 < carnes.length) {
-      doc.line(x + largura, y, x + largura, y + altura);
-    }
+    if (false) {
+  doc.line(x + largura, y, x + largura, y + altura);
+}
     if (lin < linhasPorPagina - 1 && i + colunas < carnes.length) {
       doc.line(x, y + altura, x + largura, y + altura);
     }
@@ -1446,7 +1446,7 @@ async function imprimirCarne() {
     // Campos — Parcela, Vencimento, Valor
     const campos = carnes[i].querySelectorAll('.carne-campo');
     const labels = ['Parcela', 'Vencimento', 'Valor'];
-    const posX = [x + 18, x + 52, x + 86];
+    const posX = [x + 35, x + 105, x + 175];
 
     campos.forEach((campo, ci) => {
       const label = campo.querySelector('.carne-label');
@@ -1478,7 +1478,7 @@ async function imprimirCarne() {
       doc.setFontSize(7);
       doc.setTextColor(150, 150, 150);
       doc.setFont('helvetica', 'normal');
-      doc.text('Assinatura: ___________________________', x + 5, y + 88);
+      doc.text('Assinatura: ___________________________', x + 5, y + 85);
     }
 
     // Próxima posição
