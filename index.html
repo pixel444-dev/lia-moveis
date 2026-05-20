@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lia Móveis — Sistema de Gestão</title>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#1a1a1a;}
@@ -1371,9 +1372,128 @@ async function buscarVendaCarne() {
   document.getElementById('preview-carne').innerHTML = `<div class="carne-grid">${carnesHtml}</div>`;
 }
 
-function imprimirCarne() {
-  window.print();
-}  
+async function imprimirCarne() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const largura = 105;
+  const altura = 99;
+  const colunas = 2;
+  const linhasPorPagina = 3;
+
+  const carnes = document.querySelectorAll('.carne-item');
+  let col = 0;
+  let lin = 0;
+  let pagina = 0;
+
+  for (let i = 0; i < carnes.length; i++) {
+    const x = col * largura;
+    const y = lin * altura;
+
+    if (i > 0 && col === 0 && lin === 0) {
+      doc.addPage();
+    }
+
+    // Borda do carnê
+    doc.setDrawColor(150);
+    doc.setLineWidth(0.3);
+    doc.rect(x + 1, y + 1, largura - 2, altura - 2);
+
+    // Linha de corte tracejada
+    doc.setDrawColor(180);
+    doc.setLineDashPattern([2, 2], 0);
+    if (col === 0 && i + 1 < carnes.length) {
+      doc.line(x + largura, y, x + largura, y + altura);
+    }
+    if (lin < linhasPorPagina - 1 && i + colunas < carnes.length) {
+      doc.line(x, y + altura, x + largura, y + altura);
+    }
+    doc.setLineDashPattern([], 0);
+
+    // Cabeçalho — Lia Móveis
+    doc.setFillColor(24, 95, 165);
+    doc.rect(x + 1, y + 1, largura - 2, 10, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Lia Móveis', x + 5, y + 8);
+
+    // Código da venda
+    const codigoEl = carnes[i].querySelector('.carne-codigo');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(codigoEl?.textContent || '', x + largura - 5, y + 8, { align: 'right' });
+
+    // Nome do cliente
+    const clienteEl = carnes[i].querySelector('.carne-cliente');
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.text(clienteEl?.textContent || '', x + 5, y + 18);
+
+    // Produto
+    const produtoEl = carnes[i].querySelector('.carne-produto');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80, 80, 80);
+    doc.text(produtoEl?.textContent || '', x + 5, y + 24);
+
+    // Linha separadora
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.2);
+    doc.line(x + 5, y + 27, x + largura - 5, y + 27);
+
+    // Campos — Parcela, Vencimento, Valor
+    const campos = carnes[i].querySelectorAll('.carne-campo');
+    const labels = ['Parcela', 'Vencimento', 'Valor'];
+    const posX = [x + 18, x + 52, x + 86];
+
+    campos.forEach((campo, ci) => {
+      const label = campo.querySelector('.carne-label');
+      const valor = campo.querySelector('.carne-valor-destaque');
+      doc.setFontSize(7);
+      doc.setTextColor(120, 120, 120);
+      doc.setFont('helvetica', 'normal');
+      doc.text(label?.textContent || labels[ci], posX[ci], y + 35, { align: 'center' });
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont('helvetica', 'bold');
+      doc.text(valor?.textContent || '', posX[ci], y + 43, { align: 'center' });
+    });
+
+    // Linha separadora
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.2);
+    doc.line(x + 5, y + 48, x + largura - 5, y + 48);
+
+    // Status ou assinatura
+    const statusEl = carnes[i].querySelector('.carne-status-label');
+    const assinaturaEl = carnes[i].querySelector('.carne-assinatura');
+    if (statusEl) {
+      doc.setFontSize(10);
+      doc.setTextColor(163, 45, 45);
+      doc.setFont('helvetica', 'bold');
+      doc.text(statusEl.textContent, x + largura / 2, y + 62, { align: 'center' });
+    } else {
+      doc.setFontSize(7);
+      doc.setTextColor(150, 150, 150);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Assinatura: ___________________________', x + 5, y + 88);
+    }
+
+    // Próxima posição
+    col++;
+    if (col >= colunas) {
+      col = 0;
+      lin++;
+      if (lin >= linhasPorPagina) {
+        lin = 0;
+      }
+    }
+  }
+
+  doc.save('carnes-lia-moveis.pdf');
+}
 if (localStorage.getItem('usuario')) {
   document.getElementById('tela-login').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
