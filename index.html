@@ -85,8 +85,8 @@ tr:hover td{background:#fafafa;}
 .cliente-nao-encontrado{background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;}
 .secao{font-size:12px;font-weight:600;color:#185FA5;margin:.875rem 0 .5rem;padding-bottom:4px;border-bottom:1px solid #e0e0e0;}
 .parcelas-preview{background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;padding:10px 14px;margin-top:.5rem;font-size:12px;color:#555;}
-.carne-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:.5rem;}
-.carne-item{border:1px solid #333;border-radius:6px;padding:10px 12px;font-size:12px;position:relative;background:#fff;}
+.carne-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:.5rem;}
+.carne-item{border:1px solid #333;border-radius:6px;padding:12px 14px;font-size:12px;position:relative;background:#fff;}
 .carne-pago{opacity:.6;background:#f9f9f9;}
 .carne-devolvido{opacity:.6;background:#f9f9f9;}
 .carne-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed #ccc;}
@@ -98,18 +98,60 @@ tr:hover td{background:#fafafa;}
 .carne-campo{text-align:center;}
 .carne-label{font-size:10px;color:#888;margin-bottom:2px;}
 .carne-valor-destaque{font-size:13px;font-weight:700;color:#1a1a1a;}
-.carne-assinatura{font-size:10px;color:#888;margin-top:4px;}
+.carne-assinatura{font-size:10px;color:#888;margin-top:4px;border-top:1px solid #ddd;padding-top:4px;}
 .carne-status-label{font-size:11px;font-weight:700;color:#A32D2D;text-align:center;margin-top:4px;}
 
 @media print {
-  .sidebar, .topbar-pg, .busca-wrap, #resultado-carne > div > button, .btn-login { display: none !important; }
+  @page { size: A4; margin: 10mm; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body { background: white !important; }
+  .sidebar,
+  .topbar-pg,
+  .busca-wrap,
+  #resultado-carne,
+  .nav-grupo,
+  .logout,
+  .sidebar-logo { display: none !important; }
+  .app { display: block !important; }
   .main { margin-left: 0 !important; padding: 0 !important; }
   .page { display: none !important; }
-  #page-carnes { display: block !important; }
-  #resultado-carne > div { display: none !important; }
-  .carne-grid { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .carne-item { break-inside: avoid; border: 1px solid #333; }
-  body { background: white !important; }
+  #page-carnes { display: block !important; padding: 0 !important; }
+  .page-title { display: none !important; }
+  .carne-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    width: 100%;
+  }
+  .carne-item {
+    border: 1px solid #333 !important;
+    border-radius: 0 !important;
+    padding: 10px 12px !important;
+    min-height: 120px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    position: relative;
+    box-sizing: border-box;
+  }
+  .carne-item::after {
+    content: '';
+    display: block;
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    border-bottom: 1px dashed #999;
+  }
+  .carne-item:nth-child(odd)::before {
+    content: '';
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -1px;
+    border-right: 1px dashed #999;
+  }
+  .carne-empresa { color: #185FA5 !important; }
 }
 </style>
 </head>
