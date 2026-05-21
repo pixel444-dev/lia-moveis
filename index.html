@@ -1158,7 +1158,10 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
             <td style="color:${atrasada?'#A32D2D':'#1a1a1a'};font-weight:${atrasada?'500':'400'}">${vencimento.toLocaleDateString('pt-BR')}</td>
             <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
             <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
-            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${p.vendas?.produto||''}')">Dar baixa</button></td>
+            <td>
+  <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${p.vendas?.produto||''}')">Dar baixa</button>
+  <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${p.vendas?.produto||''}')">Editar</button>
+</td>
           </tr>`;
         }).join('')}
         </tbody>
@@ -1213,15 +1216,20 @@ async function verParcelasCliente(clienteId, nomeCliente) {
       <div style="margin-top:1rem;">
         <div style="font-size:13px;font-weight:500;color:#888;margin-bottom:.5rem;">${pagas.length} parcela(s) paga(s)</div>
         <div class="tabela-wrap"><table>
-          <thead><tr><th>Venda</th><th>Parcela</th><th>Vencimento</th><th>Recebido em</th><th>Cobrador</th><th>Valor</th><th>Status</th></tr></thead>
+         <thead><tr><th>Venda</th><th>Parcela</th><th>Vencimento</th><th>Recebido em</th><th>Cobrador</th><th>Forma</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
 <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
   <td><span class="codigo-badge">${p.vendas?.codigo||'—'}</span></td>
   <td>${p.numero}/${p.total_parcelas}</td>
   <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
   <td>${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</td>
   <td>${p.funcionarios?.nome||'—'}</td>
+  <td>${p.forma_pagamento ? '<span class="badge '+(p.forma_pagamento==='pix'?'azul':'verde')+'">'+p.forma_pagamento.toUpperCase()+'</span>' : '—'}</td>
   <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
   <td><span class="badge verde">Paga</span></td>
+  <td>
+    <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${p.vendas?.codigo||''}')">Cancelar baixa</button>
+    <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${p.vendas?.produto||''}')">Editar</button>
+  </td>
 </tr>`).join('')}</tbody>
         </table></div>
       </div>` : ''}
@@ -1668,6 +1676,60 @@ async function importarParcelas() {
   };
   reader.readAsArrayBuffer(arquivo);
 }
+async function cancelarBaixa(parcelaId, clienteId, codigoVenda) {
+  if (!confirm('Cancelar esta baixa? A parcela voltará para em aberto.')) return;
+  await sb.from('movimentacoes_cobranca')
+    .delete()
+    .eq('cliente_id', clienteId)
+    .ilike('descricao', `%${codigoVenda}%`);
+  await sb.from('parcelas').update({
+    pago: false,
+    data_pagamento: null,
+    valor_pago: 0,
+    cobrador_id: null,
+    forma_pagamento: null,
+    status: 'aberta'
+  }).eq('id', parcelaId);
+  const { data: parcela } = await sb.from('parcelas').select('cliente_id, vendas(codigo)').eq('id', parcelaId).single();
+  if (parcela?.cliente_id) {
+    const nomeEl = document.querySelector('#lista-parcelas-cliente [style*="185FA5"]');
+    const nome = nomeEl?.textContent?.split('—')[0]?.trim() || '';
+    verParcelasCliente(parcela.cliente_id, nome);
+  }
+}
+
+function abrirEditarParcela(id, numero, total, valor, dataVenc, produto) {
+  document.getElementById('edit-parcela-id').value = id;
+  document.getElementById('edit-parcela-num').textContent = `Parcela ${numero}/${total}`;
+  document.getElementById('edit-valor').value = valor;
+  document.getElementById('edit-data-venc').value = dataVenc;
+  document.getElementById('edit-produto').value = produto;
+  document.getElementById('modal-editar-parcela').style.display = 'flex';
+}
+
+async function salvarEdicaoParcela() {
+  const id = document.getElementById('edit-parcela-id').value;
+  const valor = parseFloat(document.getElementById('edit-valor').value);
+  const dataVenc = document.getElementById('edit-data-venc').value;
+  const produto = document.getElementById('edit-produto').value.trim();
+  if (!valor || valor <= 0) { alert('Digite o valor!'); return; }
+  if (!dataVenc) { alert('Digite a data de vencimento!'); return; }
+  await sb.from('parcelas').update({ valor, data_vencimento: dataVenc }).eq('id', id);
+  if (produto) {
+    const { data: parcela } = await sb.from('parcelas').select('venda_id').eq('id', id).single();
+    if (parcela?.venda_id) {
+      await sb.from('vendas').update({ produto }).eq('id', parcela.venda_id);
+    }
+  }
+  fecharModal('modal-editar-parcela');
+  const nomeEl = document.querySelector('#lista-parcelas-cliente [style*="185FA5"]');
+  const clienteIdEl = document.querySelector('#lista-parcelas-cliente');
+  if (clienteIdEl) {
+    const nome = nomeEl?.textContent?.split('—')[0]?.trim() || '';
+    const { data: parcela } = await sb.from('parcelas').select('cliente_id').eq('id', id).single();
+    if (parcela?.cliente_id) verParcelasCliente(parcela.cliente_id, nome);
+  }
+}
 if (localStorage.getItem('usuario')) {
   document.getElementById('tela-login').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
@@ -1747,6 +1809,33 @@ if (localStorage.getItem('usuario')) {
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-devolucao')">Cancelar</button>
       <button class="btn" style="background:#FAEEDA;color:#854F0B;border-color:#FAC775;" onclick="confirmarDevolucao()">Confirmar devolução</button>
+    </div>
+  </div>
+</div><!-- MODAL EDITAR PARCELA -->
+<div class="modal-bg" id="modal-editar-parcela">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <strong>Editar parcela — <span id="edit-parcela-num"></span></strong>
+      <button onclick="fecharModal('modal-editar-parcela')">×</button>
+    </div>
+    <input type="hidden" id="edit-parcela-id">
+    <div class="campo">
+      <label>Produto / descrição</label>
+      <input id="edit-produto" type="text" placeholder="Ex: Sofá 3 lugares...">
+    </div>
+    <div class="grid2">
+      <div class="campo">
+        <label>Valor da parcela (R$)</label>
+        <input id="edit-valor" type="number" placeholder="0,00">
+      </div>
+      <div class="campo">
+        <label>Data de vencimento</label>
+        <input id="edit-data-venc" type="date">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-editar-parcela')">Cancelar</button>
+      <button class="btn primario" onclick="salvarEdicaoParcela()">Salvar alterações</button>
     </div>
   </div>
 </div></body>
