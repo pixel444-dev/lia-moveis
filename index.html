@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lia Móveis — Sistema de Gestão</title>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -215,10 +216,11 @@ tr:hover td{background:#fafafa;}
       <div class="sub">Sistema de gestão</div>
     </div>
     <div class="nav-grupo">
-      <div class="nav-sep">Geral</div>
-      <div class="nav-item active" onclick="pg('dashboard',this)">Dashboard</div>
-      <div class="nav-item" onclick="pg('clientes',this)">Clientes</div>
-      <div class="nav-item" onclick="pg('funcionarios',this)">Funcionários</div>
+     <div class="nav-sep">Geral</div>
+<div class="nav-item active" onclick="pg('dashboard',this)">Dashboard</div>
+<div class="nav-item" onclick="pg('clientes',this)">Clientes</div>
+<div class="nav-item" onclick="pg('funcionarios',this)">Funcionários</div>
+<div class="nav-item" onclick="pg('importacao',this)">Importar dados</div>
     </div>
     <div class="nav-grupo">
       <div class="nav-sep">Vendas</div>
@@ -328,6 +330,32 @@ tr:hover td{background:#fafafa;}
   </div>
   <div id="resultado-carne"></div>
   <div id="preview-carne"></div>
+</div>
+    <div class="page" id="page-importacao">
+  <div class="page-title">Importar dados do sistema antigo</div>
+  <div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem;font-size:13px;">
+    ⚠️ <strong>Atenção:</strong> A importação vai cadastrar todos os clientes e parcelas do sistema antigo. Execute apenas uma vez. Se executar novamente, pode duplicar os dados.
+  </div>
+
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
+    <div style="font-size:14px;font-weight:600;margin-bottom:1rem;">Passo 1 — Importar clientes</div>
+    <div class="campo">
+      <label>Selecione a planilha de clientes (.xlsx)</label>
+      <input type="file" id="arquivo-clientes" accept=".xlsx,.xls,.csv" style="padding:6px;">
+    </div>
+    <button class="btn primario" onclick="importarClientes()">Importar clientes</button>
+    <div id="log-clientes" style="margin-top:.75rem;font-size:12px;color:#555;"></div>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
+    <div style="font-size:14px;font-weight:600;margin-bottom:1rem;">Passo 2 — Importar parcelas</div>
+    <div class="campo">
+      <label>Selecione a planilha de parcelas (.xlsx)</label>
+      <input type="file" id="arquivo-parcelas" accept=".xlsx,.xls,.csv" style="padding:6px;">
+    </div>
+    <button class="btn primario" onclick="importarParcelas()">Importar parcelas</button>
+    <div id="log-parcelas" style="margin-top:.75rem;font-size:12px;color:#555;"></div>
+  </div>
 </div>
     <div class="page" id="page-relatorios">
       <div class="page-title">Relatórios</div>
@@ -1493,6 +1521,137 @@ async function imprimirCarne() {
   }
 
   doc.save('carnes-lia-moveis.pdf');
+}
+async function importarClientes() {
+  const arquivo = document.getElementById('arquivo-clientes').files[0];
+  if (!arquivo) { alert('Selecione o arquivo de clientes!'); return; }
+  const log = document.getElementById('log-clientes');
+  log.innerHTML = '⏳ Lendo arquivo...';
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      log.innerHTML = `⏳ ${rows.length} linhas encontradas. Importando...`;
+      let ok = 0, erros = 0, pulados = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row[0] || !row[2]) { pulados++; continue; }
+        const codigo = String(row[0]).trim().padStart(5, '0');
+        const nome = String(row[2]).trim();
+        const cpf = row[4] ? String(row[4]).trim().replace(/[^\d]/g, '') : null;
+        const endereco = row[6] ? String(row[6]).trim() : null;
+        const cidade = row[7] ? String(row[7]).trim() : null;
+        const uf = row[8] ? String(row[8]).trim() : null;
+        const { error } = await sb.from('clientes').upsert({
+          codigo, nome, cpf,
+          endereco,
+          cidade: cidade ? `${cidade}${uf ? ' - ' + uf : ''}` : null,
+        }, { onConflict: 'codigo' });
+        if (error) erros++;
+        else ok++;
+        if (i % 50 === 0) log.innerHTML = `⏳ Importando... ${i}/${rows.length} (${ok} ok, ${erros} erros)`;
+      }
+      log.innerHTML = `✅ Concluído! ${ok} clientes importados, ${erros} erros, ${pulados} linhas puladas.`;
+    } catch (err) {
+      log.innerHTML = `❌ Erro ao ler arquivo: ${err.message}`;
+    }
+  };
+  reader.readAsArrayBuffer(arquivo);
+}
+
+async function importarParcelas() {
+  const arquivo = document.getElementById('arquivo-parcelas').files[0];
+  if (!arquivo) { alert('Selecione o arquivo de parcelas!'); return; }
+  const log = document.getElementById('log-parcelas');
+  log.innerHTML = '⏳ Lendo arquivo...';
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      log.innerHTML = `⏳ ${rows.length} linhas encontradas. Buscando clientes...`;
+
+      // Busca todos os clientes pelo código
+      const { data: clientes } = await sb.from('clientes').select('id, codigo');
+      const mapaClientes = {};
+      (clientes || []).forEach(c => { mapaClientes[c.codigo] = c.id; });
+
+      // Mapeia vendas únicas
+      const vendasMap = {};
+      let ok = 0, erros = 0, pulados = 0;
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row[0] || !row[1]) { pulados++; continue; }
+
+        const codCliente = String(row[0]).trim().padStart(5, '0');
+        const codVenda = String(row[1]).trim();
+        const nomeCliente = row[3] ? String(row[3]).trim() : '';
+        const parcelaStr = row[4] ? String(row[4]).trim() : '1/1';
+        const partes = parcelaStr.split('/');
+        const numeroParcela = parseInt(partes[0]) || 1;
+        const totalParcelas = parseInt(partes[1]) || 1;
+        const dataVenc = row[6] ? new Date(row[6]) : null;
+        const dataBaixa = row[7] ? new Date(row[7]) : null;
+        const valor = parseFloat(row[8]) || 0;
+        const valorBaixado = parseFloat(row[9]) || 0;
+        const valorAberto = parseFloat(row[10]) || 0;
+        const status = row[11] ? String(row[11]).trim().toLowerCase() : 'em aberto';
+
+        const clienteId = mapaClientes[codCliente];
+        if (!clienteId) { pulados++; continue; }
+
+        // Cria a venda se ainda não foi criada
+        if (!vendasMap[codVenda]) {
+          const { data: vendaExistente } = await sb.from('vendas').select('id').eq('codigo', codVenda).single();
+          if (vendaExistente) {
+            vendasMap[codVenda] = vendaExistente.id;
+          } else {
+            const { data: novaVenda, error: errVenda } = await sb.from('vendas').insert({
+              codigo: codVenda,
+              cliente_id: clienteId,
+              tipo: 'entrada',
+              produto: 'Importado do sistema anterior',
+              valor: valor * totalParcelas,
+              num_parcelas: totalParcelas,
+              status: status === 'cancelado' ? 'devolvida' : 'ativa',
+            }).select().single();
+            if (errVenda || !novaVenda) { erros++; continue; }
+            vendasMap[codVenda] = novaVenda.id;
+          }
+        }
+
+        const vendaId = vendasMap[codVenda];
+        const pago = status === 'baixado';
+        const cancelado = status === 'cancelado';
+
+        const { error } = await sb.from('parcelas').upsert({
+          venda_id: vendaId,
+          cliente_id: clienteId,
+          numero: numeroParcela,
+          total_parcelas: totalParcelas,
+          valor: valor,
+          valor_pago: valorBaixado,
+          data_vencimento: dataVenc ? dataVenc.toISOString().split('T')[0] : null,
+          data_pagamento: dataBaixa && pago ? dataBaixa.toISOString() : null,
+          pago,
+          status: cancelado ? 'devolvida' : pago ? 'paga' : 'aberta',
+        }, { onConflict: 'venda_id,numero' });
+
+        if (error) erros++;
+        else ok++;
+
+        if (i % 100 === 0) log.innerHTML = `⏳ Importando... ${i}/${rows.length} (${ok} ok, ${erros} erros)`;
+      }
+      log.innerHTML = `✅ Concluído! ${ok} parcelas importadas, ${erros} erros, ${pulados} linhas puladas.`;
+    } catch (err) {
+      log.innerHTML = `❌ Erro ao ler arquivo: ${err.message}`;
+    }
+  };
+  reader.readAsArrayBuffer(arquivo);
 }
 if (localStorage.getItem('usuario')) {
   document.getElementById('tela-login').style.display = 'none';
