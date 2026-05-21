@@ -1577,7 +1577,6 @@ function excelParaData(valor) {
 }
 
 async function importarParcelas() {
-async function importarParcelas() {
   const arquivo = document.getElementById('arquivo-parcelas').files[0];
   if (!arquivo) { alert('Selecione o arquivo de parcelas!'); return; }
   const log = document.getElementById('log-parcelas');
@@ -1606,25 +1605,12 @@ async function importarParcelas() {
         const codCliente = String(row[0]).trim().padStart(5, '0');
         const codVenda = String(row[1]).trim();
         const nomeCliente = row[3] ? String(row[3]).trim() : '';
-        const parcelaStr = row[4] ? String(row[4]).trim() : '1/1';
+       const parcelaStr = row[4] ? String(row[4]).trim() : '1/1';
         const partes = parcelaStr.split('/');
         const numeroParcela = parseInt(partes[0]) || 1;
         const totalParcelas = parseInt(partes[1]) || 1;
-        function excelParaData(valor) {
-  if (!valor) return null;
-  if (valor instanceof Date) return valor;
-  if (typeof valor === 'number') {
-    const data = new Date(Math.round((valor - 25569) * 86400 * 1000));
-    return isNaN(data.getTime()) ? null : data;
-  }
-  if (typeof valor === 'string') {
-    const d = new Date(valor);
-    return isNaN(d.getTime()) ? null : d;
-  }
-  return null;
-}
-const dataVenc = excelParaData(row[6]);
-const dataBaixa = excelParaData(row[7]);
+        const dataVenc = excelParaData(row[6]);
+        const dataBaixa = excelParaData(row[7]);
         const valor = parseFloat(row[8]) || 0;
         const valorBaixado = parseFloat(row[9]) || 0;
         const valorAberto = parseFloat(row[10]) || 0;
