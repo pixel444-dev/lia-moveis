@@ -1538,12 +1538,14 @@ async function importarClientes() {
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if (!row[0] || !row[2]) { pulados++; continue; }
-        const codigo = String(row[0]).trim().padStart(5, '0');
-        const nome = String(row[2]).trim();
-        const cpf = row[4] ? String(row[4]).trim().replace(/[^\d]/g, '') : null;
-        const endereco = row[6] ? String(row[6]).trim() : null;
-        const cidade = row[7] ? String(row[7]).trim() : null;
-        const uf = row[8] ? String(row[8]).trim() : null;
+       // filtra colunas removendo vazias
+const cols = row.filter(c => c !== null && c !== undefined && String(c).trim() !== '');
+const codigo = cols[0] ? String(cols[0]).trim().padStart(5, '0') : null;
+const nome = cols[1] ? String(cols[1]).trim() : null;
+const cpf = cols[2] ? String(cols[2]).trim().replace(/[^\d]/g, '') : null;
+const endereco = cols[3] ? String(cols[3]).trim() : null;
+const cidade = cols[4] ? String(cols[4]).trim() : null;
+const uf = cols[5] ? String(cols[5]).trim() : null;
         const { error } = await sb.from('clientes').upsert({
           codigo, nome, cpf,
           endereco,
