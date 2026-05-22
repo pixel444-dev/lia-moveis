@@ -1939,17 +1939,29 @@ async function salvarEquipe() {
   if (!dataSaida) { msg.innerHTML = '<div class="msg erro">Informe a data de saída!</div>'; return; }
   const ajudantes = Array.from(document.getElementById('equipe-ajudantes').selectedOptions)
     .map(o=>o.value).filter(v=>v!==chefeId);
-  const { data: equipe, error } = await sb.from('equipes').insert({
-    semana_id: semanaId, caminhao_id: caminhaoId, chefe_id: chefeId,
-    rota, meta, data_saida: dataSaida||null, data_retorno: dataRetorno||null, encerrada: false,
-  }).select().single();
-  if (error) { msg.innerHTML = `<div class="msg erro">Erro ao salvar equipe: ${error.message}</div>`; console.error(error); return; }
-  const membros = [{ equipe_id: equipe.id, funcionario_id: chefeId, papel: 'chefe' }];
-  ajudantes.forEach(id => membros.push({ equipe_id: equipe.id, funcionario_id: id, papel: 'ajudante' }));
-  await sb.from('equipe_membros').insert(membros);
-  fecharModal('modal-nova-equipe');
-  await carregarEquipes();
-  abrirEstoqueEquipe(equipe.id);
+  try {
+    const payload = {
+      semana_id: semanaId, caminhao_id: caminhaoId, chefe_id: chefeId,
+      rota: rota||null, meta, data_saida: dataSaida||null, data_retorno: dataRetorno||null, encerrada: false,
+    };
+    console.log('Inserindo equipe:', payload);
+    const { data: equipe, error } = await sb.from('equipes').insert(payload).select().single();
+    console.log('Resultado:', { equipe, error });
+    if (error) {
+      msg.innerHTML = `<div class="msg erro">Erro: ${error.message || error.details || JSON.stringify(error)}</div>`;
+      return;
+    }
+    const membros = [{ equipe_id: equipe.id, funcionario_id: chefeId, papel: 'chefe' }];
+    ajudantes.forEach(id => membros.push({ equipe_id: equipe.id, funcionario_id: id, papel: 'ajudante' }));
+    const { error: errMembros } = await sb.from('equipe_membros').insert(membros);
+    if (errMembros) console.error('Erro membros:', errMembros);
+    fecharModal('modal-nova-equipe');
+    await carregarEquipes();
+    abrirEstoqueEquipe(equipe.id);
+  } catch(e) {
+    console.error('Exceção JS:', e);
+    msg.innerHTML = `<div class="msg erro">Erro inesperado: ${e.message}</div>`;
+  }
 }
 
 async function abrirEstoqueEquipe(equipeId) {
