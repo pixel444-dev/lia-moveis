@@ -1943,7 +1943,7 @@ async function salvarEquipe() {
     semana_id: semanaId, caminhao_id: caminhaoId, chefe_id: chefeId,
     rota, meta, data_saida: dataSaida||null, data_retorno: dataRetorno||null, encerrada: false,
   }).select().single();
-  if (error) { msg.innerHTML = '<div class="msg erro">Erro ao salvar equipe!</div>'; return; }
+  if (error) { msg.innerHTML = `<div class="msg erro">Erro ao salvar equipe: ${error.message}</div>`; console.error(error); return; }
   const membros = [{ equipe_id: equipe.id, funcionario_id: chefeId, papel: 'chefe' }];
   ajudantes.forEach(id => membros.push({ equipe_id: equipe.id, funcionario_id: id, papel: 'ajudante' }));
   await sb.from('equipe_membros').insert(membros);
