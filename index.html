@@ -1141,7 +1141,7 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
   const pagas = data.filter(p => p.pago);
   document.getElementById('lista-parcelas-cliente').innerHTML = `
     <div style="margin-bottom:1rem;">
-      <div style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
+      <div data-nome-cliente="${nomeCliente}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
         Venda ${codigoVenda} — ${nomeCliente} — ${emAberto.length} parcela(s) em aberto
       </div>
       ${emAberto.length ? `
@@ -1190,7 +1190,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
   const pagas = data.filter(p => p.pago);
   document.getElementById('lista-parcelas-cliente').innerHTML = `
     <div style="margin-bottom:1rem;">
-      <div style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${nomeCliente} — ${emAberto.length} parcela(s) em aberto</div>
+      <div data-nome-cliente="${nomeCliente}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${nomeCliente} — ${emAberto.length} parcela(s) em aberto</div>
       ${emAberto.length ? `
       <div class="tabela-wrap"><table>
         <thead><tr><th>Venda</th><th>Produto</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
@@ -1298,7 +1298,7 @@ async function confirmarBaixa() {
     forma_pagamento: forma,
   });
   fecharModal('modal-baixa');
-  const nomeCliente = document.querySelector('#lista-parcelas-cliente [style*="185FA5"]')?.textContent?.split('—')[0]?.trim() || '';
+  const nomeCliente = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
   const clienteId = parcela?.cliente_id;
   if (clienteId) verParcelasCliente(clienteId, nomeCliente);
   carregarDashboard();
@@ -1438,9 +1438,6 @@ async function imprimirCarne() {
     // Linha de corte tracejada
     doc.setDrawColor(180);
     doc.setLineDashPattern([2, 2], 0);
-    if (false) {
-  doc.line(x + largura, y, x + largura, y + altura);
-}
     if (lin < linhasPorPagina - 1 && i + colunas < carnes.length) {
       doc.line(x, y + altura, x + largura, y + altura);
     }
@@ -1692,8 +1689,7 @@ async function cancelarBaixa(parcelaId, clienteId, codigoVenda) {
   }).eq('id', parcelaId);
   const { data: parcela } = await sb.from('parcelas').select('cliente_id, vendas(codigo)').eq('id', parcelaId).single();
   if (parcela?.cliente_id) {
-    const nomeEl = document.querySelector('#lista-parcelas-cliente [style*="185FA5"]');
-    const nome = nomeEl?.textContent?.split('—')[0]?.trim() || '';
+    const nome = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
     verParcelasCliente(parcela.cliente_id, nome);
   }
 }
@@ -1722,10 +1718,9 @@ async function salvarEdicaoParcela() {
     }
   }
   fecharModal('modal-editar-parcela');
-  const nomeEl = document.querySelector('#lista-parcelas-cliente [style*="185FA5"]');
   const clienteIdEl = document.querySelector('#lista-parcelas-cliente');
   if (clienteIdEl) {
-    const nome = nomeEl?.textContent?.split('—')[0]?.trim() || '';
+    const nome = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
     const { data: parcela } = await sb.from('parcelas').select('cliente_id').eq('id', id).single();
     if (parcela?.cliente_id) verParcelasCliente(parcela.cliente_id, nome);
   }
