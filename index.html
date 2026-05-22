@@ -1250,7 +1250,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
   <td><span class="badge verde">Paga</span></td>
   <td>
     <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${p.vendas?.codigo||''}')">Cancelar baixa</button>
-    <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${p.vendas?.produto||''}')">Editar</button>
+    <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${p.vendas?.produto||''}',true,'${p.cliente_id}','${p.vendas?.codigo||''}')">Editar</button>
   </td>
 </tr>`).join('')}</tbody>
         </table></div>
@@ -1716,12 +1716,24 @@ async function cancelarBaixa(parcelaId, clienteId, codigoVenda) {
   }
 }
 
-function abrirEditarParcela(id, numero, total, valor, dataVenc, produto) {
+async function cancelarBaixaDoModal() {
+  const id = document.getElementById('edit-parcela-id').value;
+  const clienteId = document.getElementById('edit-cliente-id').value;
+  const codigoVenda = document.getElementById('edit-codigo-venda').value;
+  fecharModal('modal-editar-parcela');
+  await cancelarBaixa(id, clienteId, codigoVenda);
+}
+
+function abrirEditarParcela(id, numero, total, valor, dataVenc, produto, pago, clienteId, codigoVenda) {
   document.getElementById('edit-parcela-id').value = id;
   document.getElementById('edit-parcela-num').textContent = `Parcela ${numero}/${total}`;
   document.getElementById('edit-valor').value = valor;
   document.getElementById('edit-data-venc').value = dataVenc;
   document.getElementById('edit-produto').value = produto;
+  document.getElementById('edit-cliente-id').value = clienteId || '';
+  document.getElementById('edit-codigo-venda').value = codigoVenda || '';
+  const btnCancelar = document.getElementById('btn-cancelar-baixa-edit');
+  btnCancelar.style.display = pago ? 'inline-block' : 'none';
   document.getElementById('modal-editar-parcela').style.display = 'flex';
 }
 
@@ -1836,6 +1848,8 @@ if (localStorage.getItem('usuario')) {
       <button onclick="fecharModal('modal-editar-parcela')">×</button>
     </div>
     <input type="hidden" id="edit-parcela-id">
+    <input type="hidden" id="edit-cliente-id">
+    <input type="hidden" id="edit-codigo-venda">
     <div class="campo">
       <label>Produto / descrição</label>
       <input id="edit-produto" type="text" placeholder="Ex: Sofá 3 lugares...">
@@ -1851,7 +1865,8 @@ if (localStorage.getItem('usuario')) {
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn" onclick="fecharModal('modal-editar-parcela')">Cancelar</button>
+      <button id="btn-cancelar-baixa-edit" class="btn" style="display:none;color:#854F0B;border-color:#FAC775;margin-right:auto;" onclick="cancelarBaixaDoModal()">Cancelar baixa</button>
+      <button class="btn" onclick="fecharModal('modal-editar-parcela')">Fechar</button>
       <button class="btn primario" onclick="salvarEdicaoParcela()">Salvar alterações</button>
     </div>
   </div>
