@@ -1999,9 +1999,12 @@ async function salvarEstoqueEquipe() {
     if (produto) itens.push({ equipe_id: equipeId, produto, quantidade_saida: qtd });
   });
   if (!itens.length) { alert('Adicione pelo menos um item!'); return; }
-  await sb.from('equipe_estoque').delete().eq('equipe_id', equipeId);
+  console.log('Salvando estoque:', itens);
+  const { error: errDel } = await sb.from('equipe_estoque').delete().eq('equipe_id', equipeId);
+  if (errDel) { console.error('Erro delete estoque:', errDel); alert('Erro ao limpar estoque: ' + errDel.message); return; }
   const { error } = await sb.from('equipe_estoque').insert(itens);
-  if (error) { alert('Erro ao salvar estoque!'); return; }
+  console.log('Resultado insert estoque:', error);
+  if (error) { alert('Erro ao salvar estoque: ' + error.message); return; }
   fecharModal('modal-estoque-equipe');
   carregarEquipes();
 }
