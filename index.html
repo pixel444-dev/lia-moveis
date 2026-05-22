@@ -258,7 +258,10 @@ tr:hover td{background:#fafafa;}
         <button class="btn primario" onclick="abrirCadastroCliente()">+ Novo cliente</button>
       </div>
       <div class="busca-wrap">
-        <input class="busca" type="text" placeholder="Buscar por nome, CPF, código do cliente ou código da venda..." oninput="buscarClienteCobranca(this.value)">
+        <input class="busca" type="text" id="busca-clientes" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." oninput="filtrarClientes()">
+        <select id="filtro-cobrador-clientes" onchange="filtrarClientes()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:180px;">
+          <option value="">Todos os cobradores</option>
+        </select>
       </div>
       <div id="lista-clientes">Carregando...</div>
     </div>
@@ -694,9 +697,17 @@ async function carregarDashboard() {
 }
 
 async function carregarClientes() {
-  const { data, error } = await sb.from('clientes').select('id, codigo, nome, cpf, telefone, endereco, bairro, cidade, cobrador_id').order('nome');
+  const [{ data, error }, { data: cobradores }] = await Promise.all([
+    sb.from('clientes').select('id, codigo, nome, cpf, telefone, endereco, bairro, cidade, cobrador_id').order('nome'),
+    sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome'),
+  ]);
   if (error) { document.getElementById('lista-clientes').innerHTML = 'Erro ao carregar.'; return; }
   todosClientes = data || [];
+  const sel = document.getElementById('filtro-cobrador-clientes');
+  const valorAtual = sel.value;
+  sel.innerHTML = '<option value="">Todos os cobradores</option>' +
+    (cobradores || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+  sel.value = valorAtual;
   renderClientes(todosClientes);
 }
 
@@ -718,13 +729,21 @@ function renderClientes(lista) {
     </table></div>`;
 }
 
-function buscarCliente(termo) {
-  const t = termo.toLowerCase();
-  const filtrado = todosClientes.filter(c =>
-    c.nome.toLowerCase().includes(t) ||
-    (c.cpf && c.cpf.includes(t)) ||
-    (c.codigo && c.codigo.includes(t))
-  );
+function filtrarClientes() {
+  const t = document.getElementById('busca-clientes').value.toLowerCase().trim();
+  const cobradorId = document.getElementById('filtro-cobrador-clientes').value;
+  const filtrado = todosClientes.filter(c => {
+    const matchTexto = !t ||
+      c.nome.toLowerCase().includes(t) ||
+      (c.cpf && c.cpf.includes(t)) ||
+      (c.codigo && c.codigo.includes(t)) ||
+      (c.telefone && c.telefone.includes(t)) ||
+      (c.endereco && c.endereco.toLowerCase().includes(t)) ||
+      (c.bairro && c.bairro.toLowerCase().includes(t)) ||
+      (c.cidade && c.cidade.toLowerCase().includes(t));
+    const matchCobrador = !cobradorId || c.cobrador_id === cobradorId;
+    return matchTexto && matchCobrador;
+  });
   renderClientes(filtrado);
 }
 
