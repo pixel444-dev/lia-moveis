@@ -286,8 +286,12 @@ tr:hover td{background:#fafafa;}
     </div>
 
     <div class="page" id="page-equipes">
-      <div class="page-title">Equipes / Semanas</div>
-      <div id="lista-equipes">Em construção...</div>
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">Equipes / Semanas</div>
+        <button class="btn primario" onclick="abrirNovaEquipe()">+ Nova equipe</button>
+      </div>
+      <div id="info-mes-equipes" style="margin-bottom:1rem;font-size:13px;color:#666;"></div>
+      <div id="lista-equipes"></div>
     </div>
 
     <div class="page" id="page-caixa-vendedores">
@@ -484,6 +488,12 @@ tr:hover td{background:#fafafa;}
         <label>Observação</label>
         <input id="venda-obs" type="text" placeholder="Opcional">
       </div>
+      <div class="campo">
+        <label>Equipe (semana atual)</label>
+        <select id="venda-equipe">
+          <option value="">Sem equipe / venda direta</option>
+        </select>
+      </div>
     </div>
 
     <div class="modal-footer">
@@ -600,6 +610,9 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const USUARIOS = { 'gabriel': { senha: 'lia2026', nome: 'Gabriel', perfil: 'gestor' } };
 let todosClientes = [];
 let todasVendas = [];
+let equipesAtivas = [];
+let semanasAtual = [];
+let mesAtual = null;
 
 function entrar() {
   const u = document.getElementById('usuario').value.trim().toLowerCase();
@@ -631,6 +644,7 @@ function pg(nome, el) {
   if (nome === 'vendas') carregarVendas();
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'ciclos') carregarCiclos();
+  if (nome === 'equipes') carregarEquipes();
 }
 
 function fecharModal(id) {
@@ -956,6 +970,7 @@ async function mostrarFormVenda() {
   document.getElementById('venda-entrada').value = '';
   document.getElementById('venda-data-primeira').value = '';
   await carregarVendedoresSelect('venda-vendedor');
+  await carregarEquipesParaVenda();
   document.getElementById('form-dados-venda').style.display = 'block';
   document.getElementById('btn-salvar-venda').style.display = 'inline-block';
 }
@@ -1011,6 +1026,7 @@ async function salvarVenda() {
     num_parcelas: tipo === 'entrada' ? parseInt(document.getElementById('venda-parcelas').value) || null : null,
 entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada').value) || 0 : 0,
     observacao: document.getElementById('venda-obs').value.trim(),
+    equipe_id: document.getElementById('venda-equipe').value || null,
   };
   const { data: venda, error } = await sb.from('vendas').insert(dados).select().single();
   if (error) { alert('Erro ao registrar venda!'); return; }
@@ -1764,6 +1780,279 @@ if (localStorage.getItem('usuario')) {
   document.getElementById('app').style.display = 'flex';
   carregarDashboard();
 }
+
+// ===== MÓDULO EQUIPES / SEMANAS =====
+
+async function carregarEquipes() {
+  const hoje = new Date().toISOString().split('T')[0];
+  const { data: mes } = await sb.from('meses_referencia').select('*').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
+  mesAtual = mes;
+  const infoEl = document.getElementById('info-mes-equipes');
+  const listaEl = document.getElementById('lista-equipes');
+  if (!mes) {
+    infoEl.innerHTML = '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;font-size:13px;">Nenhum mês de referência cadastrado para hoje. Cadastre em <em>meses_referencia</em> no Supabase para continuar.</div>';
+    listaEl.innerHTML = '';
+    return;
+  }
+  const nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  infoEl.innerHTML = `Ciclo: <strong>${nomesMes[mes.mes-1]}/${mes.ano}</strong> — ${new Date(mes.data_inicio+'T12:00:00').toLocaleDateString('pt-BR')} a ${new Date(mes.data_fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
+  const { data: semanas } = await sb.from('semanas_venda').select('*').eq('mes_id', mes.id).order('numero');
+  semanasAtual = semanas || [];
+  if (!semanasAtual.length) {
+    listaEl.innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma semana cadastrada para este ciclo.</p>';
+    return;
+  }
+  const semanaIds = semanasAtual.map(s => s.id);
+  const { data: equipes } = await sb.from('equipes')
+    .select('*, caminhoes(identificacao, placa), equipe_membros(funcionario_id, papel, funcionarios(nome))')
+    .in('semana_id', semanaIds)
+    .order('data_saida');
+  equipesAtivas = equipes || [];
+  renderEquipes(semanasAtual, equipesAtivas);
+}
+
+function renderEquipes(semanas, equipes) {
+  const hoje = new Date();
+  let html = '';
+  for (const semana of semanas) {
+    const di = new Date(semana.data_inicio+'T12:00:00');
+    const df = new Date(semana.data_fim+'T12:00:00');
+    const isAtual = di <= hoje && df >= hoje;
+    const eqSemana = equipes.filter(e => e.semana_id === semana.id);
+    html += `<div style="margin-bottom:1.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">
+        <div style="font-size:14px;font-weight:600;">Semana ${semana.numero}${isAtual?' <span class="badge azul">Semana atual</span>':''}${semana.encerrada?' <span class="badge cinza">Encerrada</span>':''}</div>
+        <div style="font-size:12px;color:#888;">${di.toLocaleDateString('pt-BR')} — ${df.toLocaleDateString('pt-BR')}</div>
+      </div>`;
+    if (!eqSemana.length) {
+      html += '<p style="color:#888;font-size:13px;padding:.25rem 0 .5rem;">Nenhuma equipe cadastrada.</p>';
+    } else {
+      for (const eq of eqSemana) {
+        const chefe = eq.equipe_membros?.find(m => m.papel === 'chefe');
+        const ajudantes = eq.equipe_membros?.filter(m => m.papel === 'ajudante') || [];
+        html += `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1rem;margin-bottom:.75rem;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;">
+            <div>
+              <div style="font-size:14px;font-weight:600;">${eq.caminhoes?.identificacao||'—'} <span style="font-size:12px;color:#888;font-weight:400;">${eq.caminhoes?.placa||''}</span></div>
+              <div style="font-size:12px;color:#555;margin-top:2px;">Chefe: <strong>${chefe?.funcionarios?.nome||'—'}</strong>${ajudantes.length?' · '+ajudantes.map(a=>a.funcionarios?.nome).join(', '):''}</div>
+              ${eq.rota?`<div style="font-size:12px;color:#888;margin-top:2px;">Rota: ${eq.rota}</div>`:''}
+              <div style="font-size:12px;color:#888;margin-top:2px;">Saída: ${eq.data_saida?new Date(eq.data_saida+'T12:00:00').toLocaleDateString('pt-BR'):'—'}${eq.data_retorno?' · Retorno prev.: '+new Date(eq.data_retorno+'T12:00:00').toLocaleDateString('pt-BR'):''}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;">
+              <span class="badge ${eq.encerrada?'cinza':'verde'}">${eq.encerrada?'Encerrada':'Em campo'}</span>
+              ${eq.total_valor!=null?`<div style="font-size:14px;font-weight:600;color:#185FA5;margin-top:4px;">R$ ${Number(eq.total_valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}
+              ${eq.meta?`<div style="font-size:11px;color:#888;">Meta: R$ ${Number(eq.meta).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:.75rem;flex-wrap:wrap;">
+            <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
+            ${!eq.encerrada?`
+              <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirEstoqueEquipe('${eq.id}')">Estoque</button>
+              <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
+            `:''}
+          </div>
+          <div id="detalhes-equipe-${eq.id}" style="display:none;margin-top:.75rem;border-top:1px solid #f0f0f0;padding-top:.75rem;"></div>
+        </div>`;
+      }
+    }
+    html += '</div>';
+  }
+  document.getElementById('lista-equipes').innerHTML = html;
+}
+
+async function toggleDetalhesEquipe(equipeId) {
+  const el = document.getElementById('detalhes-equipe-'+equipeId);
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.innerHTML = '<p style="color:#888;font-size:13px;">Carregando...</p>';
+  el.style.display = 'block';
+  const [{ data: estoque }, { data: vendas }, { data: eq }] = await Promise.all([
+    sb.from('equipe_estoque').select('*').eq('equipe_id', equipeId),
+    sb.from('vendas').select('codigo, produto, valor, clientes(nome)').eq('equipe_id', equipeId).order('data_venda', { ascending: false }),
+    sb.from('equipes').select('meta').eq('id', equipeId).single(),
+  ]);
+  const totalVendido = (vendas||[]).reduce((a,v) => a + Number(v.valor), 0);
+  const meta = eq?.meta;
+  let html = '';
+  if (estoque?.length) {
+    html += `<div style="margin-bottom:.75rem;">
+      <div class="secao" style="margin-top:0;">Estoque do caminhão</div>
+      <div class="tabela-wrap"><table>
+        <thead><tr><th>Produto</th><th>Saiu</th><th>Voltou</th><th>Diferença</th></tr></thead>
+        <tbody>${estoque.map(e => {
+          const v = e.quantidade_voltou;
+          const diff = v!=null ? e.quantidade_saida - v : null;
+          return `<tr><td>${e.produto}</td><td>${e.quantidade_saida}</td><td>${v!=null?v:'—'}</td><td>${diff!=null?`<strong style="color:${diff>0?'#185FA5':'#888'}">${diff}</strong>`:'—'}</td></tr>`;
+        }).join('')}</tbody>
+      </table></div></div>`;
+  }
+  html += `<div class="secao" style="margin-top:0;">Vendas da equipe</div>`;
+  if (meta) html += `<div style="margin-bottom:.5rem;font-size:13px;">Total: <strong style="color:${totalVendido>=meta?'#3B6D11':'#185FA5'};">R$ ${totalVendido.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong> <span style="color:#888;">/ Meta: R$ ${Number(meta).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span></div>`;
+  else if (vendas?.length) html += `<div style="margin-bottom:.5rem;font-size:13px;">Total: <strong style="color:#185FA5;">R$ ${totalVendido.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong></div>`;
+  if (vendas?.length) {
+    html += `<div class="tabela-wrap"><table>
+      <thead><tr><th>Código</th><th>Cliente</th><th>Produto</th><th>Valor</th></tr></thead>
+      <tbody>${vendas.map(v=>`<tr><td><span class="codigo-badge">${v.codigo||'—'}</span></td><td>${v.clientes?.nome||'—'}</td><td>${v.produto||'—'}</td><td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr>`).join('')}</tbody>
+    </table></div>`;
+  } else {
+    html += '<p style="color:#888;font-size:13px;">Nenhuma venda registrada para esta equipe.</p>';
+  }
+  el.innerHTML = html;
+}
+
+async function abrirNovaEquipe() {
+  document.getElementById('equipe-id').value = '';
+  document.getElementById('equipe-rota').value = '';
+  document.getElementById('equipe-meta').value = '';
+  document.getElementById('equipe-data-saida').value = new Date().toISOString().split('T')[0];
+  document.getElementById('equipe-data-retorno').value = '';
+  document.getElementById('msg-equipe').innerHTML = '';
+  const [{ data: caminhoes }, { data: vendedores }] = await Promise.all([
+    sb.from('caminhoes').select('*').order('identificacao'),
+    sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
+  ]);
+  document.getElementById('equipe-caminhao').innerHTML = '<option value="">Selecione...</option>' +
+    (caminhoes||[]).map(c=>`<option value="${c.id}">${c.identificacao}${c.placa?' — '+c.placa:''}</option>`).join('');
+  document.getElementById('equipe-semana').innerHTML = '<option value="">Selecione...</option>' +
+    semanasAtual.map(s=>{
+      const di=new Date(s.data_inicio+'T12:00:00').toLocaleDateString('pt-BR');
+      const df=new Date(s.data_fim+'T12:00:00').toLocaleDateString('pt-BR');
+      return `<option value="${s.id}">Semana ${s.numero} (${di} — ${df})</option>`;
+    }).join('');
+  const optsVend = (vendedores||[]).map(f=>`<option value="${f.id}">${f.nome}</option>`).join('');
+  document.getElementById('equipe-chefe').innerHTML = '<option value="">Selecione...</option>'+optsVend;
+  document.getElementById('equipe-ajudantes').innerHTML = optsVend;
+  document.getElementById('modal-nova-equipe').style.display = 'flex';
+}
+
+async function salvarEquipe() {
+  const caminhaoId = document.getElementById('equipe-caminhao').value;
+  const semanaId = document.getElementById('equipe-semana').value;
+  const chefeId = document.getElementById('equipe-chefe').value;
+  const rota = document.getElementById('equipe-rota').value.trim();
+  const meta = parseFloat(document.getElementById('equipe-meta').value) || null;
+  const dataSaida = document.getElementById('equipe-data-saida').value;
+  const dataRetorno = document.getElementById('equipe-data-retorno').value;
+  const msg = document.getElementById('msg-equipe');
+  if (!caminhaoId) { msg.innerHTML = '<div class="msg erro">Selecione o caminhão!</div>'; return; }
+  if (!semanaId) { msg.innerHTML = '<div class="msg erro">Selecione a semana!</div>'; return; }
+  if (!chefeId) { msg.innerHTML = '<div class="msg erro">Selecione o chefe de equipe!</div>'; return; }
+  if (!dataSaida) { msg.innerHTML = '<div class="msg erro">Informe a data de saída!</div>'; return; }
+  const ajudantes = Array.from(document.getElementById('equipe-ajudantes').selectedOptions)
+    .map(o=>o.value).filter(v=>v!==chefeId);
+  const { data: equipe, error } = await sb.from('equipes').insert({
+    semana_id: semanaId, caminhao_id: caminhaoId, chefe_id: chefeId,
+    rota, meta, data_saida: dataSaida||null, data_retorno: dataRetorno||null, encerrada: false,
+  }).select().single();
+  if (error) { msg.innerHTML = '<div class="msg erro">Erro ao salvar equipe!</div>'; return; }
+  const membros = [{ equipe_id: equipe.id, funcionario_id: chefeId, papel: 'chefe' }];
+  ajudantes.forEach(id => membros.push({ equipe_id: equipe.id, funcionario_id: id, papel: 'ajudante' }));
+  await sb.from('equipe_membros').insert(membros);
+  fecharModal('modal-nova-equipe');
+  await carregarEquipes();
+  abrirEstoqueEquipe(equipe.id);
+}
+
+async function abrirEstoqueEquipe(equipeId) {
+  document.getElementById('estoque-equipe-id').value = equipeId;
+  const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeId);
+  const lista = document.getElementById('lista-itens-estoque');
+  lista.innerHTML = '';
+  if (estoque?.length) {
+    estoque.forEach(item => adicionarLinhaEstoque(item.produto, item.quantidade_saida));
+  } else {
+    adicionarLinhaEstoque('', '');
+  }
+  document.getElementById('modal-estoque-equipe').style.display = 'flex';
+}
+
+function adicionarLinhaEstoque(produto, qtd) {
+  const lista = document.getElementById('lista-itens-estoque');
+  const div = document.createElement('div');
+  div.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:6px;align-items:center;';
+  div.innerHTML = `<input type="text" class="item-produto" placeholder="Produto" value="${produto||''}" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+    <div style="display:flex;gap:6px;align-items:center;">
+      <input type="number" class="item-qtd" placeholder="Qtd" value="${qtd||''}" min="0" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:75px;">
+      <button class="btn" style="padding:5px 9px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="this.closest('div').parentElement.remove()">✕</button>
+    </div>`;
+  lista.appendChild(div);
+}
+
+async function salvarEstoqueEquipe() {
+  const equipeId = document.getElementById('estoque-equipe-id').value;
+  const linhas = document.querySelectorAll('#lista-itens-estoque > div');
+  const itens = [];
+  linhas.forEach(linha => {
+    const produto = linha.querySelector('.item-produto').value.trim();
+    const qtd = parseInt(linha.querySelector('.item-qtd').value) || 0;
+    if (produto) itens.push({ equipe_id: equipeId, produto, quantidade_saida: qtd });
+  });
+  if (!itens.length) { alert('Adicione pelo menos um item!'); return; }
+  await sb.from('equipe_estoque').delete().eq('equipe_id', equipeId);
+  const { error } = await sb.from('equipe_estoque').insert(itens);
+  if (error) { alert('Erro ao salvar estoque!'); return; }
+  fecharModal('modal-estoque-equipe');
+  carregarEquipes();
+}
+
+async function abrirEncerrarEquipe(equipeId) {
+  document.getElementById('encerrar-equipe-id').value = equipeId;
+  document.getElementById('encerrar-obs').value = '';
+  const [{ data: estoque }, { data: vendas }] = await Promise.all([
+    sb.from('equipe_estoque').select('*').eq('equipe_id', equipeId),
+    sb.from('vendas').select('valor').eq('equipe_id', equipeId),
+  ]);
+  const totalVendido = (vendas||[]).reduce((a,v)=>a+Number(v.valor),0);
+  const totalQtd = (vendas||[]).length;
+  const modal = document.getElementById('modal-encerrar-equipe');
+  modal.dataset.totalVendas = totalQtd;
+  modal.dataset.totalValor = totalVendido;
+  document.getElementById('info-encerrar-vendas').innerHTML = `<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;">${totalQtd} venda(s) registrada(s) — Total: <strong style="color:#3B6D11;">R$ ${totalVendido.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong></div>`;
+  const listaEstoque = document.getElementById('lista-estoque-encerrar');
+  if (!estoque?.length) {
+    listaEstoque.innerHTML = '<p style="color:#888;font-size:13px;margin-bottom:.5rem;">Nenhum item de estoque cadastrado.</p>';
+  } else {
+    listaEstoque.innerHTML = estoque.map(e=>`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;">
+        <div style="flex:1;">${e.produto}</div>
+        <div style="color:#888;font-size:12px;white-space:nowrap;">Saiu: ${e.quantidade_saida}</div>
+        <input type="number" data-estoque-id="${e.id}" placeholder="Voltou" min="0" max="${e.quantidade_saida}" style="width:80px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+      </div>`).join('');
+  }
+  modal.style.display = 'flex';
+}
+
+async function confirmarEncerrarEquipe() {
+  const equipeId = document.getElementById('encerrar-equipe-id').value;
+  const obs = document.getElementById('encerrar-obs').value.trim();
+  const modal = document.getElementById('modal-encerrar-equipe');
+  const totalVendas = parseInt(modal.dataset.totalVendas)||0;
+  const totalValor = parseFloat(modal.dataset.totalValor)||0;
+  if (!confirm('Confirma o encerramento desta equipe?')) return;
+  const inputs = document.querySelectorAll('#lista-estoque-encerrar input[data-estoque-id]');
+  for (const inp of inputs) {
+    if (inp.value !== '') {
+      await sb.from('equipe_estoque').update({ quantidade_voltou: parseInt(inp.value) }).eq('id', inp.dataset.estoqueId);
+    }
+  }
+  await sb.from('equipes').update({ encerrada: true, observacao: obs||null, total_vendas: totalVendas, total_valor: totalValor }).eq('id', equipeId);
+  fecharModal('modal-encerrar-equipe');
+  carregarEquipes();
+}
+
+async function carregarEquipesParaVenda() {
+  const hoje = new Date().toISOString().split('T')[0];
+  const { data: semana } = await sb.from('semanas_venda').select('id').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
+  const sel = document.getElementById('venda-equipe');
+  if (!semana) { sel.innerHTML = '<option value="">Sem equipe ativa esta semana</option>'; return; }
+  const { data: equipes } = await sb.from('equipes')
+    .select('id, caminhoes(identificacao), equipe_membros(papel, funcionarios(nome))')
+    .eq('semana_id', semana.id).eq('encerrada', false);
+  sel.innerHTML = '<option value="">Sem equipe / venda direta</option>' +
+    (equipes||[]).map(e=>{
+      const chefe = e.equipe_membros?.find(m=>m.papel==='chefe');
+      return `<option value="${e.id}">${e.caminhoes?.identificacao||'—'} — ${chefe?.funcionarios?.nome||'—'}</option>`;
+    }).join('');
+}
 </script>
 <!-- MODAL BAIXA PARCELA -->
 <div class="modal-bg" id="modal-baixa">
@@ -1870,5 +2159,98 @@ if (localStorage.getItem('usuario')) {
       <button class="btn primario" onclick="salvarEdicaoParcela()">Salvar alterações</button>
     </div>
   </div>
-</div></body>
+</div>
+
+<!-- MODAL NOVA EQUIPE -->
+<div class="modal-bg" id="modal-nova-equipe">
+  <div class="modal-box" style="max-width:540px;">
+    <div class="modal-header">
+      <strong>Nova equipe</strong>
+      <button onclick="fecharModal('modal-nova-equipe')">×</button>
+    </div>
+    <input type="hidden" id="equipe-id">
+    <div class="grid2">
+      <div class="campo">
+        <label>Caminhão *</label>
+        <select id="equipe-caminhao"><option value="">Selecione...</option></select>
+      </div>
+      <div class="campo">
+        <label>Semana *</label>
+        <select id="equipe-semana"><option value="">Selecione...</option></select>
+      </div>
+    </div>
+    <div class="campo">
+      <label>Chefe de equipe *</label>
+      <select id="equipe-chefe"><option value="">Selecione...</option></select>
+    </div>
+    <div class="campo">
+      <label>Ajudantes <span style="font-size:11px;color:#888;">(Ctrl+clique para selecionar múltiplos)</span></label>
+      <select id="equipe-ajudantes" multiple style="height:90px;padding:6px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:100%;"></select>
+    </div>
+    <div class="campo">
+      <label>Rota</label>
+      <input id="equipe-rota" type="text" placeholder="Ex: Granja, Tianguá...">
+    </div>
+    <div class="grid2">
+      <div class="campo">
+        <label>Meta (R$)</label>
+        <input id="equipe-meta" type="number" placeholder="0,00" min="0">
+      </div>
+      <div class="campo">
+        <label>Data de saída *</label>
+        <input id="equipe-data-saida" type="date">
+      </div>
+    </div>
+    <div class="campo">
+      <label>Data de retorno prevista</label>
+      <input id="equipe-data-retorno" type="date">
+    </div>
+    <div id="msg-equipe"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-nova-equipe')">Cancelar</button>
+      <button class="btn primario" onclick="salvarEquipe()">Salvar e cadastrar estoque →</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ESTOQUE EQUIPE -->
+<div class="modal-bg" id="modal-estoque-equipe">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-header">
+      <strong>Estoque do caminhão</strong>
+      <button onclick="fecharModal('modal-estoque-equipe')">×</button>
+    </div>
+    <input type="hidden" id="estoque-equipe-id">
+    <p style="font-size:13px;color:#666;margin-bottom:.75rem;">Informe os produtos e quantidades carregados no caminhão.</p>
+    <div id="lista-itens-estoque"></div>
+    <button class="btn" style="margin-top:.5rem;font-size:12px;" onclick="adicionarLinhaEstoque('','')">+ Adicionar item</button>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-estoque-equipe')">Fechar</button>
+      <button class="btn primario" onclick="salvarEstoqueEquipe()">Salvar estoque</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ENCERRAR EQUIPE -->
+<div class="modal-bg" id="modal-encerrar-equipe">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-header">
+      <strong>Encerrar equipe</strong>
+      <button onclick="fecharModal('modal-encerrar-equipe')">×</button>
+    </div>
+    <input type="hidden" id="encerrar-equipe-id">
+    <div id="info-encerrar-vendas"></div>
+    <div class="secao" style="margin-top:0;">Estoque retornado</div>
+    <div id="lista-estoque-encerrar"></div>
+    <div class="campo" style="margin-top:.75rem;">
+      <label>Observação geral</label>
+      <textarea id="encerrar-obs" rows="3" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:system-ui,sans-serif;resize:vertical;" placeholder="Observações sobre a semana..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-encerrar-equipe')">Cancelar</button>
+      <button class="btn" style="background:#FAEEDA;color:#854F0B;border-color:#FAC775;" onclick="confirmarEncerrarEquipe()">Confirmar encerramento</button>
+    </div>
+  </div>
+</div>
+</body>
 </html>
