@@ -1942,7 +1942,7 @@ async function salvarEquipe() {
   try {
     const payload = {
       semana_id: semanaId, caminhao_id: caminhaoId, chefe_id: chefeId,
-      rota: rota||null, meta, data_saida: dataSaida||null, data_retorno: dataRetorno||null, encerrada: false,
+      rota: rota||null, meta, data_saida: dataSaida||null, encerrada: false,
     };
     console.log('Inserindo equipe:', payload);
     const { data: equipe, error } = await sb.from('equipes').insert(payload).select().single();
