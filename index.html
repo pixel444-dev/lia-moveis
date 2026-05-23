@@ -196,8 +196,8 @@ tr:hover td{background:#fafafa;}
     <div class="logo">Lia Móveis</div>
     <div class="logo-sub">Sistema de gestão</div>
     <div class="form-group">
-      <label>Usuário</label>
-      <input type="text" id="usuario" placeholder="Digite seu usuário" />
+      <label>Email</label>
+      <input type="email" id="usuario" placeholder="seu@email.com" />
     </div>
     <div class="form-group">
       <label>Senha</label>
@@ -216,30 +216,32 @@ tr:hover td{background:#fafafa;}
       <div class="sub">Sistema de gestão</div>
     </div>
     <div class="nav-grupo">
-     <div class="nav-sep">Geral</div>
-<div class="nav-item active" onclick="pg('dashboard',this)">Dashboard</div>
-<div class="nav-item" onclick="pg('clientes',this)">Clientes</div>
-<div class="nav-item" onclick="pg('funcionarios',this)">Funcionários</div>
-<div class="nav-item" onclick="pg('importacao',this)">Importar dados</div>
+      <div class="nav-sep">Geral</div>
+      <div class="nav-item active" onclick="pg('dashboard',this)">Dashboard</div>
+      <div class="nav-item" onclick="pg('clientes',this)">Clientes</div>
+      <div class="nav-item" id="nav-funcionarios" onclick="pg('funcionarios',this)">Funcionários</div>
+      <div class="nav-item" id="nav-usuarios" onclick="pg('usuarios',this)">Usuários</div>
+      <div class="nav-item" id="nav-importacao" onclick="pg('importacao',this)">Importar dados</div>
     </div>
     <div class="nav-grupo">
       <div class="nav-sep">Vendas</div>
       <div class="nav-item" onclick="pg('vendas',this)">Vendas</div>
       <div class="nav-item" onclick="pg('equipes',this)">Equipes / Semanas</div>
-      <div class="nav-item" onclick="pg('caixa-vendedores',this)">Caixa em campo</div>
+      <div class="nav-item" id="nav-caixa-vendedores" onclick="pg('caixa-vendedores',this)">Caixa em campo</div>
     </div>
-    <div class="nav-grupo">
+    <div class="nav-grupo" id="nav-grupo-cobrancas">
       <div class="nav-sep">Cobranças</div>
-      <div class="nav-item" onclick="pg('cobrancas',this)">Cobranças</div>
-      <div class="nav-item" onclick="pg('ciclos',this)">Ciclos</div>
-      <div class="nav-item" onclick="pg('caixa-cobradores',this)">Caixa cobradores</div>
+      <div class="nav-item" id="nav-cobrancas" onclick="pg('cobrancas',this)">Cobranças</div>
+      <div class="nav-item" id="nav-ciclos" onclick="pg('ciclos',this)">Ciclos</div>
+      <div class="nav-item" id="nav-caixa-cobradores" onclick="pg('caixa-cobradores',this)">Caixa cobradores</div>
     </div>
-    <div class="nav-grupo">
+    <div class="nav-grupo" id="nav-grupo-analise">
       <div class="nav-sep">Análise</div>
-      <div class="nav-item" onclick="pg('desempenho',this)">Desempenho</div>
+      <div class="nav-item" id="nav-desempenho" onclick="pg('desempenho',this)">Desempenho</div>
       <div class="nav-item" onclick="pg('carnes',this)">Carnês</div>
-      <div class="nav-item" onclick="pg('relatorios',this)">Relatórios</div>
+      <div class="nav-item" id="nav-relatorios" onclick="pg('relatorios',this)">Relatórios</div>
     </div>
+    <div id="info-usuario-logado" style="padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;font-size:12px;color:#555;line-height:1.4;"></div>
     <div class="logout">
       <button onclick="sair()">Sair do sistema</button>
     </div>
@@ -272,6 +274,14 @@ tr:hover td{background:#fafafa;}
         <button class="btn primario" onclick="abrirCadastroFuncionario()">+ Novo funcionário</button>
       </div>
       <div id="lista-funcionarios">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-usuarios">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">Usuários do sistema</div>
+        <button class="btn primario" onclick="abrirNovoUsuario()">+ Novo usuário</button>
+      </div>
+      <div id="lista-usuarios">Carregando...</div>
     </div>
 
     <div class="page" id="page-vendas">
@@ -607,31 +617,89 @@ tr:hover td{background:#fafafa;}
 const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const USUARIOS = { 'gabriel': { senha: 'lia2026', nome: 'Gabriel', perfil: 'gestor' } };
+let perfilAtivo = null;
+let funcionarioLogado = null;
 let todosClientes = [];
 let todasVendas = [];
 let equipesAtivas = [];
 let semanasAtual = [];
 let mesAtual = null;
 
-function entrar() {
-  const u = document.getElementById('usuario').value.trim().toLowerCase();
-  const s = document.getElementById('senha').value;
+async function entrar() {
+  const email = document.getElementById('usuario').value.trim();
+  const senha = document.getElementById('senha').value;
   const msg = document.getElementById('msg-login');
-  if (!USUARIOS[u] || USUARIOS[u].senha !== s) {
-    msg.innerHTML = '<div class="msg erro">Usuário ou senha incorretos.</div>';
+  if (!email || !senha) { msg.innerHTML = '<div class="msg erro">Preencha email e senha.</div>'; return; }
+  msg.innerHTML = '<div class="msg" style="color:#666;">Entrando...</div>';
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: senha });
+  if (error) { msg.innerHTML = '<div class="msg erro">Email ou senha incorretos.</div>'; return; }
+  await iniciarSessao(data.user);
+}
+
+async function sair() {
+  await sb.auth.signOut();
+  perfilAtivo = null;
+  funcionarioLogado = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('tela-login').style.display = 'flex';
+  document.getElementById('msg-login').innerHTML = '';
+  document.getElementById('info-usuario-logado').innerHTML = '';
+}
+
+async function iniciarSessao(user) {
+  const { data: perfil, error } = await sb.from('perfis')
+    .select('perfil, ativo, funcionario_id, funcionarios(nome)')
+    .eq('id', user.id)
+    .single();
+  if (error || !perfil) {
+    await sb.auth.signOut();
+    document.getElementById('tela-login').style.display = 'flex';
+    document.getElementById('msg-login').innerHTML = '<div class="msg erro">Perfil não encontrado. Contate o administrador.</div>';
     return;
   }
-  localStorage.setItem('usuario', u);
+  if (!perfil.ativo) {
+    await sb.auth.signOut();
+    document.getElementById('tela-login').style.display = 'flex';
+    document.getElementById('msg-login').innerHTML = '<div class="msg erro">Usuário desativado. Contate o administrador.</div>';
+    return;
+  }
+  perfilAtivo = perfil.perfil;
+  funcionarioLogado = {
+    id: perfil.funcionario_id || null,
+    nome: perfil.funcionarios?.nome || user.email,
+  };
+  const perfilLabel = { gestor: 'Gestor', vendedor: 'Vendedor', cobrador: 'Cobrador' }[perfilAtivo] || perfilAtivo;
+  document.getElementById('info-usuario-logado').innerHTML =
+    `<div style="font-weight:500;color:#1a1a1a;">${funcionarioLogado.nome}</div><div style="color:#888;font-size:11px;">${perfilLabel}</div>`;
   document.getElementById('tela-login').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
+  document.getElementById('msg-login').innerHTML = '';
+  if (perfilAtivo === 'cobrador') {
+    document.getElementById('lista-equipes').innerHTML = '';
+    document.querySelector('.main').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:60vh;flex-direction:column;gap:1rem;"><div style="font-size:16px;color:#888;">Perfil em configuração.</div><div style="font-size:13px;color:#aaa;">Contate o administrador.</div></div>';
+    aplicarPermissoes(perfilAtivo);
+    return;
+  }
+  aplicarPermissoes(perfilAtivo);
   carregarDashboard();
 }
 
-function sair() {
-  localStorage.removeItem('usuario');
-  document.getElementById('app').style.display = 'none';
-  document.getElementById('tela-login').style.display = 'flex';
+function aplicarPermissoes(perfil) {
+  const gestor = perfil === 'gestor';
+  const ocultos = ['nav-funcionarios', 'nav-importacao', 'nav-caixa-vendedores',
+    'nav-cobrancas', 'nav-ciclos', 'nav-caixa-cobradores', 'nav-desempenho', 'nav-relatorios'];
+  ocultos.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = gestor ? '' : 'none';
+  });
+  const grupoCobrancas = document.getElementById('nav-grupo-cobrancas');
+  const grupoAnalise = document.getElementById('nav-grupo-analise');
+  if (grupoCobrancas) grupoCobrancas.style.display = gestor ? '' : 'none';
+  if (grupoAnalise) grupoAnalise.style.display = gestor ? '' : 'none';
+  const navUsuarios = document.getElementById('nav-usuarios');
+  if (navUsuarios) navUsuarios.style.display = gestor ? '' : 'none';
+  const btnNovoCliente = document.querySelector('#page-clientes .btn.primario');
+  if (btnNovoCliente) btnNovoCliente.style.display = gestor ? '' : 'none';
 }
 
 function pg(nome, el) {
@@ -645,6 +713,7 @@ function pg(nome, el) {
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'ciclos') carregarCiclos();
   if (nome === 'equipes') carregarEquipes();
+  if (nome === 'usuarios') carregarUsuarios();
 }
 
 function fecharModal(id) {
@@ -1081,10 +1150,10 @@ function renderVendas(lista) {
           <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td>${v.num_parcelas ? v.num_parcelas+'x' : '—'}</td>
           <td>
-            ${v.status!=='devolvida' ? `
+            ${v.status!=='devolvida' ? (perfilAtivo==='gestor' ? `
               <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
               <button class="btn" style="font-size:11px;padding:3px 8px;color:#A32D2D;border-color:#f5c6c6;margin-left:4px;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>
-            ` : `<span style="font-size:11px;color:#A32D2D;">Devolvida</span>`}
+            ` : '') : `<span style="font-size:11px;color:#A32D2D;">Devolvida</span>`}
           </td>
         </tr>`).join('')}
       </tbody>
@@ -1775,11 +1844,9 @@ async function salvarEdicaoParcela() {
     if (parcela?.cliente_id) verParcelasCliente(parcela.cliente_id, nome);
   }
 }
-if (localStorage.getItem('usuario')) {
-  document.getElementById('tela-login').style.display = 'none';
-  document.getElementById('app').style.display = 'flex';
-  carregarDashboard();
-}
+sb.auth.getSession().then(({ data: { session } }) => {
+  if (session) iniciarSessao(session.user);
+});
 
 // ===== MÓDULO EQUIPES / SEMANAS =====
 
@@ -2100,6 +2167,63 @@ async function carregarEquipesParaVenda() {
       return `<option value="${e.id}">${e.caminhoes?.identificacao||'—'} — ${chefe?.funcionarios?.nome||'—'}</option>`;
     }).join('');
 }
+
+// ===== GESTÃO DE USUÁRIOS =====
+
+async function carregarUsuarios() {
+  const { data, error } = await sb.from('perfis')
+    .select('id, perfil, ativo, funcionarios(nome)')
+    .order('perfil');
+  if (error) { document.getElementById('lista-usuarios').innerHTML = 'Erro ao carregar.'; return; }
+  const lista = data || [];
+  if (!lista.length) {
+    document.getElementById('lista-usuarios').innerHTML = '<p style="color:#888;padding:1rem;">Nenhum usuário cadastrado.</p>';
+    return;
+  }
+  document.getElementById('lista-usuarios').innerHTML = `
+    <div class="tabela-wrap"><table>
+      <thead><tr><th>Funcionário</th><th>Perfil</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody>${lista.map(u => `
+        <tr>
+          <td>${u.funcionarios?.nome||'—'}</td>
+          <td><span class="badge ${u.perfil==='gestor'?'azul':u.perfil==='vendedor'?'verde':'amarelo'}">${u.perfil}</span></td>
+          <td><span class="badge ${u.ativo?'verde':'cinza'}">${u.ativo?'Ativo':'Inativo'}</span></td>
+          <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="toggleUsuarioAtivo('${u.id}',${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+async function abrirNovoUsuario() {
+  document.getElementById('usuario-uuid').value = '';
+  document.getElementById('usuario-perfil-id').value = '';
+  document.getElementById('msg-usuario').innerHTML = '';
+  document.getElementById('usuario-perfil-tipo').value = 'vendedor';
+  const { data: funcs } = await sb.from('funcionarios').select('id, nome').eq('ativo', true).order('nome');
+  document.getElementById('usuario-funcionario').innerHTML = '<option value="">Nenhum</option>' +
+    (funcs||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+  document.getElementById('modal-usuario').style.display = 'flex';
+}
+
+async function salvarUsuario() {
+  const uuid = document.getElementById('usuario-uuid').value.trim();
+  const perfil = document.getElementById('usuario-perfil-tipo').value;
+  const funcionarioId = document.getElementById('usuario-funcionario').value || null;
+  const msg = document.getElementById('msg-usuario');
+  if (!uuid || uuid.length < 30) { msg.innerHTML = '<div class="msg erro">Cole o UUID completo do usuário!</div>'; return; }
+  const { error } = await sb.from('perfis').upsert(
+    { id: uuid, perfil, funcionario_id: funcionarioId, ativo: true },
+    { onConflict: 'id' }
+  );
+  if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${error.message}</div>`; return; }
+  fecharModal('modal-usuario');
+  carregarUsuarios();
+}
+
+async function toggleUsuarioAtivo(id, ativo) {
+  await sb.from('perfis').update({ ativo: !ativo }).eq('id', id);
+  carregarUsuarios();
+}
 </script>
 <!-- MODAL BAIXA PARCELA -->
 <div class="modal-bg" id="modal-baixa">
@@ -2296,6 +2420,42 @@ async function carregarEquipesParaVenda() {
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-encerrar-equipe')">Cancelar</button>
       <button class="btn" style="background:#FAEEDA;color:#854F0B;border-color:#FAC775;" onclick="confirmarEncerrarEquipe()">Confirmar encerramento</button>
+    </div>
+  </div>
+</div>
+<!-- MODAL USUARIO -->
+<div class="modal-bg" id="modal-usuario">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <strong>Vincular usuário ao sistema</strong>
+      <button onclick="fecharModal('modal-usuario')">×</button>
+    </div>
+    <div style="background:#E6F1FB;border:1px solid #b3d4f0;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:12px;color:#185FA5;line-height:1.5;">
+      Crie o usuário primeiro em <strong>Supabase → Authentication → Users → Add user</strong>, depois cole o UUID aqui para vincular ao perfil.
+    </div>
+    <input type="hidden" id="usuario-perfil-id">
+    <div class="campo">
+      <label>UUID do usuário (do Supabase Auth) *</label>
+      <input id="usuario-uuid" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    </div>
+    <div class="campo">
+      <label>Perfil *</label>
+      <select id="usuario-perfil-tipo">
+        <option value="gestor">Gestor</option>
+        <option value="vendedor">Vendedor</option>
+        <option value="cobrador">Cobrador</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label>Funcionário vinculado</label>
+      <select id="usuario-funcionario">
+        <option value="">Nenhum</option>
+      </select>
+    </div>
+    <div id="msg-usuario"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-usuario')">Cancelar</button>
+      <button class="btn primario" onclick="salvarUsuario()">Salvar</button>
     </div>
   </div>
 </div>
