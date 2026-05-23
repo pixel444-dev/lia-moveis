@@ -298,7 +298,7 @@ tr:hover td{background:#fafafa;}
     <div class="page" id="page-equipes">
       <div class="topbar-pg">
         <div class="page-title" style="margin:0">Equipes / Semanas</div>
-        <button class="btn primario" onclick="abrirNovaEquipe()">+ Nova equipe</button>
+        <button class="btn primario" id="btn-nova-equipe" onclick="abrirNovaEquipe()">+ Nova equipe</button>
       </div>
       <div id="info-mes-equipes" style="margin-bottom:1rem;font-size:13px;color:#666;"></div>
       <div id="lista-equipes"></div>
@@ -700,6 +700,8 @@ function aplicarPermissoes(perfil) {
   if (navUsuarios) navUsuarios.style.display = gestor ? '' : 'none';
   const btnNovoCliente = document.querySelector('#page-clientes .btn.primario');
   if (btnNovoCliente) btnNovoCliente.style.display = gestor ? '' : 'none';
+  const btnNovaEquipe = document.getElementById('btn-nova-equipe');
+  if (btnNovaEquipe) btnNovaEquipe.style.display = gestor ? '' : 'none';
 }
 
 function pg(nome, el) {
@@ -1851,6 +1853,7 @@ sb.auth.getSession().then(({ data: { session } }) => {
 // ===== MÓDULO EQUIPES / SEMANAS =====
 
 async function carregarEquipes() {
+  if (perfilAtivo === 'vendedor') { await carregarEquipeVendedor(); return; }
   const hoje = new Date().toISOString().split('T')[0];
   const { data: mes } = await sb.from('meses_referencia').select('*').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
   mesAtual = mes;
@@ -1913,7 +1916,7 @@ function renderEquipes(semanas, equipes) {
           </div>
           <div style="display:flex;gap:8px;margin-top:.75rem;flex-wrap:wrap;">
             <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
-            ${!eq.encerrada?`
+            ${!eq.encerrada && perfilAtivo==='gestor'?`
               <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirEstoqueEquipe('${eq.id}')">Estoque</button>
               <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
             `:''}
@@ -1925,6 +1928,166 @@ function renderEquipes(semanas, equipes) {
     html += '</div>';
   }
   document.getElementById('lista-equipes').innerHTML = html;
+}
+
+async function carregarEquipeVendedor() {
+  const listaEl = document.getElementById('lista-equipes');
+  const infoEl = document.getElementById('info-mes-equipes');
+  listaEl.innerHTML = '<p style="color:#888;font-size:13px;">Carregando...</p>';
+  infoEl.innerHTML = '';
+
+  const hoje = new Date().toISOString().split('T')[0];
+  const { data: semana } = await sb.from('semanas_venda')
+    .select('id, numero, data_inicio, data_fim')
+    .lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
+
+  const semViagemMsg = '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:1rem 1.25rem;font-size:14px;">Você não está em nenhuma equipe ativa esta semana.<br>Entre em contato com o gestor.</div>';
+
+  if (!semana) { listaEl.innerHTML = semViagemMsg; return; }
+
+  const { data: membros } = await sb.from('equipe_membros')
+    .select('equipe_id, papel')
+    .eq('funcionario_id', funcionarioLogado.id);
+
+  if (!membros?.length) { listaEl.innerHTML = semViagemMsg; return; }
+
+  const equipeIds = membros.map(m => m.equipe_id);
+
+  const { data: equipe } = await sb.from('equipes')
+    .select('*, caminhoes(identificacao, placa), equipe_membros(funcionario_id, papel, funcionarios(nome))')
+    .in('id', equipeIds)
+    .eq('semana_id', semana.id)
+    .eq('encerrada', false)
+    .maybeSingle();
+
+  if (!equipe) { listaEl.innerHTML = semViagemMsg; return; }
+
+  const meuMembro = membros.find(m => m.equipe_id === equipe.id);
+  const meuPapel = meuMembro?.papel;
+  const papelLabel = meuPapel === 'chefe' ? 'Chefe de equipe' : 'Ajudante';
+
+  const di = new Date(semana.data_inicio+'T12:00:00').toLocaleDateString('pt-BR');
+  const df = new Date(semana.data_fim+'T12:00:00').toLocaleDateString('pt-BR');
+  infoEl.innerHTML = `Semana ${semana.numero} — <strong>${di}</strong> a <strong>${df}</strong>`;
+
+  const [{ data: estoque }, { data: vendasBruto, error: errV }, { data: minhasVendas }] = await Promise.all([
+    sb.from('equipe_estoque').select('*').eq('equipe_id', equipe.id),
+    sb.from('vendas').select('id, codigo, produto, valor, tipo_pagamento, data_venda, vendedor_id, clientes(nome)').eq('equipe_id', equipe.id).order('data_venda', { ascending: false }),
+    sb.from('vendas').select('id, codigo, produto, valor, tipo_pagamento, data_venda, clientes(nome)').eq('equipe_id', equipe.id).eq('vendedor_id', funcionarioLogado.id).order('data_venda', { ascending: false }),
+  ]);
+
+  const vendasEquipe = errV ? [] : (vendasBruto || []);
+  const totalEquipe = vendasEquipe.reduce((a, v) => a + Number(v.valor), 0);
+  const meta = equipe.meta;
+  const pct = meta ? Math.min(100, (totalEquipe / meta) * 100) : null;
+  const barColor = pct == null ? '#185FA5' : pct < 50 ? '#A32D2D' : pct < 80 ? '#854F0B' : '#3B6D11';
+
+  const totalMeu = (minhasVendas || []).reduce((a, v) => a + Number(v.valor), 0);
+  const qtdMeu = (minhasVendas || []).length;
+  const ticketMedio = qtdMeu > 0 ? totalMeu / qtdMeu : 0;
+
+  const vendidoPorMembro = {};
+  vendasEquipe.forEach(v => {
+    if (v.vendedor_id) vendidoPorMembro[v.vendedor_id] = (vendidoPorMembro[v.vendedor_id] || 0) + Number(v.valor);
+  });
+
+  let html = '';
+
+  // Cabeçalho da equipe
+  html += `<div class="card-metrica" style="margin-bottom:1rem;">
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px;">${equipe.caminhoes?.identificacao||'—'} <span style="font-size:12px;color:#888;font-weight:400;">${equipe.caminhoes?.placa||''}</span></div>
+    ${equipe.rota ? `<div style="font-size:13px;color:#666;margin-top:2px;">Rota: ${equipe.rota}</div>` : ''}
+    <div style="margin-top:6px;"><span class="badge azul">${papelLabel}</span></div>
+  </div>`;
+
+  // Card de meta
+  if (meta) {
+    const faltam = Math.max(0, meta - totalEquipe);
+    html += `<div class="card-metrica" style="margin-bottom:1rem;">
+      <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:8px;">Meta da equipe</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-size:13px;color:#666;">Meta: <strong>R$ ${Number(meta).toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong></span>
+        <span style="font-size:16px;font-weight:700;color:${barColor};">${pct.toFixed(0)}%</span>
+      </div>
+      <div style="background:#e0e0e0;border-radius:4px;height:10px;margin-bottom:8px;overflow:hidden;">
+        <div style="background:${barColor};width:${pct}%;height:100%;border-radius:4px;transition:width .4s;"></div>
+      </div>
+      <div style="font-size:13px;">Total vendido pela equipe: <strong style="color:#185FA5;">R$ ${totalEquipe.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong></div>
+      <div style="font-size:12px;color:#888;margin-top:3px;">${faltam > 0 ? `Faltam R$ ${faltam.toLocaleString('pt-BR',{minimumFractionDigits:2})} para bater a meta` : '<span style="color:#3B6D11;font-weight:600;">Meta batida!</span>'}</div>
+    </div>`;
+  } else {
+    html += `<div class="card-metrica" style="margin-bottom:1rem;">
+      <div style="font-size:13px;color:#555;">Total vendido pela equipe: <strong style="color:#185FA5;">R$ ${totalEquipe.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong></div>
+    </div>`;
+  }
+
+  // Desempenho individual
+  html += `<div class="card-metrica" style="margin-bottom:1rem;">
+    <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:10px;">Meu desempenho</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+      <div><div style="font-size:17px;font-weight:700;color:#185FA5;">R$ ${totalMeu.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div><div style="font-size:11px;color:#888;margin-top:2px;">Total vendido</div></div>
+      <div><div style="font-size:17px;font-weight:700;color:#185FA5;">${qtdMeu}</div><div style="font-size:11px;color:#888;margin-top:2px;">Vendas</div></div>
+      <div><div style="font-size:17px;font-weight:700;color:#185FA5;">R$ ${ticketMedio.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div><div style="font-size:11px;color:#888;margin-top:2px;">Ticket médio</div></div>
+    </div>
+  </div>`;
+
+  // Membros da equipe
+  const membrosEquipe = equipe.equipe_membros || [];
+  html += `<div class="secao">Membros da equipe</div>
+  <div class="tabela-wrap"><table>
+    <thead><tr><th>Nome</th><th>Papel</th><th>Vendido</th></tr></thead>
+    <tbody>${membrosEquipe.map(m => {
+      const v = vendidoPorMembro[m.funcionario_id] || 0;
+      const isEu = m.funcionario_id === funcionarioLogado.id;
+      return `<tr${isEu?' style="background:#f6f9ff;"':''}>
+        <td>${m.funcionarios?.nome||'—'}${isEu?' <span class="badge azul" style="font-size:10px;">Você</span>':''}</td>
+        <td>${m.papel==='chefe'?'Chefe de equipe':'Ajudante'}</td>
+        <td>R$ ${v.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+
+  // Estoque (somente leitura)
+  html += `<div class="secao">Estoque do caminhão</div>`;
+  if (estoque?.length) {
+    html += `<div class="tabela-wrap"><table>
+      <thead><tr><th>Produto</th><th>Carregado</th><th>Vendido</th><th>Disponível</th></tr></thead>
+      <tbody>${estoque.map(e => {
+        const vendidoProd = vendasEquipe.filter(v => v.produto && v.produto.trim().toLowerCase() === e.produto.trim().toLowerCase()).length;
+        const disponivel = e.quantidade_saida - vendidoProd;
+        const rowStyle = disponivel <= 0 ? 'background:#fde8e8;' : disponivel === 1 ? 'background:#FAEEDA;' : '';
+        const corDisp = disponivel <= 0 ? '#A32D2D' : disponivel === 1 ? '#854F0B' : '#185FA5';
+        return `<tr style="${rowStyle}">
+          <td>${e.produto}</td>
+          <td>${e.quantidade_saida}</td>
+          <td>${vendidoProd}</td>
+          <td><strong style="color:${corDisp};">${disponivel}</strong></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  } else {
+    html += '<p style="color:#888;font-size:13px;padding:.25rem 0;">Nenhum item de estoque cadastrado.</p>';
+  }
+
+  // Minhas vendas
+  html += `<div class="secao">Minhas vendas esta semana</div>`;
+  if (minhasVendas?.length) {
+    html += `<div class="tabela-wrap"><table>
+      <thead><tr><th>Código</th><th>Cliente</th><th>Produto</th><th>Tipo</th><th>Valor</th><th>Data</th></tr></thead>
+      <tbody>${minhasVendas.map(v => `<tr>
+        <td><span class="codigo-badge">${v.codigo||'—'}</span></td>
+        <td>${v.clientes?.nome||'—'}</td>
+        <td>${v.produto||'—'}</td>
+        <td>${v.tipo_pagamento||'—'}</td>
+        <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+        <td>${v.data_venda?new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`;
+  } else {
+    html += '<p style="color:#888;font-size:13px;padding:.25rem 0;">Nenhuma venda registrada nesta semana.</p>';
+  }
+
+  listaEl.innerHTML = html;
 }
 
 async function toggleDetalhesEquipe(equipeId) {
@@ -1993,6 +2156,7 @@ async function abrirNovaEquipe() {
 }
 
 async function salvarEquipe() {
+  if (perfilAtivo !== 'gestor') { alert('Sem permissão'); return; }
   const caminhaoId = document.getElementById('equipe-caminhao').value;
   const semanaId = document.getElementById('equipe-semana').value;
   const chefeId = document.getElementById('equipe-chefe').value;
@@ -2058,6 +2222,7 @@ function adicionarLinhaEstoque(produto, qtd) {
 }
 
 async function salvarEstoqueEquipe() {
+  if (perfilAtivo !== 'gestor') { alert('Sem permissão'); return; }
   const equipeId = document.getElementById('estoque-equipe-id').value;
   const linhas = document.querySelectorAll('#lista-itens-estoque > div');
   const itens = [];
@@ -2116,6 +2281,7 @@ async function abrirEncerrarEquipe(equipeId) {
 }
 
 async function confirmarEncerrarEquipe() {
+  if (perfilAtivo !== 'gestor') { alert('Sem permissão'); return; }
   const equipeId = document.getElementById('encerrar-equipe-id').value;
   const obs = document.getElementById('encerrar-obs').value.trim();
   const modal = document.getElementById('modal-encerrar-equipe');
