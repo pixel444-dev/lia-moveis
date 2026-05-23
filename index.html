@@ -289,9 +289,10 @@ tr:hover td{background:#fafafa;}
         <div class="page-title" style="margin:0">Vendas</div>
         <button class="btn primario" onclick="abrirNovaVenda()">+ Nova venda</button>
       </div>
-      <div class="busca-wrap">
+      <div class="busca-wrap" id="busca-vendas-wrap">
         <input class="busca" type="text" placeholder="Buscar por código da venda ou cliente..." oninput="buscarVenda(this.value)">
       </div>
+      <div id="autorizacoes-wrap" style="display:none;margin-bottom:1rem;"></div>
       <div id="lista-vendas">Carregando...</div>
     </div>
 
@@ -387,7 +388,7 @@ tr:hover td{background:#fafafa;}
   <div class="modal-box" style="max-width:560px;">
     <div class="modal-header">
       <strong>Nova venda</strong>
-      <button onclick="fecharModal('modal-venda')">×</button>
+      <button onclick="fecharModalVenda()">×</button>
     </div>
 
     <div class="secao">1. Identificar o cliente pelo CPF</div>
@@ -397,7 +398,11 @@ tr:hover td{background:#fafafa;}
         <input id="venda-cpf-busca" type="text" placeholder="000.000.000-00" style="flex:1;">
         <button class="btn primario" onclick="buscarClientePorCPF()">Buscar</button>
       </div>
+      <div id="btn-sem-cpf-wrap" style="display:none;margin-top:8px;">
+        <button class="btn" style="width:100%;border-color:#FAC775;color:#854F0B;" onclick="solicitarAutorizacaoSemCPF()">Solicitar autorização sem CPF</button>
+      </div>
     </div>
+    <div id="painel-autorizacao" style="display:none;margin-bottom:.5rem;"></div>
     <div id="resultado-busca-cliente"></div>
     <input type="hidden" id="venda-cliente-id">
 
@@ -451,16 +456,23 @@ tr:hover td{background:#fafafa;}
           <label>Código da venda</label>
           <input id="venda-codigo" type="text" readonly style="background:#f9f9f9;color:#888;">
         </div>
-        <div class="campo">
+        <div class="campo" id="campo-vendedor-wrap">
           <label>Vendedor responsável</label>
           <select id="venda-vendedor">
             <option value="">Selecione...</option>
           </select>
         </div>
       </div>
-      <div class="campo">
+      <div class="campo" id="campo-produto-texto">
         <label>Produto(s)</label>
         <input id="venda-produto" type="text" placeholder="Ex: Sofá 3 lugares, guarda-roupa...">
+      </div>
+      <div class="campo" id="campo-produto-select" style="display:none;">
+        <label>Produto *</label>
+        <select id="venda-produto-select" onchange="selecionarProdutoEstoque(this)">
+          <option value="">Selecione o produto...</option>
+        </select>
+        <div id="msg-estoque-produto" style="font-size:12px;color:#888;margin-top:4px;"></div>
       </div>
       <div class="grid2">
         <div class="campo">
@@ -498,7 +510,7 @@ tr:hover td{background:#fafafa;}
         <label>Observação</label>
         <input id="venda-obs" type="text" placeholder="Opcional">
       </div>
-      <div class="campo">
+      <div class="campo" id="campo-equipe-wrap">
         <label>Equipe (semana atual)</label>
         <select id="venda-equipe">
           <option value="">Sem equipe / venda direta</option>
@@ -507,7 +519,7 @@ tr:hover td{background:#fafafa;}
     </div>
 
     <div class="modal-footer">
-      <button class="btn" onclick="fecharModal('modal-venda')">Cancelar</button>
+      <button class="btn" onclick="fecharModalVenda()">Cancelar</button>
       <button class="btn primario" id="btn-salvar-venda" style="display:none;" onclick="salvarVenda()">Registrar venda</button>
     </div>
   </div>
@@ -624,6 +636,9 @@ let todasVendas = [];
 let equipesAtivas = [];
 let semanasAtual = [];
 let mesAtual = null;
+let equipeAtiva = null;
+let autorizacaoAtualId = null;
+let pollInterval = null;
 
 async function entrar() {
   const email = document.getElementById('usuario').value.trim();
@@ -702,6 +717,8 @@ function aplicarPermissoes(perfil) {
   if (btnNovoCliente) btnNovoCliente.style.display = gestor ? '' : 'none';
   const btnNovaEquipe = document.getElementById('btn-nova-equipe');
   if (btnNovaEquipe) btnNovaEquipe.style.display = gestor ? '' : 'none';
+  const buscaVendas = document.getElementById('busca-vendas-wrap');
+  if (buscaVendas) buscaVendas.style.display = gestor ? '' : 'none';
 }
 
 function pg(nome, el) {
@@ -976,6 +993,10 @@ async function abrirNovaVenda() {
   document.getElementById('form-novo-cliente-venda').style.display = 'none';
   document.getElementById('form-dados-venda').style.display = 'none';
   document.getElementById('btn-salvar-venda').style.display = 'none';
+  document.getElementById('painel-autorizacao').style.display = 'none';
+  document.getElementById('painel-autorizacao').innerHTML = '';
+  document.getElementById('btn-sem-cpf-wrap').style.display = perfilAtivo === 'vendedor' ? 'block' : 'none';
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   document.getElementById('modal-venda').style.display = 'flex';
 }
 
@@ -1040,8 +1061,26 @@ async function mostrarFormVenda() {
   document.getElementById('preview-parcelas').innerHTML = '';
   document.getElementById('venda-entrada').value = '';
   document.getElementById('venda-data-primeira').value = '';
-  await carregarVendedoresSelect('venda-vendedor');
-  await carregarEquipesParaVenda();
+
+  if (perfilAtivo === 'vendedor') {
+    if (funcionarioLogado?.id) document.getElementById('venda-vendedor').value = funcionarioLogado.id;
+    document.getElementById('campo-vendedor-wrap').style.display = 'none';
+    await carregarEquipeAtivaVendedor();
+    document.getElementById('venda-equipe').value = equipeAtiva?.id || '';
+    document.getElementById('campo-equipe-wrap').style.display = 'none';
+    await carregarEstoqueProdutos();
+    document.getElementById('campo-produto-texto').style.display = 'none';
+    document.getElementById('campo-produto-select').style.display = 'block';
+    document.getElementById('venda-produto-select').value = '';
+  } else {
+    await carregarVendedoresSelect('venda-vendedor');
+    await carregarEquipesParaVenda();
+    document.getElementById('campo-vendedor-wrap').style.display = '';
+    document.getElementById('campo-equipe-wrap').style.display = '';
+    document.getElementById('campo-produto-texto').style.display = '';
+    document.getElementById('campo-produto-select').style.display = 'none';
+  }
+
   document.getElementById('form-dados-venda').style.display = 'block';
   document.getElementById('btn-salvar-venda').style.display = 'inline-block';
 }
@@ -1086,7 +1125,7 @@ async function salvarVenda() {
   const valor = parseFloat(document.getElementById('venda-valor').value);
   if (!valor || valor <= 0) { alert('Digite o valor da venda!'); return; }
   const produto = document.getElementById('venda-produto').value.trim();
-  if (!produto) { alert('Digite o produto!'); return; }
+  if (!produto) { alert('Selecione ou informe o produto!'); return; }
   const tipo = document.getElementById('venda-tipo').value;
   const vendedorId = document.getElementById('venda-vendedor').value || null;
   const dados = {
@@ -1123,17 +1162,161 @@ for (let i = 0; i < dados.num_parcelas; i++) {
     }
     await sb.from('parcelas').insert(parcelas);
   }
-  fecharModal('modal-venda');
+  fecharModalVenda();
+  // For vendedor: decrement equipe_estoque
+  if (perfilAtivo === 'vendedor' && equipeAtiva?.id && dados.produto) {
+    const { data: estoqueItems } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
+    const item = (estoqueItems || []).find(e => e.produto.trim().toLowerCase() === dados.produto.trim().toLowerCase());
+    if (item) {
+      await sb.from('equipe_estoque').update({ quantidade_voltou: (item.quantidade_voltou || 0) + 1 }).eq('id', item.id);
+    }
+  }
   alert(`Venda registrada com sucesso! Código: ${dados.codigo}`);
   carregarVendas();
   carregarDashboard();
 }
 
 async function carregarVendas() {
+  if (perfilAtivo === 'vendedor') { await carregarVendasVendedor(); return; }
   const { data, error } = await sb.from('vendas').select('*, clientes(nome, codigo), funcionarios(nome)').order('data_venda', { ascending: false }).limit(100);
   if (error) { document.getElementById('lista-vendas').innerHTML = 'Erro ao carregar.'; return; }
   todasVendas = data || [];
   renderVendas(todasVendas);
+  carregarAutorizacoesPendentes();
+}
+
+async function carregarVendasVendedor() {
+  const lista = document.getElementById('lista-vendas');
+  await carregarEquipeAtivaVendedor();
+  if (!equipeAtiva) {
+    lista.innerHTML = '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:1rem 1.25rem;font-size:14px;">Você não está em nenhuma equipe ativa esta semana.</div>';
+    return;
+  }
+  const { data, error } = await sb.from('vendas')
+    .select('*, clientes(nome, codigo), funcionarios(nome)')
+    .eq('equipe_id', equipeAtiva.id)
+    .order('data_venda', { ascending: false });
+  if (error) { lista.innerHTML = 'Erro ao carregar.'; return; }
+  const vendas = data || [];
+  if (!vendas.length) {
+    lista.innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma venda registrada nesta semana.</p>';
+    return;
+  }
+  lista.innerHTML = `<div class="tabela-wrap"><table>
+    <thead><tr><th>Código</th><th>Cliente</th><th>Produto</th><th>Tipo</th><th>Valor</th><th>Data</th></tr></thead>
+    <tbody>${vendas.map(v => `<tr>
+      <td><span class="codigo-badge">${v.codigo||'—'}</span></td>
+      <td>${v.clientes?.nome||'—'}</td>
+      <td>${v.produto||'—'}</td>
+      <td><span class="badge ${v.status==='devolvida'?'vermelho':v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':'roxo'}">${v.status==='devolvida'?'Devolvida':v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':'Outro'}</span></td>
+      <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+      <td>${v.data_venda?new Date(v.data_venda).toLocaleDateString('pt-BR'):'—'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+async function carregarEquipeAtivaVendedor() {
+  if (!funcionarioLogado?.id) { equipeAtiva = null; return; }
+  const hoje = new Date().toISOString().split('T')[0];
+  const { data: semana } = await sb.from('semanas_venda').select('id').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
+  if (!semana) { equipeAtiva = null; return; }
+  const { data: membros } = await sb.from('equipe_membros').select('equipe_id').eq('funcionario_id', funcionarioLogado.id);
+  if (!membros?.length) { equipeAtiva = null; return; }
+  const equipeIds = membros.map(m => m.equipe_id);
+  const { data: eq } = await sb.from('equipes').select('id, rota, caminhoes(identificacao)').in('id', equipeIds).eq('semana_id', semana.id).eq('encerrada', false).maybeSingle();
+  equipeAtiva = eq || null;
+}
+
+async function carregarEstoqueProdutos() {
+  const sel = document.getElementById('venda-produto-select');
+  const msg = document.getElementById('msg-estoque-produto');
+  if (!equipeAtiva?.id) {
+    sel.innerHTML = '<option value="">Sem equipe ativa</option>';
+    if (msg) msg.innerHTML = '<span style="color:#A32D2D;">Nenhuma equipe ativa encontrada.</span>';
+    return;
+  }
+  const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
+  const disponiveis = (estoque || []).filter(e => e.quantidade_saida - (e.quantidade_voltou || 0) > 0);
+  if (!disponiveis.length) {
+    sel.innerHTML = '<option value="">Estoque esgotado</option>';
+    if (msg) msg.innerHTML = '<span style="color:#A32D2D;">Estoque esgotado para todos os itens.</span>';
+    return;
+  }
+  if (msg) msg.innerHTML = '';
+  sel.innerHTML = '<option value="">Selecione o produto...</option>' +
+    disponiveis.map(e => {
+      const disp = e.quantidade_saida - (e.quantidade_voltou || 0);
+      return `<option value="${e.produto}">${e.produto} (${disp} disponível${disp > 1 ? 'is' : ''})</option>`;
+    }).join('');
+}
+
+function selecionarProdutoEstoque(sel) {
+  document.getElementById('venda-produto').value = sel.value;
+}
+
+function fecharModalVenda() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  fecharModal('modal-venda');
+}
+
+async function solicitarAutorizacaoSemCPF() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  const codigo = String(Math.floor(100000 + Math.random() * 900000));
+  const painel = document.getElementById('painel-autorizacao');
+  painel.style.display = 'block';
+  painel.innerHTML = `<div style="background:#E6F1FB;border:1px solid #9fc6e8;border-radius:8px;padding:1rem;margin-bottom:.5rem;text-align:center;">
+    <div style="font-size:12px;color:#185FA5;margin-bottom:8px;">Fale este código para o gestor:</div>
+    <div style="font-size:40px;font-weight:700;letter-spacing:10px;color:#185FA5;font-family:monospace;">${codigo}</div>
+    <div style="font-size:12px;color:#888;margin-top:8px;">Aguardando autorização do gestor...</div>
+  </div>`;
+  const { data, error } = await sb.from('autorizacoes_venda').insert({ codigo, status: 'pendente' }).select().single();
+  if (error) { painel.innerHTML = '<div class="msg erro">Erro ao gerar código de autorização.</div>'; return; }
+  autorizacaoAtualId = data.id;
+  pollInterval = setInterval(async () => {
+    const { data: aut } = await sb.from('autorizacoes_venda').select('status').eq('id', autorizacaoAtualId).single();
+    if (aut?.status === 'autorizado') {
+      clearInterval(pollInterval); pollInterval = null;
+      painel.innerHTML = `<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#3B6D11;font-weight:500;">✓ Autorizado! Preencha os dados do cliente abaixo.</div>`;
+      document.getElementById('resultado-busca-cliente').innerHTML = '<div class="cliente-nao-encontrado">Venda autorizada sem CPF. Preencha os dados abaixo.</div>';
+      await carregarCobradoresSelect('vnc-cobrador');
+      document.getElementById('form-novo-cliente-venda').style.display = 'block';
+      ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    } else if (aut?.status === 'negado') {
+      clearInterval(pollInterval); pollInterval = null;
+      painel.innerHTML = `<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#A32D2D;font-weight:500;">✗ Autorização negada pelo gestor.</div>`;
+    }
+  }, 5000);
+}
+
+async function carregarAutorizacoesPendentes() {
+  const wrap = document.getElementById('autorizacoes-wrap');
+  if (!wrap) return;
+  const { data } = await sb.from('autorizacoes_venda').select('*').eq('status', 'pendente').order('created_at', { ascending: false });
+  if (!data?.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  wrap.innerHTML = `<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:1rem;">
+    <div class="secao" style="margin-top:0;color:#854F0B;border-color:#FAC775;">Autorizações pendentes (${data.length})</div>
+    ${data.map(a => `<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #fde8b8;">
+      <div>
+        <span style="font-size:24px;font-weight:700;letter-spacing:6px;font-family:monospace;color:#854F0B;">${a.codigo}</span>
+        <span style="font-size:11px;color:#888;margin-left:8px;">${new Date(a.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn" style="font-size:11px;padding:3px 10px;background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;" onclick="autorizarVenda('${a.id}')">Autorizar</button>
+        <button class="btn" style="font-size:11px;padding:3px 10px;color:#A32D2D;border-color:#f5c6c6;" onclick="negarVenda('${a.id}')">Negar</button>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+async function autorizarVenda(id) {
+  await sb.from('autorizacoes_venda').update({ status: 'autorizado', respondido_em: new Date().toISOString() }).eq('id', id);
+  carregarAutorizacoesPendentes();
+}
+
+async function negarVenda(id) {
+  await sb.from('autorizacoes_venda').update({ status: 'negado', respondido_em: new Date().toISOString() }).eq('id', id);
+  carregarAutorizacoesPendentes();
 }
 
 function renderVendas(lista) {
@@ -2053,7 +2236,7 @@ async function carregarEquipeVendedor() {
     html += `<div class="tabela-wrap"><table>
       <thead><tr><th>Produto</th><th>Carregado</th><th>Vendido</th><th>Disponível</th></tr></thead>
       <tbody>${estoque.map(e => {
-        const vendidoProd = vendasEquipe.filter(v => v.produto && v.produto.trim().toLowerCase() === e.produto.trim().toLowerCase()).length;
+        const vendidoProd = e.quantidade_voltou != null ? e.quantidade_voltou : vendasEquipe.filter(v => v.produto && v.produto.trim().toLowerCase() === e.produto.trim().toLowerCase()).length;
         const disponivel = e.quantidade_saida - vendidoProd;
         const rowStyle = disponivel <= 0 ? 'background:#fde8e8;' : disponivel === 1 ? 'background:#FAEEDA;' : '';
         const corDisp = disponivel <= 0 ? '#A32D2D' : disponivel === 1 ? '#854F0B' : '#185FA5';
