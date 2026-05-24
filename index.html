@@ -1265,16 +1265,15 @@ function fecharModalVenda() {
 
 async function solicitarAutorizacaoSemCPF() {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-  const codigo = String(Math.floor(100000 + Math.random() * 900000));
+  const nomeVendedor = funcionarioLogado?.nome || 'Vendedor';
   const painel = document.getElementById('painel-autorizacao');
   painel.style.display = 'block';
   painel.innerHTML = `<div style="background:#E6F1FB;border:1px solid #9fc6e8;border-radius:8px;padding:1rem;margin-bottom:.5rem;text-align:center;">
-    <div style="font-size:12px;color:#185FA5;margin-bottom:8px;">Fale este código para o gestor:</div>
-    <div style="font-size:40px;font-weight:700;letter-spacing:10px;color:#185FA5;font-family:monospace;">${codigo}</div>
-    <div style="font-size:12px;color:#888;margin-top:8px;">Aguardando autorização do gestor...</div>
+    <div style="font-size:13px;color:#185FA5;font-weight:500;">Solicitação enviada ao gestor</div>
+    <div style="font-size:12px;color:#888;margin-top:6px;">Aguardando autorização...</div>
   </div>`;
-  const { data, error } = await sb.from('autorizacoes_venda').insert({ codigo, status: 'pendente' }).select().single();
-  if (error) { painel.innerHTML = '<div class="msg erro">Erro ao gerar código de autorização.</div>'; return; }
+  const { data, error } = await sb.from('autorizacoes_venda').insert({ codigo: nomeVendedor, status: 'pendente' }).select().single();
+  if (error) { painel.innerHTML = '<div class="msg erro">Erro ao enviar solicitação.</div>'; return; }
   autorizacaoAtualId = data.id;
   pollInterval = setInterval(async () => {
     const { data: aut } = await sb.from('autorizacoes_venda').select('status').eq('id', autorizacaoAtualId).single();
@@ -1302,8 +1301,8 @@ async function carregarAutorizacoesPendentes() {
     <div class="secao" style="margin-top:0;color:#854F0B;border-color:#FAC775;">Autorizações pendentes (${data.length})</div>
     ${data.map(a => `<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #fde8b8;">
       <div>
-        <span style="font-size:24px;font-weight:700;letter-spacing:6px;font-family:monospace;color:#854F0B;">${a.codigo}</span>
-        <span style="font-size:11px;color:#888;margin-left:8px;">${new Date(a.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+        <div style="font-size:14px;font-weight:600;color:#1a1a1a;">${a.codigo}</div>
+        <div style="font-size:12px;color:#888;">está solicitando venda sem CPF · ${new Date(a.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
       </div>
       <div style="display:flex;gap:6px;">
         <button class="btn" style="font-size:11px;padding:3px 10px;background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;" onclick="autorizarVenda('${a.id}')">Autorizar</button>
