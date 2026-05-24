@@ -250,6 +250,7 @@ tr:hover td{background:#fafafa;}
   <button id="btn-sair-vendedor" onclick="sair()" style="display:none;position:fixed;top:12px;right:12px;z-index:9999;background:#fff;border:1px solid #ddd;border-radius:8px;padding:7px 14px;font-size:13px;color:#A32D2D;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.12);">Sair</button>
 
   <div class="main">
+    <div id="autorizacoes-wrap" style="display:none;margin-bottom:1rem;"></div>
 
     <div class="page active" id="page-dashboard">
       <div class="page-title">Dashboard — visão geral</div>
@@ -294,7 +295,6 @@ tr:hover td{background:#fafafa;}
       <div class="busca-wrap" id="busca-vendas-wrap">
         <input class="busca" type="text" placeholder="Buscar por código da venda ou cliente..." oninput="buscarVenda(this.value)">
       </div>
-      <div id="autorizacoes-wrap" style="display:none;margin-bottom:1rem;"></div>
       <div id="lista-vendas">Carregando...</div>
     </div>
 
@@ -641,6 +641,7 @@ let mesAtual = null;
 let equipeAtiva = null;
 let autorizacaoAtualId = null;
 let pollInterval = null;
+let gestorPollInterval = null;
 
 async function entrar() {
   const email = document.getElementById('usuario').value.trim();
@@ -655,12 +656,16 @@ async function entrar() {
 
 async function sair() {
   await sb.auth.signOut();
+  if (gestorPollInterval) { clearInterval(gestorPollInterval); gestorPollInterval = null; }
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   perfilAtivo = null;
   funcionarioLogado = null;
+  equipeAtiva = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('tela-login').style.display = 'flex';
   document.getElementById('msg-login').innerHTML = '';
   document.getElementById('info-usuario-logado').innerHTML = '';
+  document.getElementById('autorizacoes-wrap').style.display = 'none';
 }
 
 async function iniciarSessao(user) {
@@ -698,6 +703,10 @@ async function iniciarSessao(user) {
     return;
   }
   aplicarPermissoes(perfilAtivo);
+  if (perfilAtivo === 'gestor') {
+    carregarAutorizacoesPendentes();
+    gestorPollInterval = setInterval(carregarAutorizacoesPendentes, 10000);
+  }
   carregarDashboard();
 }
 
