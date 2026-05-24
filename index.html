@@ -247,6 +247,8 @@ tr:hover td{background:#fafafa;}
     </div>
   </div>
 
+  <button id="btn-sair-vendedor" onclick="sair()" style="display:none;position:fixed;top:12px;right:12px;z-index:9999;background:#fff;border:1px solid #ddd;border-radius:8px;padding:7px 14px;font-size:13px;color:#A32D2D;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.12);">Sair</button>
+
   <div class="main">
 
     <div class="page active" id="page-dashboard">
@@ -719,6 +721,8 @@ function aplicarPermissoes(perfil) {
   if (btnNovaEquipe) btnNovaEquipe.style.display = gestor ? '' : 'none';
   const buscaVendas = document.getElementById('busca-vendas-wrap');
   if (buscaVendas) buscaVendas.style.display = gestor ? '' : 'none';
+  const btnSairVendedor = document.getElementById('btn-sair-vendedor');
+  if (btnSairVendedor) btnSairVendedor.style.display = perfil === 'vendedor' ? 'block' : 'none';
 }
 
 function pg(nome, el) {
