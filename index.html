@@ -601,11 +601,20 @@ tr:hover td{background:#fafafa;}
       </div>
     </div>
     <div class="campo">
+      <label>Foto da casa *</label>
+      <div id="foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
+        <img id="foto-preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid #ddd;display:block;">
+        <button type="button" onclick="removerFoto()" style="margin-top:.4rem;font-size:.8rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
+      </div>
+      <input type="file" id="cli-foto" accept="image/*" capture="environment" onchange="processarFoto(this)" style="display:none;">
+      <button type="button" class="btn" onclick="document.getElementById('cli-foto').click()" style="width:100%;">📷 Tirar / escolher foto</button>
+    </div>
+    <div class="campo">
       <label>Ponto de referência</label>
       <input id="cli-referencia" type="text" placeholder="Ex: próximo ao mercado X">
     </div>
     <div class="campo">
-      <label>Cobrador responsável</label>
+      <label>Cobrador responsável *</label>
       <select id="cli-cobrador">
         <option value="">Selecione o cobrador...</option>
       </select>
@@ -811,6 +820,60 @@ function validarCPFCampo(input) {
   }
 }
 
+function validarIdade(dataNascimento) {
+  if (!dataNascimento) return false;
+  const hoje = new Date();
+  const nasc = new Date(dataNascimento);
+  let idade = hoje.getFullYear() - nasc.getFullYear();
+  const m = hoje.getMonth() - nasc.getMonth();
+  if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) idade--;
+  return idade >= 18;
+}
+
+function processarFoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const MAX = 1200;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        window._fotoCasaBlob = blob;
+        document.getElementById('foto-preview').src = URL.createObjectURL(blob);
+        document.getElementById('foto-preview-wrap').style.display = 'block';
+      }, 'image/webp', 0.82);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removerFoto() {
+  window._fotoCasaBlob = null;
+  window._fotoCasaUrl = null;
+  document.getElementById('cli-foto').value = '';
+  document.getElementById('foto-preview').src = '';
+  document.getElementById('foto-preview-wrap').style.display = 'none';
+}
+
+async function uploadFoto(clienteId) {
+  if (!window._fotoCasaBlob) return null;
+  const path = `clientes/${clienteId}.webp`;
+  const { error } = await sb.storage.from('fotos-clientes').upload(path, window._fotoCasaBlob, {
+    contentType: 'image/webp', upsert: true
+  });
+  if (error) { console.error('Erro upload foto:', error); return null; }
+  const { data } = sb.storage.from('fotos-clientes').getPublicUrl(path);
+  return data.publicUrl;
+}
+
 async function gerarCodigoCliente() {
   const { data } = await sb.from('clientes').select('codigo').not('codigo', 'is', null).order('codigo', { ascending: false }).limit(1);
   if (!data || !data.length || !data[0].codigo) return '00001';
@@ -905,6 +968,11 @@ async function abrirCadastroCliente() {
   document.getElementById('cli-referencia').value = '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Novo cliente';
+  window._fotoCasaBlob = null;
+  window._fotoCasaUrl = null;
+  document.getElementById('cli-foto').value = '';
+  document.getElementById('foto-preview').src = '';
+  document.getElementById('foto-preview-wrap').style.display = 'none';
   await carregarCobradoresSelect('cli-cobrador');
   document.getElementById('modal-cliente').style.display = 'flex';
 }
@@ -925,22 +993,47 @@ async function carregarVendedoresSelect(elId) {
 
 async function salvarCliente() {
   const id = document.getElementById('cli-id').value;
+  const nome = document.getElementById('cli-nome').value.trim();
+  const nascimento = document.getElementById('cli-nascimento').value;
+  const endereco = document.getElementById('cli-endereco').value.trim();
+  const cidade = document.getElementById('cli-cidade').value.trim();
+  const cobradorId = document.getElementById('cli-cobrador').value || null;
   const cpf = document.getElementById('cli-cpf').value.trim();
+
+  if (!nome) { alert('Preencha o nome completo!'); return; }
+  if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
+  if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
+  if (!endereco) { alert('Preencha o endereço!'); return; }
+  if (!cidade) { alert('Preencha a cidade!'); return; }
+  if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
   if (cpf && !validarCPF(cpf)) { alert('CPF inválido!'); return; }
+  if (!id && !window._fotoCasaBlob) { alert('Tire uma foto da casa do cliente!'); return; }
+
   const dados = {
     codigo: document.getElementById('cli-codigo').value,
-    nome: document.getElementById('cli-nome').value.trim(),
-    cpf, telefone: document.getElementById('cli-telefone').value.trim(),
-    data_nascimento: document.getElementById('cli-nascimento').value || null,
-    endereco: document.getElementById('cli-endereco').value.trim(),
+    nome, cpf,
+    telefone: document.getElementById('cli-telefone').value.trim(),
+    data_nascimento: nascimento || null,
+    endereco,
     bairro: document.getElementById('cli-bairro').value.trim(),
-    cidade: document.getElementById('cli-cidade').value.trim(),
+    cidade,
     referencia: document.getElementById('cli-referencia').value.trim(),
-    cobrador_id: document.getElementById('cli-cobrador').value || null,
+    cobrador_id: cobradorId,
   };
-  if (!dados.nome) { alert('Digite o nome!'); return; }
-  if (id) { await sb.from('clientes').update(dados).eq('id', id); }
-  else { await sb.from('clientes').insert(dados); }
+
+  let clienteId = id;
+  if (id) {
+    await sb.from('clientes').update(dados).eq('id', id);
+  } else {
+    const { data: novo } = await sb.from('clientes').insert(dados).select().single();
+    clienteId = novo?.id;
+  }
+
+  if (window._fotoCasaBlob && clienteId) {
+    const fotoUrl = await uploadFoto(clienteId);
+    if (fotoUrl) await sb.from('clientes').update({ foto_casa: fotoUrl }).eq('id', clienteId);
+  }
+
   fecharModal('modal-cliente');
   carregarClientes();
 }
@@ -959,6 +1052,16 @@ async function editarCliente(id) {
   document.getElementById('cli-referencia').value = data.referencia || '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Editar cliente';
+  window._fotoCasaBlob = null;
+  window._fotoCasaUrl = data.foto_casa || null;
+  document.getElementById('cli-foto').value = '';
+  if (data.foto_casa) {
+    document.getElementById('foto-preview').src = data.foto_casa;
+    document.getElementById('foto-preview-wrap').style.display = 'block';
+  } else {
+    document.getElementById('foto-preview').src = '';
+    document.getElementById('foto-preview-wrap').style.display = 'none';
+  }
   await carregarCobradoresSelect('cli-cobrador');
   document.getElementById('cli-cobrador').value = data.cobrador_id || '';
   document.getElementById('modal-cliente').style.display = 'flex';
