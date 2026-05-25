@@ -1348,12 +1348,12 @@ async function carregarAutorizacoesPendentes() {
 }
 
 async function autorizarVenda(id) {
-  await sb.from('autorizacoes_venda').update({ status: 'autorizado', respondido_em: new Date().toISOString() }).eq('id', id);
+  await sb.from('autorizacoes_venda').update({ status: 'autorizado' }).eq('id', id);
   carregarAutorizacoesPendentes();
 }
 
 async function negarVenda(id) {
-  await sb.from('autorizacoes_venda').update({ status: 'negado', respondido_em: new Date().toISOString() }).eq('id', id);
+  await sb.from('autorizacoes_venda').update({ status: 'negado' }).eq('id', id);
   carregarAutorizacoesPendentes();
 }
 
