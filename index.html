@@ -2218,8 +2218,8 @@ async function carregarEquipeVendedor() {
 
   const [{ data: estoque }, { data: vendasBruto, error: errV }, { data: minhasVendas }] = await Promise.all([
     sb.from('equipe_estoque').select('*').eq('equipe_id', equipe.id),
-    sb.from('vendas').select('id, codigo, produto, valor, tipo_pagamento, data_venda, vendedor_id, clientes(nome)').eq('equipe_id', equipe.id).order('data_venda', { ascending: false }),
-    sb.from('vendas').select('id, codigo, produto, valor, tipo_pagamento, data_venda, clientes(nome)').eq('equipe_id', equipe.id).eq('vendedor_id', funcionarioLogado.id).order('data_venda', { ascending: false }),
+    sb.from('vendas').select('id, codigo, produto, valor, tipo, data_venda, vendedor_id, clientes(nome)').eq('equipe_id', equipe.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
+    sb.from('vendas').select('id, codigo, produto, valor, tipo, data_venda, clientes(nome)').eq('equipe_id', equipe.id).eq('vendedor_id', funcionarioLogado.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
   ]);
 
   const vendasEquipe = errV ? [] : (vendasBruto || []);
@@ -2339,7 +2339,7 @@ async function carregarEquipeVendedor() {
         <td><span class="codigo-badge">${v.codigo||'—'}</span></td>
         <td>${v.clientes?.nome||'—'}</td>
         <td>${v.produto||'—'}</td>
-        <td>${v.tipo_pagamento||'—'}</td>
+        <td>${v.tipo||'—'}</td>
         <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
         <td>${v.data_venda?new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
       </tr>`).join('')}</tbody>
