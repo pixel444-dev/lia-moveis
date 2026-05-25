@@ -1204,12 +1204,19 @@ for (let i = 0; i < dados.num_parcelas; i++) {
   // Atualizar totais da equipe
   if (dados.equipe_id) {
     const { data: vendasEquipe } = await sb.from('vendas')
-      .select('valor')
+      .select('valor, tipo')
       .eq('equipe_id', dados.equipe_id)
       .neq('status', 'devolvida');
-    const totalValor = (vendasEquipe || []).reduce((a, v) => a + Number(v.valor), 0);
-    const totalVendas = (vendasEquipe || []).length;
-    await sb.from('equipes').update({ total_valor: totalValor, total_vendas: totalVendas }).eq('id', dados.equipe_id);
+    const ve = vendasEquipe || [];
+    const totalCaixa  = ve.filter(v => v.tipo === 'avista' || v.tipo === 'entrada').reduce((a, v) => a + Number(v.valor), 0);
+    const totalCredito = ve.filter(v => v.tipo === 'entrada').reduce((a, v) => a + Number(v.valor), 0);
+    const totalGeral  = ve.reduce((a, v) => a + Number(v.valor), 0);
+    await sb.from('equipes').update({
+      total_avista: totalCaixa,
+      total_credito: totalCredito,
+      total_valor: totalGeral,
+      total_vendas: ve.length,
+    }).eq('id', dados.equipe_id);
   }
   fecharModalVenda();
   // For vendedor: decrement equipe_estoque
@@ -2208,9 +2215,11 @@ async function carregarEquipeVendedor() {
   ]);
 
   const vendasEquipe = errV ? [] : (vendasBruto || []);
-  const totalEquipe = vendasEquipe.reduce((a, v) => a + Number(v.valor), 0);
+  const totalGeral   = vendasEquipe.reduce((a, v) => a + Number(v.valor), 0);
+  const totalCaixa   = vendasEquipe.filter(v => v.tipo === 'avista' || v.tipo === 'entrada').reduce((a, v) => a + Number(v.valor), 0);
+  const totalCredito = vendasEquipe.filter(v => v.tipo === 'entrada').reduce((a, v) => a + Number(v.valor), 0);
   const meta = equipe.meta;
-  const pct = meta ? Math.min(100, (totalEquipe / meta) * 100) : null;
+  const pct = meta ? Math.min(100, (totalGeral / meta) * 100) : null;
   const barColor = pct == null ? '#185FA5' : pct < 50 ? '#A32D2D' : pct < 80 ? '#854F0B' : '#3B6D11';
 
   const totalMeu = (minhasVendas || []).reduce((a, v) => a + Number(v.valor), 0);
@@ -2231,9 +2240,27 @@ async function carregarEquipeVendedor() {
     <div style="margin-top:6px;"><span class="badge azul">${papelLabel}</span></div>
   </div>`;
 
-  // Card de meta
+  // Cards de totais
+  html += `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;margin-bottom:1rem;">
+    <div class="card-metrica" style="text-align:center;">
+      <div style="font-size:10px;color:#888;margin-bottom:4px;font-weight:600;text-transform:uppercase;">Dinheiro em caixa</div>
+      <div style="font-size:15px;font-weight:700;color:#3B6D11;">R$ ${totalCaixa.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+      <div style="font-size:10px;color:#aaa;margin-top:2px;">à vista + entradas</div>
+    </div>
+    <div class="card-metrica" style="text-align:center;">
+      <div style="font-size:10px;color:#888;margin-bottom:4px;font-weight:600;text-transform:uppercase;">Crediário</div>
+      <div style="font-size:15px;font-weight:700;color:#185FA5;">R$ ${totalCredito.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+      <div style="font-size:10px;color:#aaa;margin-top:2px;">contratos parcelados</div>
+    </div>
+    <div class="card-metrica" style="text-align:center;">
+      <div style="font-size:10px;color:#888;margin-bottom:4px;font-weight:600;text-transform:uppercase;">Total geral</div>
+      <div style="font-size:15px;font-weight:700;color:#1a1a1a;">R$ ${totalGeral.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+      <div style="font-size:10px;color:#aaa;margin-top:2px;">todas as vendas</div>
+    </div>
+  </div>`;
+  // Barra de progresso da meta
   if (meta) {
-    const faltam = Math.max(0, meta - totalEquipe);
+    const faltam = Math.max(0, meta - totalGeral);
     html += `<div class="card-metrica" style="margin-bottom:1rem;">
       <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:8px;">Meta da equipe</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -2243,12 +2270,7 @@ async function carregarEquipeVendedor() {
       <div style="background:#e0e0e0;border-radius:4px;height:10px;margin-bottom:8px;overflow:hidden;">
         <div style="background:${barColor};width:${pct}%;height:100%;border-radius:4px;transition:width .4s;"></div>
       </div>
-      <div style="font-size:13px;">Total vendido pela equipe: <strong style="color:#185FA5;">R$ ${totalEquipe.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong></div>
-      <div style="font-size:12px;color:#888;margin-top:3px;">${faltam > 0 ? `Faltam R$ ${faltam.toLocaleString('pt-BR',{minimumFractionDigits:2})} para bater a meta` : '<span style="color:#3B6D11;font-weight:600;">Meta batida!</span>'}</div>
-    </div>`;
-  } else {
-    html += `<div class="card-metrica" style="margin-bottom:1rem;">
-      <div style="font-size:13px;color:#555;">Total vendido pela equipe: <strong style="color:#185FA5;">R$ ${totalEquipe.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong></div>
+      <div style="font-size:12px;color:#888;">${faltam > 0 ? `Faltam R$ ${faltam.toLocaleString('pt-BR',{minimumFractionDigits:2})} para bater a meta` : '<span style="color:#3B6D11;font-weight:600;">Meta batida!</span>'}</div>
     </div>`;
   }
 
