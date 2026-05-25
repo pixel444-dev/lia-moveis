@@ -733,6 +733,9 @@ async function iniciarSessao(user) {
     carregarAutorizacoesPendentes();
     gestorPollInterval = setInterval(carregarAutorizacoesPendentes, 10000);
   }
+  if (perfilAtivo === 'vendedor') {
+    carregarEquipeAtivaVendedor();
+  }
   carregarDashboard();
 }
 
@@ -1166,7 +1169,12 @@ async function salvarVenda() {
   const produto = document.getElementById('venda-produto').value.trim();
   if (!produto) { alert('Selecione ou informe o produto!'); return; }
   const tipo = document.getElementById('venda-tipo').value;
-  const vendedorId = document.getElementById('venda-vendedor').value || null;
+  const vendedorId = perfilAtivo === 'vendedor'
+    ? (funcionarioLogado?.id || null)
+    : (document.getElementById('venda-vendedor').value || null);
+  const equipeId = perfilAtivo === 'vendedor'
+    ? (equipeAtiva?.id || null)
+    : (document.getElementById('venda-equipe').value || null);
   const dados = {
     codigo: document.getElementById('venda-codigo').value,
     cliente_id: clienteId,
@@ -1175,7 +1183,7 @@ async function salvarVenda() {
     num_parcelas: tipo === 'entrada' ? parseInt(document.getElementById('venda-parcelas').value) || null : null,
 entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada').value) || 0 : 0,
     observacao: document.getElementById('venda-obs').value.trim(),
-    equipe_id: document.getElementById('venda-equipe').value || null,
+    equipe_id: equipeId,
   };
   const { data: venda, error } = await sb.from('vendas').insert(dados).select().single();
   if (error) { alert('Erro ao registrar venda!'); return; }
