@@ -1201,6 +1201,16 @@ for (let i = 0; i < dados.num_parcelas; i++) {
     }
     await sb.from('parcelas').insert(parcelas);
   }
+  // Atualizar totais da equipe
+  if (dados.equipe_id) {
+    const { data: vendasEquipe } = await sb.from('vendas')
+      .select('valor')
+      .eq('equipe_id', dados.equipe_id)
+      .neq('status', 'devolvida');
+    const totalValor = (vendasEquipe || []).reduce((a, v) => a + Number(v.valor), 0);
+    const totalVendas = (vendasEquipe || []).length;
+    await sb.from('equipes').update({ total_valor: totalValor, total_vendas: totalVendas }).eq('id', dados.equipe_id);
+  }
   fecharModalVenda();
   // For vendedor: decrement equipe_estoque
   if (perfilAtivo === 'vendedor' && equipeAtiva?.id && dados.produto) {
