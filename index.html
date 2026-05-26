@@ -435,6 +435,7 @@ tr:hover td{background:#fafafa;}
     <input type="hidden" id="venda-cliente-id">
 
     <div id="form-novo-cliente-venda" style="display:none;">
+      <input type="hidden" id="vnc-edit-id">
       <div class="secao">Cadastrar novo cliente</div>
       <div class="campo">
         <label>Nome completo *</label>
@@ -487,6 +488,7 @@ tr:hover td{background:#fafafa;}
     </div>
 
     <div id="form-dados-venda" style="display:none;">
+      <button type="button" onclick="voltarParaCadastroCliente()" style="font-size:12px;color:#185FA5;background:none;border:none;cursor:pointer;margin-bottom:.75rem;padding:0;">← Editar dados do cliente</button>
       <div class="secao">2. Dados da venda</div>
       <div class="grid2">
         <div class="campo">
@@ -515,10 +517,9 @@ tr:hover td{background:#fafafa;}
         <div class="campo">
           <label>Tipo de venda</label>
           <select id="venda-tipo" onchange="atualizarFormVenda()">
+            <option value="">Selecione o tipo...</option>
             <option value="avista">À vista</option>
-            <option value="entrada">Entrada de crediário</option>
-            <option value="parcela">Parcela avulsa</option>
-            <option value="devolucao">Troca / devolução</option>
+            <option value="entrada">A prazo</option>
           </select>
         </div>
         <div class="campo">
@@ -527,18 +528,17 @@ tr:hover td{background:#fafafa;}
         </div>
       </div>
      <div id="campo-parcelas" style="display:none;">
-  <div class="grid2">
-    <div class="campo">
-      <label>Número de parcelas</label>
-      <input id="venda-parcelas" type="number" placeholder="Ex: 10" min="1" oninput="atualizarPreviewParcelas()">
-    </div>
-    <div class="campo">
-      <label>Entrada (opcional)</label>
-      <input id="venda-entrada" type="number" placeholder="R$ 0,00" min="0" oninput="atualizarPreviewParcelas()">
-    </div>
+  <div class="campo">
+    <label>Número de parcelas *</label>
+    <div id="seletor-parcelas" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;"></div>
+    <input type="hidden" id="venda-parcelas">
   </div>
   <div class="campo">
-    <label>Data da primeira parcela</label>
+    <label>Entrada (opcional)</label>
+    <input id="venda-entrada" type="number" placeholder="R$ 0,00" min="0" oninput="atualizarPreviewParcelas()">
+  </div>
+  <div class="campo">
+    <label>Data da primeira parcela *</label>
     <input id="venda-data-primeira" type="date" oninput="atualizarPreviewParcelas()">
   </div>
   <div id="preview-parcelas"></div>
@@ -1239,6 +1239,8 @@ async function buscarClientePorCPF() {
     await carregarCobradoresSelect('vnc-cobrador');
     document.getElementById('form-novo-cliente-venda').style.display = 'block';
     ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('vnc-edit-id').value = '';
+    window._vncFotoUrl = null;
     removerFotoVnc();
   }
 }
@@ -1257,11 +1259,11 @@ async function salvarNovoClienteVenda() {
   if (!endereco) { alert('Preencha o endereço!'); return; }
   if (!cidade) { alert('Preencha a cidade!'); return; }
   if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
-  if (!window._vncFotoBlob) { alert('Tire uma foto da casa do cliente!'); return; }
+  const editId = document.getElementById('vnc-edit-id').value;
+  if (!editId && !window._vncFotoBlob) { alert('Tire uma foto da casa do cliente!'); return; }
 
-  const codigo = await gerarCodigoCliente();
   const dados = {
-    codigo, nome, cpf,
+    nome, cpf,
     telefone: document.getElementById('vnc-telefone').value.trim(),
     data_nascimento: nascimento,
     endereco,
@@ -1270,23 +1272,38 @@ async function salvarNovoClienteVenda() {
     referencia: document.getElementById('vnc-referencia').value.trim(),
     cobrador_id: cobradorId,
   };
-  const { data, error } = await sb.from('clientes').insert(dados).select().single();
-  if (error) { alert('Erro ao cadastrar cliente.'); return; }
 
-  if (window._vncFotoBlob && data?.id) {
-    const path = `clientes/${data.id}.webp`;
+  let clienteId, clienteNome, clienteCodigo;
+  if (editId) {
+    await sb.from('clientes').update(dados).eq('id', editId);
+    clienteId = editId;
+    const { data: atualizado } = await sb.from('clientes').select('nome, codigo').eq('id', editId).single();
+    clienteNome = atualizado?.nome || nome;
+    clienteCodigo = atualizado?.codigo || '';
+  } else {
+    const codigo = await gerarCodigoCliente();
+    const { data, error } = await sb.from('clientes').insert({ ...dados, codigo, cpf }).select().single();
+    if (error) { alert('Erro ao cadastrar cliente.'); return; }
+    clienteId = data.id;
+    clienteNome = data.nome;
+    clienteCodigo = data.codigo;
+  }
+
+  if (window._vncFotoBlob && clienteId) {
+    const path = `clientes/${clienteId}.webp`;
     const { error: errUp } = await sb.storage.from('fotos-clientes').upload(path, window._vncFotoBlob, { contentType: 'image/webp', upsert: true });
     if (errUp) {
       console.error('Erro upload foto:', errUp);
       alert(`Foto não foi salva: ${errUp.message}\n\nVerifique as políticas de acesso do bucket fotos-clientes no Supabase.`);
     } else {
       const { data: pub } = sb.storage.from('fotos-clientes').getPublicUrl(path);
-      await sb.from('clientes').update({ foto_casa: pub.publicUrl }).eq('id', data.id);
+      await sb.from('clientes').update({ foto_casa: pub.publicUrl }).eq('id', clienteId);
     }
   }
 
-  document.getElementById('venda-cliente-id').value = data.id;
-  document.getElementById('resultado-busca-cliente').innerHTML = `<div class="cliente-encontrado">✓ Cliente cadastrado: <strong>${data.nome}</strong> — Código ${data.codigo}</div>`;
+  document.getElementById('venda-cliente-id').value = clienteId;
+  document.getElementById('resultado-busca-cliente').innerHTML = `<div class="cliente-encontrado">✓ ${editId ? 'Cliente atualizado' : 'Cliente cadastrado'}: <strong>${clienteNome}</strong> — Código ${clienteCodigo}</div>`;
+  document.getElementById('vnc-edit-id').value = '';
   document.getElementById('form-novo-cliente-venda').style.display = 'none';
   await mostrarFormVenda();
 }
@@ -1297,11 +1314,13 @@ async function mostrarFormVenda() {
   document.getElementById('venda-produto').value = '';
   document.getElementById('venda-valor').value = '';
   document.getElementById('venda-obs').value = '';
-  document.getElementById('venda-tipo').value = 'avista';
+  document.getElementById('venda-tipo').value = '';
   document.getElementById('campo-parcelas').style.display = 'none';
   document.getElementById('preview-parcelas').innerHTML = '';
+  document.getElementById('venda-parcelas').value = '';
   document.getElementById('venda-entrada').value = '';
   document.getElementById('venda-data-primeira').value = '';
+  renderSeletorParcelas();
 
   if (perfilAtivo === 'vendedor') {
     if (funcionarioLogado?.id) document.getElementById('venda-vendedor').value = funcionarioLogado.id;
@@ -1324,6 +1343,59 @@ async function mostrarFormVenda() {
 
   document.getElementById('form-dados-venda').style.display = 'block';
   document.getElementById('btn-salvar-venda').style.display = 'inline-block';
+}
+
+function renderSeletorParcelas() {
+  const wrap = document.getElementById('seletor-parcelas');
+  wrap.innerHTML = '';
+  for (let i = 1; i <= 12; i++) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = i + 'x';
+    btn.style.cssText = 'padding:6px 12px;border-radius:8px;border:1.5px solid #ddd;background:#fff;color:#1a1a1a;font-size:13px;cursor:pointer;font-family:system-ui,sans-serif;transition:all .15s;';
+    btn.onclick = () => {
+      document.querySelectorAll('#seletor-parcelas button').forEach(b => {
+        b.style.background = '#fff'; b.style.color = '#1a1a1a'; b.style.borderColor = '#ddd';
+      });
+      btn.style.background = '#185FA5'; btn.style.color = '#fff'; btn.style.borderColor = '#185FA5';
+      document.getElementById('venda-parcelas').value = i;
+      atualizarPreviewParcelas();
+    };
+    wrap.appendChild(btn);
+  }
+}
+
+function voltarParaCadastroCliente() {
+  document.getElementById('form-dados-venda').style.display = 'none';
+  document.getElementById('btn-salvar-venda').style.display = 'none';
+  const clienteId = document.getElementById('venda-cliente-id').value;
+  if (clienteId) {
+    document.getElementById('form-novo-cliente-venda').style.display = 'block';
+    editarClienteNoModal(clienteId);
+  }
+}
+
+async function editarClienteNoModal(clienteId) {
+  const { data } = await sb.from('clientes').select('*').eq('id', clienteId).single();
+  if (!data) return;
+  document.getElementById('vnc-edit-id').value = clienteId;
+  document.getElementById('vnc-nome').value = data.nome || '';
+  document.getElementById('vnc-telefone').value = data.telefone || '';
+  document.getElementById('vnc-nascimento').value = data.data_nascimento || '';
+  document.getElementById('vnc-endereco').value = data.endereco || '';
+  document.getElementById('vnc-bairro').value = data.bairro || '';
+  document.getElementById('vnc-cidade').value = data.cidade || '';
+  document.getElementById('vnc-referencia').value = data.referencia || '';
+  window._vncFotoBlob = null;
+  window._vncFotoUrl = data.foto_casa || null;
+  if (data.foto_casa) {
+    document.getElementById('vnc-foto-preview').src = data.foto_casa;
+    document.getElementById('vnc-foto-preview-wrap').style.display = 'block';
+  } else {
+    removerFotoVnc();
+  }
+  await carregarCobradoresSelect('vnc-cobrador');
+  document.getElementById('vnc-cobrador').value = data.cobrador_id || '';
 }
 
 function atualizarFormVenda() {
@@ -1363,14 +1435,28 @@ function atualizarPreviewParcelas() {
 async function salvarVenda() {
   const clienteId = document.getElementById('venda-cliente-id').value;
   if (!clienteId) { alert('Selecione o cliente!'); return; }
+  const tipo = document.getElementById('venda-tipo').value;
+  if (!tipo) { alert('Selecione o tipo de venda!'); return; }
   const valor = parseFloat(document.getElementById('venda-valor').value);
   if (!valor || valor <= 0) { alert('Digite o valor da venda!'); return; }
   const produto = document.getElementById('venda-produto').value.trim();
   if (!produto) { alert('Selecione ou informe o produto!'); return; }
-  const tipo = document.getElementById('venda-tipo').value;
   const vendedorId = perfilAtivo === 'vendedor'
     ? (funcionarioLogado?.id || null)
     : (document.getElementById('venda-vendedor').value || null);
+  if (!vendedorId) { alert('Selecione o vendedor!'); return; }
+  if (tipo === 'entrada') {
+    const parcelas = parseInt(document.getElementById('venda-parcelas').value);
+    const dataPrimeira = document.getElementById('venda-data-primeira').value;
+    if (!parcelas || parcelas < 1) { alert('Selecione o número de parcelas!'); return; }
+    if (parcelas > 12) { alert('Máximo de 12 parcelas!'); return; }
+    if (!dataPrimeira) { alert('Informe a data da primeira parcela!'); return; }
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const dataParc = new Date(dataPrimeira + 'T12:00:00');
+    const diffDias = Math.round((dataParc - hoje) / (1000 * 60 * 60 * 24));
+    if (diffDias < 0) { alert('A data da primeira parcela não pode ser no passado!'); return; }
+    if (diffDias > 70) { alert('A data da primeira parcela não pode ser mais de 70 dias a partir de hoje!'); return; }
+  }
   const equipeId = perfilAtivo === 'vendedor'
     ? (equipeAtiva?.id || null)
     : (document.getElementById('venda-equipe').value || null);
@@ -1543,6 +1629,8 @@ async function solicitarAutorizacaoSemCPF() {
       await carregarCobradoresSelect('vnc-cobrador');
       document.getElementById('form-novo-cliente-venda').style.display = 'block';
       ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      document.getElementById('vnc-edit-id').value = '';
+      window._vncFotoUrl = null;
       removerFotoVnc();
     } else if (aut?.status === 'negado') {
       clearInterval(pollInterval); pollInterval = null;
