@@ -910,7 +910,11 @@ async function uploadFoto(clienteId) {
   const { error } = await sb.storage.from('fotos-clientes').upload(path, window._fotoCasaBlob, {
     contentType: 'image/webp', upsert: true
   });
-  if (error) { console.error('Erro upload foto:', error); return null; }
+  if (error) {
+    console.error('Erro upload foto:', error);
+    alert(`Foto não foi salva: ${error.message}\n\nVerifique as políticas de acesso do bucket fotos-clientes no Supabase.`);
+    return null;
+  }
   const { data } = sb.storage.from('fotos-clientes').getPublicUrl(path);
   return data.publicUrl;
 }
@@ -967,7 +971,7 @@ function renderClientes(lista) {
       <tbody>${lista.map(c => `
         <tr>
           <td><span class="codigo-badge">${c.codigo||'—'}</span></td>
-          <td>${c.nome}</td>
+          <td style="cursor:pointer;color:#185FA5;" onclick="verDetalhesCliente('${c.id}')">${c.nome}</td>
           <td>${c.cpf||'—'}</td>
           <td>${c.telefone||'—'}</td>
           <td>${c.cidade||'—'}</td>
@@ -975,6 +979,38 @@ function renderClientes(lista) {
         </tr>`).join('')}
       </tbody>
     </table></div>`;
+}
+
+async function verDetalhesCliente(clienteId) {
+  const { data: c } = await sb.from('clientes').select('*, funcionarios(nome)').eq('id', clienteId).single();
+  const { data: parcelas } = await sb.from('parcelas').select('pago, valor, data_vencimento, status').eq('cliente_id', clienteId);
+
+  const emAberto = parcelas?.filter(p => !p.pago && p.status !== 'devolvida') || [];
+  const pagas = parcelas?.filter(p => p.pago) || [];
+  const hoje = new Date();
+  const atrasadas = emAberto.filter(p => new Date(p.data_vencimento + 'T12:00:00') < hoje);
+  const totalAberto = emAberto.reduce((a, p) => a + Number(p.valor), 0);
+
+  document.getElementById('det-foto').src = c.foto_casa || '';
+  document.getElementById('det-foto-wrap').style.display = c.foto_casa ? 'block' : 'none';
+  document.getElementById('det-nome').textContent = c.nome;
+  const detCodigo = document.getElementById('det-codigo');
+  detCodigo.textContent = c.codigo || '—';
+  detCodigo.dataset.id = c.id;
+  document.getElementById('det-cpf').textContent = c.cpf || '—';
+  document.getElementById('det-nascimento').textContent = c.data_nascimento ? new Date(c.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
+  document.getElementById('det-telefone').textContent = c.telefone || '—';
+  document.getElementById('det-endereco').textContent = [c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') || '—';
+  document.getElementById('det-referencia').textContent = c.referencia || '—';
+  document.getElementById('det-cobrador').textContent = c.funcionarios?.nome || '—';
+  const dataCadastro = c.criado_em || c.created_at;
+  document.getElementById('det-cadastro').textContent = dataCadastro ? new Date(dataCadastro).toLocaleDateString('pt-BR') : '—';
+  document.getElementById('det-aberto').textContent = `${emAberto.length} parcelas — R$ ${totalAberto.toLocaleString('pt-BR', {minimumFractionDigits:2})}`;
+  document.getElementById('det-pagas').textContent = `${pagas.length} parcelas pagas`;
+  document.getElementById('det-atrasadas').style.display = atrasadas.length > 0 ? 'block' : 'none';
+  document.getElementById('det-atrasadas').textContent = `⚠️ ${atrasadas.length} parcela(s) atrasada(s)`;
+
+  document.getElementById('modal-detalhes-cliente').style.display = 'flex';
 }
 
 function filtrarClientes() {
@@ -1235,7 +1271,10 @@ async function salvarNovoClienteVenda() {
   if (window._vncFotoBlob && data?.id) {
     const path = `clientes/${data.id}.webp`;
     const { error: errUp } = await sb.storage.from('fotos-clientes').upload(path, window._vncFotoBlob, { contentType: 'image/webp', upsert: true });
-    if (!errUp) {
+    if (errUp) {
+      console.error('Erro upload foto:', errUp);
+      alert(`Foto não foi salva: ${errUp.message}\n\nVerifique as políticas de acesso do bucket fotos-clientes no Supabase.`);
+    } else {
       const { data: pub } = sb.storage.from('fotos-clientes').getPublicUrl(path);
       await sb.from('clientes').update({ foto_casa: pub.publicUrl }).eq('id', data.id);
     }
@@ -3039,6 +3078,74 @@ async function toggleUsuarioAtivo(id, ativo) {
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-usuario')">Cancelar</button>
       <button class="btn primario" onclick="salvarUsuario()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALHES CLIENTE -->
+<div class="modal-bg" id="modal-detalhes-cliente">
+  <div class="modal-box" style="max-width:500px;">
+    <div class="modal-header">
+      <strong>Detalhes do cliente</strong>
+      <button onclick="fecharModal('modal-detalhes-cliente')">×</button>
+    </div>
+    <div id="det-foto-wrap" style="margin-bottom:1rem;">
+      <img id="det-foto" style="width:100%;height:200px;object-fit:cover;border-radius:10px;border:1px solid #e0e0e0;" alt="Foto da casa">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.5rem;">
+      <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:3px;">CÓDIGO</div>
+        <div style="font-size:13px;font-weight:500;" id="det-codigo"></div>
+      </div>
+      <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:3px;">CADASTRADO EM</div>
+        <div style="font-size:13px;font-weight:500;" id="det-cadastro"></div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:.5rem;">
+      <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:3px;">NOME</div>
+        <div style="font-size:14px;font-weight:600;" id="det-nome"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;">
+        <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+          <div style="font-size:10px;color:#888;margin-bottom:3px;">CPF</div>
+          <div style="font-size:13px;" id="det-cpf"></div>
+        </div>
+        <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+          <div style="font-size:10px;color:#888;margin-bottom:3px;">NASCIMENTO</div>
+          <div style="font-size:13px;" id="det-nascimento"></div>
+        </div>
+      </div>
+      <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:3px;">CELULAR</div>
+        <div style="font-size:13px;" id="det-telefone"></div>
+      </div>
+      <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:3px;">ENDEREÇO</div>
+        <div style="font-size:13px;" id="det-endereco"></div>
+      </div>
+      <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:3px;">PONTO DE REFERÊNCIA</div>
+        <div style="font-size:13px;" id="det-referencia"></div>
+      </div>
+      <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:3px;">COBRADOR RESPONSÁVEL</div>
+        <div style="font-size:13px;" id="det-cobrador"></div>
+      </div>
+      <div style="background:#EAF3DE;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#3B6D11;margin-bottom:3px;">PARCELAS PAGAS</div>
+        <div style="font-size:13px;color:#3B6D11;font-weight:500;" id="det-pagas"></div>
+      </div>
+      <div style="background:#FAEEDA;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#854F0B;margin-bottom:3px;">PARCELAS EM ABERTO</div>
+        <div style="font-size:13px;color:#854F0B;font-weight:500;" id="det-aberto"></div>
+      </div>
+      <div id="det-atrasadas" style="display:none;background:#FCEBEB;border-radius:8px;padding:.75rem;font-size:13px;color:#A32D2D;font-weight:500;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-detalhes-cliente')">Fechar</button>
+      <button class="btn primario" onclick="fecharModal('modal-detalhes-cliente');editarCliente(document.getElementById('det-codigo').dataset.id)">Editar cliente</button>
     </div>
   </div>
 </div>
