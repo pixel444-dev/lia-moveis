@@ -982,7 +982,9 @@ function renderClientes(lista) {
 }
 
 async function verDetalhesCliente(clienteId) {
-  const { data: c } = await sb.from('clientes').select('*, funcionarios(nome)').eq('id', clienteId).single();
+  const { data: c, error } = await sb.from('clientes').select('*, funcionarios!cobrador_id(nome)').eq('id', clienteId).single();
+  if (error || !c) { console.error('Erro ao carregar cliente:', error); return; }
+
   const { data: parcelas } = await sb.from('parcelas').select('pago, valor, data_vencimento, status').eq('cliente_id', clienteId);
 
   const emAberto = parcelas?.filter(p => !p.pago && p.status !== 'devolvida') || [];
