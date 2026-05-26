@@ -1226,7 +1226,7 @@ async function buscarClientePorCPF() {
   const div = document.getElementById('resultado-busca-cliente');
   if (cpf.length < 11) { div.innerHTML = '<div class="cliente-nao-encontrado">Digite o CPF completo (11 dígitos).</div>'; return; }
   if (!validarCPF(cpf)) { div.innerHTML = '<div class="cliente-nao-encontrado">✗ CPF inválido. Verifique e tente novamente.</div>'; return; }
-  const { data } = await sb.from('clientes').select('*').eq('cpf', cpf).single();
+  const { data } = await sb.from('clientes').select('*').eq('cpf', cpf).maybeSingle();
   if (data) {
     document.getElementById('venda-cliente-id').value = data.id;
     div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>`;
