@@ -829,6 +829,19 @@ function validarCPFCampo(input) {
   }
 }
 
+function calcularTotaisEquipe(vendas) {
+  const totalCaixa = vendas.reduce((a, v) => {
+    if (v.tipo === 'avista') return a + Number(v.valor);
+    if (v.tipo === 'entrada') return a + Number(v.entrada || 0);
+    return a;
+  }, 0);
+  const totalCredito = vendas.reduce((a, v) => {
+    if (v.tipo === 'entrada') return a + (Number(v.valor) - Number(v.entrada || 0));
+    return a;
+  }, 0);
+  return { totalCaixa, totalCredito, totalGeral: totalCaixa + totalCredito };
+}
+
 function validarIdade(dataNascimento) {
   if (!dataNascimento) return false;
   const hoje = new Date();
@@ -1545,13 +1558,11 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
   // Atualizar totais da equipe
   if (dados.equipe_id) {
     const { data: vendasEquipe } = await sb.from('vendas')
-      .select('valor, tipo')
+      .select('valor, tipo, entrada')
       .eq('equipe_id', dados.equipe_id)
       .neq('status', 'devolvida');
     const ve = vendasEquipe || [];
-    const totalCaixa  = ve.filter(v => v.tipo === 'avista' || v.tipo === 'entrada').reduce((a, v) => a + Number(v.valor), 0);
-    const totalCredito = ve.filter(v => v.tipo === 'entrada').reduce((a, v) => a + Number(v.valor), 0);
-    const totalGeral  = ve.reduce((a, v) => a + Number(v.valor), 0);
+    const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(ve);
     await sb.from('equipes').update({
       total_avista: totalCaixa,
       total_credito: totalCredito,
@@ -2610,14 +2621,12 @@ async function carregarEquipeVendedor() {
 
   const [{ data: estoque }, { data: vendasBruto, error: errV }, { data: minhasVendas }] = await Promise.all([
     sb.from('equipe_estoque').select('*').eq('equipe_id', equipe.id),
-    sb.from('vendas').select('id, codigo, produto, valor, tipo, data_venda, vendedor_id, clientes(nome)').eq('equipe_id', equipe.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
-    sb.from('vendas').select('id, codigo, produto, valor, tipo, data_venda, clientes(nome)').eq('equipe_id', equipe.id).eq('vendedor_id', funcionarioLogado.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
+    sb.from('vendas').select('id, codigo, produto, valor, tipo, entrada, data_venda, vendedor_id, clientes(nome)').eq('equipe_id', equipe.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
+    sb.from('vendas').select('id, codigo, produto, valor, tipo, entrada, data_venda, clientes(nome)').eq('equipe_id', equipe.id).eq('vendedor_id', funcionarioLogado.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
   ]);
 
   const vendasEquipe = errV ? [] : (vendasBruto || []);
-  const totalGeral   = vendasEquipe.reduce((a, v) => a + Number(v.valor), 0);
-  const totalCaixa   = vendasEquipe.filter(v => v.tipo === 'avista' || v.tipo === 'entrada').reduce((a, v) => a + Number(v.valor), 0);
-  const totalCredito = vendasEquipe.filter(v => v.tipo === 'entrada').reduce((a, v) => a + Number(v.valor), 0);
+  const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(vendasEquipe);
   const meta = equipe.meta;
   const pct = meta ? Math.min(100, (totalGeral / meta) * 100) : null;
   const barColor = pct == null ? '#185FA5' : pct < 50 ? '#A32D2D' : pct < 80 ? '#854F0B' : '#3B6D11';
