@@ -982,10 +982,13 @@ function renderClientes(lista) {
 }
 
 async function verDetalhesCliente(clienteId) {
-  const { data: c, error } = await sb.from('clientes').select('*, funcionarios!cobrador_id(nome)').eq('id', clienteId).single();
+  const { data: c, error } = await sb.from('clientes').select('*').eq('id', clienteId).single();
   if (error || !c) { console.error('Erro ao carregar cliente:', error); return; }
 
-  const { data: parcelas } = await sb.from('parcelas').select('pago, valor, data_vencimento, status').eq('cliente_id', clienteId);
+  const [{ data: parcelas }, { data: cobradorData }] = await Promise.all([
+    sb.from('parcelas').select('pago, valor, data_vencimento, status').eq('cliente_id', clienteId),
+    c.cobrador_id ? sb.from('funcionarios').select('nome').eq('id', c.cobrador_id).single() : Promise.resolve({ data: null }),
+  ]);
 
   const emAberto = parcelas?.filter(p => !p.pago && p.status !== 'devolvida') || [];
   const pagas = parcelas?.filter(p => p.pago) || [];
@@ -1004,7 +1007,7 @@ async function verDetalhesCliente(clienteId) {
   document.getElementById('det-telefone').textContent = c.telefone || '—';
   document.getElementById('det-endereco').textContent = [c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') || '—';
   document.getElementById('det-referencia').textContent = c.referencia || '—';
-  document.getElementById('det-cobrador').textContent = c.funcionarios?.nome || '—';
+  document.getElementById('det-cobrador').textContent = cobradorData?.nome || '—';
   const dataCadastro = c.criado_em || c.created_at;
   document.getElementById('det-cadastro').textContent = dataCadastro ? new Date(dataCadastro).toLocaleDateString('pt-BR') : '—';
   document.getElementById('det-aberto').textContent = `${emAberto.length} parcelas — R$ ${totalAberto.toLocaleString('pt-BR', {minimumFractionDigits:2})}`;
