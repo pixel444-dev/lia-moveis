@@ -601,7 +601,7 @@ tr:hover td{background:#fafafa;}
       </div>
     </div>
     <div class="campo">
-      <label>Foto da casa *</label>
+      <label id="label-foto-casa">Foto da casa</label>
       <div id="foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
         <img id="foto-preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid #ddd;display:block;">
         <button type="button" onclick="removerFoto()" style="margin-top:.4rem;font-size:.8rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
@@ -968,6 +968,7 @@ async function abrirCadastroCliente() {
   document.getElementById('cli-referencia').value = '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Novo cliente';
+  document.getElementById('label-foto-casa').textContent = perfilAtivo === 'vendedor' ? 'Foto da casa *' : 'Foto da casa (opcional)';
   window._fotoCasaBlob = null;
   window._fotoCasaUrl = null;
   document.getElementById('cli-foto').value = '';
@@ -1000,14 +1001,17 @@ async function salvarCliente() {
   const cobradorId = document.getElementById('cli-cobrador').value || null;
   const cpf = document.getElementById('cli-cpf').value.trim();
 
-  if (!nome) { alert('Preencha o nome completo!'); return; }
-  if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
-  if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
-  if (!endereco) { alert('Preencha o endereço!'); return; }
-  if (!cidade) { alert('Preencha a cidade!'); return; }
-  if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
+  if (!nome) { alert('Digite o nome!'); return; }
   if (cpf && !validarCPF(cpf)) { alert('CPF inválido!'); return; }
-  if (!id && !window._fotoCasaBlob) { alert('Tire uma foto da casa do cliente!'); return; }
+
+  if (perfilAtivo === 'vendedor') {
+    if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
+    if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
+    if (!endereco) { alert('Preencha o endereço!'); return; }
+    if (!cidade) { alert('Preencha a cidade!'); return; }
+    if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
+    if (!id && !window._fotoCasaBlob) { alert('Tire uma foto da casa do cliente!'); return; }
+  }
 
   const dados = {
     codigo: document.getElementById('cli-codigo').value,
@@ -1052,6 +1056,7 @@ async function editarCliente(id) {
   document.getElementById('cli-referencia').value = data.referencia || '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Editar cliente';
+  document.getElementById('label-foto-casa').textContent = perfilAtivo === 'vendedor' ? 'Foto da casa *' : 'Foto da casa (opcional)';
   window._fotoCasaBlob = null;
   window._fotoCasaUrl = data.foto_casa || null;
   document.getElementById('cli-foto').value = '';
