@@ -1233,6 +1233,8 @@ async function abrirNovaVenda() {
   document.getElementById('painel-autorizacao').innerHTML = '';
   document.getElementById('btn-sem-cpf-wrap').style.display = perfilAtivo === 'vendedor' ? 'block' : 'none';
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  window._clienteInadimplente = false;
+  window._autorizacaoInadimplenteId = null;
   document.getElementById('modal-venda').style.display = 'flex';
 }
 
@@ -1244,8 +1246,39 @@ async function buscarClientePorCPF() {
   const { data } = await sb.from('clientes').select('*').eq('cpf', cpf).maybeSingle();
   if (data) {
     document.getElementById('venda-cliente-id').value = data.id;
-    div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>`;
     document.getElementById('form-novo-cliente-venda').style.display = 'none';
+
+    if (perfilAtivo === 'vendedor') {
+      const hoje = new Date().toISOString().split('T')[0];
+      const { data: atrasadas } = await sb.from('parcelas')
+        .select('id, valor')
+        .eq('cliente_id', data.id)
+        .eq('pago', false)
+        .neq('status', 'devolvida')
+        .lt('data_vencimento', hoje);
+
+      if (atrasadas && atrasadas.length > 0) {
+        const totalAtrasado = atrasadas.reduce((a, p) => a + Number(p.valor), 0);
+        div.innerHTML = `
+          <div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>
+          <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:12px 14px;margin-bottom:.75rem;">
+            <div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:6px;">⚠️ Cliente inadimplente</div>
+            <div style="font-size:12px;color:#A32D2D;margin-bottom:8px;">${atrasadas.length} parcela(s) em atraso — Total: R$ ${totalAtrasado.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+            <button class="btn" style="background:#FCEBEB;color:#A32D2D;border-color:#f5c6c6;font-size:12px;"
+              onclick="solicitarAutorizacaoInadimplente('${data.id}',${JSON.stringify(data.nome)},${atrasadas.length},${totalAtrasado})">
+              Solicitar autorização do gestor
+            </button>
+          </div>`;
+        document.getElementById('form-dados-venda').style.display = 'none';
+        document.getElementById('btn-salvar-venda').style.display = 'none';
+        window._clienteInadimplente = true;
+        window._autorizacaoInadimplenteId = null;
+        return;
+      }
+    }
+
+    div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>`;
+    window._clienteInadimplente = false;
     await mostrarFormVenda();
   } else {
     div.innerHTML = `<div class="cliente-nao-encontrado">Cliente não encontrado. Preencha os dados abaixo para cadastrar.</div>`;
@@ -1448,6 +1481,7 @@ function atualizarPreviewParcelas() {
 }
 
 async function salvarVenda() {
+  if (window._clienteInadimplente) { alert('Cliente inadimplente! Solicite autorização do gestor antes de registrar a venda.'); return; }
   const clienteId = document.getElementById('venda-cliente-id').value;
   if (!clienteId) { alert('Selecione o cliente!'); return; }
   const tipo = document.getElementById('venda-tipo').value;
@@ -1631,7 +1665,7 @@ async function solicitarAutorizacaoSemCPF() {
     <div style="font-size:13px;color:#185FA5;font-weight:500;">Solicitação enviada ao gestor</div>
     <div style="font-size:12px;color:#888;margin-top:6px;">Aguardando autorização...</div>
   </div>`;
-  const { data, error } = await sb.from('autorizacoes_venda').insert({ codigo: nomeVendedor, status: 'pendente' }).select().single();
+  const { data, error } = await sb.from('autorizacoes_venda').insert({ codigo: nomeVendedor, status: 'pendente', tipo: 'sem_cpf' }).select().single();
   if (error) { painel.innerHTML = '<div class="msg erro">Erro ao enviar solicitação.</div>'; return; }
   autorizacaoAtualId = data.id;
   pollInterval = setInterval(async () => {
@@ -1653,6 +1687,48 @@ async function solicitarAutorizacaoSemCPF() {
   }, 5000);
 }
 
+async function solicitarAutorizacaoInadimplente(clienteId, nomeCliente, qtdAtrasadas, totalAtrasado) {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+  const descricao = `${nomeCliente} — ${qtdAtrasadas} parcela(s) atrasada(s) — R$ ${Number(totalAtrasado).toLocaleString('pt-BR',{minimumFractionDigits:2})}`;
+  const { data: aut, error } = await sb.from('autorizacoes_venda').insert({
+    codigo,
+    vendedor_id: funcionarioLogado?.id || null,
+    equipe_id: equipeAtiva?.id || null,
+    status: 'pendente',
+    tipo: 'inadimplente',
+    cliente_id: clienteId,
+    descricao,
+  }).select().single();
+  if (error) { alert('Erro ao solicitar autorização!'); return; }
+  window._autorizacaoInadimplenteId = aut.id;
+  const div = document.getElementById('resultado-busca-cliente');
+  div.innerHTML += `
+    <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:12px 14px;text-align:center;margin-top:.5rem;">
+      <div style="font-size:12px;color:#555;margin-bottom:6px;">Informe este código ao gestor:</div>
+      <div style="font-size:36px;font-weight:700;color:#185FA5;letter-spacing:6px;">${codigo}</div>
+      <div style="font-size:11px;color:#888;margin-top:6px;">Aguardando autorização...</div>
+    </div>`;
+  pollInterval = setInterval(async () => {
+    const { data } = await sb.from('autorizacoes_venda').select('status').eq('id', aut.id).single();
+    if (data?.status === 'autorizado') {
+      clearInterval(pollInterval); pollInterval = null;
+      window._clienteInadimplente = false;
+      window._autorizacaoInadimplenteId = null;
+      document.getElementById('resultado-busca-cliente').innerHTML =
+        `<div class="cliente-encontrado">✓ Autorizado pelo gestor! Pode continuar a venda.</div>`;
+      await mostrarFormVenda();
+    } else if (data?.status === 'negado') {
+      clearInterval(pollInterval); pollInterval = null;
+      document.getElementById('resultado-busca-cliente').innerHTML = `
+        <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:12px 14px;">
+          <div style="font-size:13px;font-weight:600;color:#A32D2D;">❌ Autorização negada pelo gestor.</div>
+          <div style="font-size:12px;color:#A32D2D;margin-top:4px;">Não é possível realizar esta venda.</div>
+        </div>`;
+    }
+  }, 5000);
+}
+
 async function carregarAutorizacoesPendentes() {
   const wrap = document.getElementById('autorizacoes-wrap');
   if (!wrap) return;
@@ -1661,16 +1737,25 @@ async function carregarAutorizacoesPendentes() {
   wrap.style.display = 'block';
   wrap.innerHTML = `<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:1rem;">
     <div class="secao" style="margin-top:0;color:#854F0B;border-color:#FAC775;">Autorizações pendentes (${data.length})</div>
-    ${data.map(a => `<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #fde8b8;">
-      <div>
-        <div style="font-size:14px;font-weight:600;color:#1a1a1a;">${a.codigo}</div>
-        <div style="font-size:12px;color:#888;">está solicitando venda sem CPF · ${new Date(a.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
-      </div>
-      <div style="display:flex;gap:6px;">
-        <button class="btn" style="font-size:11px;padding:3px 10px;background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;" onclick="autorizarVenda('${a.id}')">Autorizar</button>
-        <button class="btn" style="font-size:11px;padding:3px 10px;color:#A32D2D;border-color:#f5c6c6;" onclick="negarVenda('${a.id}')">Negar</button>
-      </div>
-    </div>`).join('')}
+    ${data.map(a => {
+      const isInadimplente = a.tipo === 'inadimplente';
+      const tipoBadge = isInadimplente
+        ? `<span class="badge vermelho">Inadimplente</span>`
+        : `<span class="badge amarelo">Sem CPF</span>`;
+      const descricaoLinha = isInadimplente
+        ? (a.descricao || 'Cliente inadimplente')
+        : `${a.codigo} solicitando venda sem CPF`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #fde8b8;">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:2px;">${tipoBadge} ${isInadimplente ? a.codigo : ''}</div>
+          <div style="font-size:12px;color:#888;">${descricaoLinha} · ${new Date(a.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn" style="font-size:11px;padding:3px 10px;background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;" onclick="autorizarVenda('${a.id}')">Autorizar</button>
+          <button class="btn" style="font-size:11px;padding:3px 10px;color:#A32D2D;border-color:#f5c6c6;" onclick="negarVenda('${a.id}')">Negar</button>
+        </div>
+      </div>`;
+    }).join('')}
   </div>`;
 }
 
