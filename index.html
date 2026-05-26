@@ -1259,13 +1259,13 @@ async function buscarClientePorCPF() {
 
       if (atrasadas && atrasadas.length > 0) {
         const totalAtrasado = atrasadas.reduce((a, p) => a + Number(p.valor), 0);
+        window._dadosInadimplente = { clienteId: data.id, nomeCliente: data.nome, qtdAtrasadas: atrasadas.length, totalAtrasado };
         div.innerHTML = `
           <div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>
           <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:12px 14px;margin-bottom:.75rem;">
             <div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:6px;">⚠️ Cliente inadimplente</div>
             <div style="font-size:12px;color:#A32D2D;margin-bottom:8px;">${atrasadas.length} parcela(s) em atraso — Total: R$ ${totalAtrasado.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
-            <button class="btn" style="background:#FCEBEB;color:#A32D2D;border-color:#f5c6c6;font-size:12px;"
-              onclick="solicitarAutorizacaoInadimplente('${data.id}',${JSON.stringify(data.nome)},${atrasadas.length},${totalAtrasado})">
+            <button class="btn" style="background:#FCEBEB;color:#A32D2D;border-color:#f5c6c6;font-size:12px;" onclick="solicitarAutorizacaoInadimplente()">
               Solicitar autorização do gestor
             </button>
           </div>`;
@@ -1687,10 +1687,12 @@ async function solicitarAutorizacaoSemCPF() {
   }, 5000);
 }
 
-async function solicitarAutorizacaoInadimplente(clienteId, nomeCliente, qtdAtrasadas, totalAtrasado) {
+async function solicitarAutorizacaoInadimplente() {
+  const { clienteId, nomeCliente, qtdAtrasadas, totalAtrasado } = window._dadosInadimplente || {};
+  if (!clienteId) { alert('Erro: dados do cliente não encontrados!'); return; }
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   const codigo = Math.floor(100000 + Math.random() * 900000).toString();
-  const descricao = `${nomeCliente} — ${qtdAtrasadas} parcela(s) atrasada(s) — R$ ${Number(totalAtrasado).toLocaleString('pt-BR',{minimumFractionDigits:2})}`;
+  const descricao = nomeCliente + ' — ' + qtdAtrasadas + ' parcela(s) atrasada(s) — R$ ' + Number(totalAtrasado).toLocaleString('pt-BR', {minimumFractionDigits: 2});
   const { data: aut, error } = await sb.from('autorizacoes_venda').insert({
     codigo,
     vendedor_id: funcionarioLogado?.id || null,
