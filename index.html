@@ -496,9 +496,9 @@ tr:hover td{background:#fafafa;}
           <input id="venda-codigo" type="text" readonly style="background:#f9f9f9;color:#888;">
         </div>
         <div class="campo" id="campo-vendedor-wrap">
-          <label>Vendedor responsável</label>
+          <label>Quem realizou a venda *</label>
           <select id="venda-vendedor">
-            <option value="">Selecione...</option>
+            <option value="">Selecione o vendedor *</option>
           </select>
         </div>
       </div>
@@ -1066,6 +1066,21 @@ async function carregarCobradoresSelect(elId) {
     (data||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
 }
 
+async function carregarMembrosEquipeSelect() {
+  const sel = document.getElementById('venda-vendedor');
+  if (!equipeAtiva) {
+    sel.innerHTML = '<option value="">Nenhuma equipe ativa</option>';
+    return;
+  }
+  const { data: membros } = await sb.from('equipe_membros')
+    .select('funcionario_id, papel, funcionarios(id, nome)')
+    .eq('equipe_id', equipeAtiva.id);
+  sel.innerHTML = '<option value="">Selecione o vendedor *</option>' +
+    (membros||[]).map(m =>
+      `<option value="${m.funcionarios.id}">${m.funcionarios.nome} ${m.papel === 'chefe' ? '(Chefe)' : '(Ajudante)'}</option>`
+    ).join('');
+}
+
 async function carregarVendedoresSelect(elId) {
   const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome');
   const sel = document.getElementById(elId);
@@ -1323,9 +1338,9 @@ async function mostrarFormVenda() {
   renderSeletorParcelas();
 
   if (perfilAtivo === 'vendedor') {
-    if (funcionarioLogado?.id) document.getElementById('venda-vendedor').value = funcionarioLogado.id;
-    document.getElementById('campo-vendedor-wrap').style.display = 'none';
     await carregarEquipeAtivaVendedor();
+    await carregarMembrosEquipeSelect();
+    document.getElementById('campo-vendedor-wrap').style.display = '';
     document.getElementById('venda-equipe').value = equipeAtiva?.id || '';
     document.getElementById('campo-equipe-wrap').style.display = 'none';
     await carregarEstoqueProdutos();
@@ -1441,10 +1456,8 @@ async function salvarVenda() {
   if (!valor || valor <= 0) { alert('Digite o valor da venda!'); return; }
   const produto = document.getElementById('venda-produto').value.trim();
   if (!produto) { alert('Selecione ou informe o produto!'); return; }
-  const vendedorId = perfilAtivo === 'vendedor'
-    ? (funcionarioLogado?.id || null)
-    : (document.getElementById('venda-vendedor').value || null);
-  if (!vendedorId) { alert('Selecione o vendedor!'); return; }
+  const vendedorId = document.getElementById('venda-vendedor').value || null;
+  if (!vendedorId) { alert('Selecione o vendedor responsável pela venda!'); return; }
   if (tipo === 'entrada') {
     const parcelas = parseInt(document.getElementById('venda-parcelas').value);
     const dataPrimeira = document.getElementById('venda-data-primeira').value;
