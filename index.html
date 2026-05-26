@@ -1474,23 +1474,24 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
   if (error) { alert('Erro ao registrar venda!'); return; }
   if (tipo === 'entrada' && dados.num_parcelas) {
     const parcelas = [];
-    const entrada = parseFloat(document.getElementById('venda-entrada').value) || 0;
-const saldo = valor - entrada;
-const vlrParcela = saldo / dados.num_parcelas;
-const dataPrimeira = document.getElementById('venda-data-primeira').value;
-for (let i = 0; i < dados.num_parcelas; i++) {
-  const dt = new Date(dataPrimeira + 'T12:00:00');
-  dt.setMonth(dt.getMonth() + i);
-     parcelas.push({
-  venda_id: venda.id,
-  cliente_id: clienteId,
-  numero: i + 1,
-  total_parcelas: dados.num_parcelas,
-  valor: vlrParcela,
-  data_vencimento: dt.toISOString().split('T')[0],
-  pago: i === 0 && entrada > 0,
-  cobrador_id: null
-});
+    const entradaValor = parseFloat(document.getElementById('venda-entrada').value) || 0;
+    const saldo = valor - entradaValor;
+    const vlrParcela = saldo / dados.num_parcelas;
+    const dataPrimeira = document.getElementById('venda-data-primeira').value;
+    for (let i = 0; i < dados.num_parcelas; i++) {
+      const dt = new Date(dataPrimeira + 'T12:00:00');
+      dt.setMonth(dt.getMonth() + i);
+      parcelas.push({
+        venda_id: venda.id,
+        cliente_id: clienteId,
+        numero: i + 1,
+        total_parcelas: dados.num_parcelas,
+        valor: vlrParcela,
+        data_vencimento: dt.toISOString().split('T')[0],
+        pago: false,
+        status: 'aberta',
+        cobrador_id: null,
+      });
     }
     await sb.from('parcelas').insert(parcelas);
   }
