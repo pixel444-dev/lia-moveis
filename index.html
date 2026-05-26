@@ -187,6 +187,42 @@ tr:hover td{background:#fafafa;}
   .carne-pago { background: #f9f9f9 !important; }
   .carne-devolvido { background: #f9f9f9 !important; }
 }
+
+/* ── MOBILE ── */
+#topbar-mobile{display:none;position:fixed;top:0;left:0;right:0;height:52px;background:#fff;border-bottom:1px solid #e0e0e0;z-index:900;align-items:center;padding:0 1rem;gap:12px;}
+#btn-hamburger{background:none;border:none;cursor:pointer;padding:6px;display:flex;flex-direction:column;gap:5px;flex-shrink:0;}
+#btn-hamburger span{display:block;width:22px;height:2px;background:#1a1a1a;border-radius:2px;}
+.overlay-menu{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:950;}
+.overlay-menu.visivel{display:block;}
+.mobile-cards{display:none;}
+@media(max-width:768px){
+  #topbar-mobile{display:flex;}
+  .sidebar{transform:translateX(-100%);transition:transform .25s ease;z-index:1000;}
+  .sidebar.aberta{transform:translateX(0);}
+  .main{margin-left:0;padding:1rem;padding-top:68px;}
+  #btn-sair-vendedor{top:60px;}
+  .tabela-wrap{overflow-x:auto;}
+  table{min-width:580px;}
+  .btn{padding:9px 16px;font-size:14px;}
+  .btn.primario{padding:10px 18px;}
+  .nav-item{padding:12px 1rem;font-size:14px;}
+  .modal-bg{align-items:flex-end;}
+  .modal-box{border-radius:20px 20px 0 0;margin:0;max-width:100%;max-height:88vh;padding:1.25rem 1rem;}
+  .cards-grid{grid-template-columns:1fr 1fr;}
+  .topbar-pg{flex-direction:column;align-items:flex-start;gap:8px;}
+  .campo input,.campo select,.campo textarea,.busca{font-size:16px;}
+  .grid2{grid-template-columns:1fr;}
+  .grid3{grid-template-columns:1fr;}
+  .tabela-desktop{display:none;}
+  .mobile-cards{display:block;}
+  .card-linha{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.875rem 1rem;margin-bottom:.625rem;}
+  .card-linha-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;}
+  .card-linha-nome{font-size:14px;font-weight:600;color:#1a1a1a;}
+  .card-linha-codigo{font-family:monospace;font-size:12px;color:#888;background:#f0f0f0;padding:2px 7px;border-radius:5px;}
+  .card-linha-row{display:flex;justify-content:space-between;font-size:13px;color:#555;margin-bottom:3px;}
+  .card-linha-row span:first-child{color:#999;font-size:12px;}
+  .card-linha-acoes{margin-top:.625rem;display:flex;gap:8px;flex-wrap:wrap;}
+}
 </style>
 </head>
 <body>
@@ -220,6 +256,15 @@ tr:hover td{background:#fafafa;}
     </div>
   </div>
 </div>
+
+<!-- TOPBAR MOBILE -->
+<div id="topbar-mobile" style="display:none;">
+  <button id="btn-hamburger" onclick="toggleMenu()">
+    <span></span><span></span><span></span>
+  </button>
+  <div style="font-size:17px;font-weight:700;color:#0C447C;">Next<span style="font-weight:300;color:#185FA5;">Sale</span></div>
+</div>
+<div class="overlay-menu" id="overlay-menu" onclick="fecharMenu()"></div>
 
 <!-- APP -->
 <div class="app" id="app">
@@ -672,6 +717,22 @@ tr:hover td{background:#fafafa;}
 </div>
 
 <script>
+function toggleMenu() {
+  document.querySelector('.sidebar').classList.toggle('aberta');
+  document.getElementById('overlay-menu').classList.toggle('visivel');
+}
+function fecharMenu() {
+  document.querySelector('.sidebar').classList.remove('aberta');
+  document.getElementById('overlay-menu').classList.remove('visivel');
+}
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.nav-item').forEach(function(item) {
+    item.addEventListener('click', function() {
+      if (window.innerWidth <= 768) fecharMenu();
+    });
+  });
+});
+
 const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -706,6 +767,8 @@ async function sair() {
   funcionarioLogado = null;
   equipeAtiva = null;
   document.getElementById('app').style.display = 'none';
+  document.getElementById('topbar-mobile').style.display = 'none';
+  fecharMenu();
   document.getElementById('tela-login').style.display = 'flex';
   document.getElementById('msg-login').innerHTML = '';
   document.getElementById('info-usuario-logado').innerHTML = '';
@@ -739,6 +802,7 @@ async function iniciarSessao(user) {
     `<div style="font-weight:500;color:#1a1a1a;">${funcionarioLogado.nome}</div><div style="color:#888;font-size:11px;">${perfilLabel}</div>`;
   document.getElementById('tela-login').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
+  document.getElementById('topbar-mobile').style.removeProperty('display');
   document.getElementById('msg-login').innerHTML = '';
   if (perfilAtivo === 'cobrador') {
     document.getElementById('lista-equipes').innerHTML = '';
@@ -978,8 +1042,22 @@ async function carregarClientes() {
 
 function renderClientes(lista) {
   if (!lista.length) { document.getElementById('lista-clientes').innerHTML = '<p style="color:#888;padding:1rem;">Nenhum cliente encontrado.</p>'; return; }
+  const cardsHtml = lista.map(c => `
+    <div class="card-linha">
+      <div class="card-linha-header">
+        <span class="card-linha-nome" style="cursor:pointer;color:#185FA5;" onclick="verDetalhesCliente('${c.id}')">${c.nome}</span>
+        <span class="card-linha-codigo">${c.codigo||'—'}</span>
+      </div>
+      <div class="card-linha-row"><span>CPF</span><span>${c.cpf||'—'}</span></div>
+      <div class="card-linha-row"><span>Celular</span><span>${c.telefone||'—'}</span></div>
+      <div class="card-linha-row"><span>Cidade</span><span>${c.cidade||'—'}</span></div>
+      <div class="card-linha-acoes">
+        <button class="btn" style="font-size:12px;" onclick="verDetalhesCliente('${c.id}')">Ver detalhes</button>
+        <button class="btn" style="font-size:12px;" onclick="editarCliente('${c.id}')">Editar</button>
+      </div>
+    </div>`).join('');
   document.getElementById('lista-clientes').innerHTML = `
-    <div class="tabela-wrap"><table>
+    <div class="tabela-wrap tabela-desktop"><table>
       <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Celular</th><th>Cidade</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(c => `
         <tr>
@@ -991,7 +1069,8 @@ function renderClientes(lista) {
           <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarCliente('${c.id}')">Editar</button></td>
         </tr>`).join('')}
       </tbody>
-    </table></div>`;
+    </table></div>
+    <div class="mobile-cards">${cardsHtml}</div>`;
 }
 
 async function verDetalhesCliente(clienteId) {
@@ -1787,8 +1866,26 @@ async function negarVenda(id) {
 
 function renderVendas(lista) {
   if (!lista.length) { document.getElementById('lista-vendas').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma venda registrada ainda.</p>'; return; }
+  const tipoBadge = v => `<span class="badge ${v.status==='devolvida'?'vermelho':v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':v.tipo==='parcela'?'roxo':'vermelho'}">${v.status==='devolvida'?'Devolvida':v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':v.tipo==='parcela'?'Parcela avulsa':'Devolução'}</span>`;
+  const acoesGestor = v => v.status!=='devolvida' && perfilAtivo==='gestor' ? `
+    <button class="btn" style="font-size:12px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
+    <button class="btn" style="font-size:12px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>` : '';
+  const cardsHtml = lista.map(v => `
+    <div class="card-linha">
+      <div class="card-linha-header">
+        <span class="card-linha-nome">${v.clientes?.nome||'—'}</span>
+        <span class="card-linha-codigo">${v.codigo||'—'}</span>
+      </div>
+      <div class="card-linha-row"><span>Data</span><span>${new Date(v.data_venda).toLocaleDateString('pt-BR')}</span></div>
+      <div class="card-linha-row"><span>Produto</span><span>${v.produto||'—'}</span></div>
+      <div class="card-linha-row"><span>Vendedor</span><span>${v.funcionarios?.nome||'—'}</span></div>
+      <div class="card-linha-row"><span>Tipo</span><span>${tipoBadge(v)}</span></div>
+      <div class="card-linha-row"><span>Valor</span><span style="font-weight:600;">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span></div>
+      ${v.num_parcelas?`<div class="card-linha-row"><span>Parcelas</span><span>${v.num_parcelas}x</span></div>`:''}
+      <div class="card-linha-acoes">${acoesGestor(v)}</div>
+    </div>`).join('');
   document.getElementById('lista-vendas').innerHTML = `
-    <div class="tabela-wrap"><table>
+    <div class="tabela-wrap tabela-desktop"><table>
       <thead><tr><th>Código</th><th>Data</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Tipo</th><th>Valor</th><th>Parcelas</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(v => `
         <tr>
@@ -1797,7 +1894,7 @@ function renderVendas(lista) {
           <td>${v.clientes?.nome||'—'} <span style="font-size:10px;color:#aaa;">${v.clientes?.codigo?'#'+v.clientes.codigo:''}</span></td>
           <td>${v.produto||'—'}</td>
           <td>${v.funcionarios?.nome||'—'}</td>
-          <td><span class="badge ${v.status==='devolvida'?'vermelho':v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':v.tipo==='parcela'?'roxo':'vermelho'}">${v.status==='devolvida'?'Devolvida':v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':v.tipo==='parcela'?'Parcela avulsa':'Devolução'}</span></td>
+          <td>${tipoBadge(v)}</td>
           <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td>${v.num_parcelas ? v.num_parcelas+'x' : '—'}</td>
           <td>
@@ -1808,7 +1905,8 @@ function renderVendas(lista) {
           </td>
         </tr>`).join('')}
       </tbody>
-    </table></div>`;
+    </table></div>
+    <div class="mobile-cards">${cardsHtml}</div>`;
 }
 
 function buscarVenda(termo) {
