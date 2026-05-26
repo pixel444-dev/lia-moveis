@@ -446,12 +446,12 @@ tr:hover td{background:#fafafa;}
           <input id="vnc-telefone" type="text" placeholder="(88) 99999-9999">
         </div>
         <div class="campo">
-          <label>Data de nascimento</label>
+          <label>Data de nascimento *</label>
           <input id="vnc-nascimento" type="date">
         </div>
       </div>
       <div class="campo">
-        <label>Endereço</label>
+        <label>Endereço *</label>
         <input id="vnc-endereco" type="text" placeholder="Rua e número">
       </div>
       <div class="grid2">
@@ -460,16 +460,25 @@ tr:hover td{background:#fafafa;}
           <input id="vnc-bairro" type="text" placeholder="Bairro">
         </div>
         <div class="campo">
-          <label>Cidade</label>
+          <label>Cidade *</label>
           <input id="vnc-cidade" type="text" placeholder="Cidade">
         </div>
+      </div>
+      <div class="campo">
+        <label>Foto da casa *</label>
+        <div id="vnc-foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
+          <img id="vnc-foto-preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid #ddd;display:block;">
+          <button type="button" onclick="removerFotoVnc()" style="margin-top:.4rem;font-size:.8rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
+        </div>
+        <input type="file" id="vnc-foto" accept="image/*" capture="environment" onchange="processarFotoVnc(this)" style="display:none;">
+        <button type="button" class="btn" onclick="document.getElementById('vnc-foto').click()" style="width:100%;">📷 Tirar / escolher foto</button>
       </div>
       <div class="campo">
         <label>Ponto de referência</label>
         <input id="vnc-referencia" type="text" placeholder="Próximo ao mercado X...">
       </div>
       <div class="campo">
-        <label>Cobrador responsável</label>
+        <label>Cobrador responsável *</label>
         <select id="vnc-cobrador">
           <option value="">Selecione...</option>
         </select>
@@ -601,7 +610,7 @@ tr:hover td{background:#fafafa;}
       </div>
     </div>
     <div class="campo">
-      <label id="label-foto-casa">Foto da casa</label>
+      <label id="label-foto-casa">Foto da casa (opcional)</label>
       <div id="foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
         <img id="foto-preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid #ddd;display:block;">
         <button type="button" onclick="removerFoto()" style="margin-top:.4rem;font-size:.8rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
@@ -863,6 +872,38 @@ function removerFoto() {
   document.getElementById('foto-preview-wrap').style.display = 'none';
 }
 
+function processarFotoVnc(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const MAX = 1200;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => {
+        window._vncFotoBlob = blob;
+        document.getElementById('vnc-foto-preview').src = URL.createObjectURL(blob);
+        document.getElementById('vnc-foto-preview-wrap').style.display = 'block';
+      }, 'image/webp', 0.82);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removerFotoVnc() {
+  window._vncFotoBlob = null;
+  document.getElementById('vnc-foto').value = '';
+  document.getElementById('vnc-foto-preview').src = '';
+  document.getElementById('vnc-foto-preview-wrap').style.display = 'none';
+}
+
 async function uploadFoto(clienteId) {
   if (!window._fotoCasaBlob) return null;
   const path = `clientes/${clienteId}.webp`;
@@ -968,7 +1009,6 @@ async function abrirCadastroCliente() {
   document.getElementById('cli-referencia').value = '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Novo cliente';
-  document.getElementById('label-foto-casa').textContent = perfilAtivo === 'vendedor' ? 'Foto da casa *' : 'Foto da casa (opcional)';
   window._fotoCasaBlob = null;
   window._fotoCasaUrl = null;
   document.getElementById('cli-foto').value = '';
@@ -1003,15 +1043,6 @@ async function salvarCliente() {
 
   if (!nome) { alert('Digite o nome!'); return; }
   if (cpf && !validarCPF(cpf)) { alert('CPF inválido!'); return; }
-
-  if (perfilAtivo === 'vendedor') {
-    if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
-    if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
-    if (!endereco) { alert('Preencha o endereço!'); return; }
-    if (!cidade) { alert('Preencha a cidade!'); return; }
-    if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
-    if (!id && !window._fotoCasaBlob) { alert('Tire uma foto da casa do cliente!'); return; }
-  }
 
   const dados = {
     codigo: document.getElementById('cli-codigo').value,
@@ -1056,7 +1087,6 @@ async function editarCliente(id) {
   document.getElementById('cli-referencia').value = data.referencia || '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Editar cliente';
-  document.getElementById('label-foto-casa').textContent = perfilAtivo === 'vendedor' ? 'Foto da casa *' : 'Foto da casa (opcional)';
   window._fotoCasaBlob = null;
   window._fotoCasaUrl = data.foto_casa || null;
   document.getElementById('cli-foto').value = '';
@@ -1167,33 +1197,50 @@ async function buscarClientePorCPF() {
     document.getElementById('btn-salvar-venda').style.display = 'none';
     await carregarCobradoresSelect('vnc-cobrador');
     document.getElementById('form-novo-cliente-venda').style.display = 'block';
-    document.getElementById('vnc-nome').value = '';
-    document.getElementById('vnc-telefone').value = '';
-    document.getElementById('vnc-nascimento').value = '';
-    document.getElementById('vnc-endereco').value = '';
-    document.getElementById('vnc-bairro').value = '';
-    document.getElementById('vnc-cidade').value = '';
-    document.getElementById('vnc-referencia').value = '';
+    ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+    removerFotoVnc();
   }
 }
 
 async function salvarNovoClienteVenda() {
   const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
   const nome = document.getElementById('vnc-nome').value.trim();
-  if (!nome) { alert('Digite o nome do cliente!'); return; }
+  const nascimento = document.getElementById('vnc-nascimento').value;
+  const endereco = document.getElementById('vnc-endereco').value.trim();
+  const cidade = document.getElementById('vnc-cidade').value.trim();
+  const cobradorId = document.getElementById('vnc-cobrador').value || null;
+
+  if (!nome) { alert('Preencha o nome completo!'); return; }
+  if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
+  if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
+  if (!endereco) { alert('Preencha o endereço!'); return; }
+  if (!cidade) { alert('Preencha a cidade!'); return; }
+  if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
+  if (!window._vncFotoBlob) { alert('Tire uma foto da casa do cliente!'); return; }
+
   const codigo = await gerarCodigoCliente();
   const dados = {
     codigo, nome, cpf,
     telefone: document.getElementById('vnc-telefone').value.trim(),
-    data_nascimento: document.getElementById('vnc-nascimento').value || null,
-    endereco: document.getElementById('vnc-endereco').value.trim(),
+    data_nascimento: nascimento,
+    endereco,
     bairro: document.getElementById('vnc-bairro').value.trim(),
-    cidade: document.getElementById('vnc-cidade').value.trim(),
+    cidade,
     referencia: document.getElementById('vnc-referencia').value.trim(),
-    cobrador_id: document.getElementById('vnc-cobrador').value || null,
+    cobrador_id: cobradorId,
   };
   const { data, error } = await sb.from('clientes').insert(dados).select().single();
   if (error) { alert('Erro ao cadastrar cliente.'); return; }
+
+  if (window._vncFotoBlob && data?.id) {
+    const path = `clientes/${data.id}.webp`;
+    const { error: errUp } = await sb.storage.from('fotos-clientes').upload(path, window._vncFotoBlob, { contentType: 'image/webp', upsert: true });
+    if (!errUp) {
+      const { data: pub } = sb.storage.from('fotos-clientes').getPublicUrl(path);
+      await sb.from('clientes').update({ foto_casa: pub.publicUrl }).eq('id', data.id);
+    }
+  }
+
   document.getElementById('venda-cliente-id').value = data.id;
   document.getElementById('resultado-busca-cliente').innerHTML = `<div class="cliente-encontrado">✓ Cliente cadastrado: <strong>${data.nome}</strong> — Código ${data.codigo}</div>`;
   document.getElementById('form-novo-cliente-venda').style.display = 'none';
@@ -1452,6 +1499,7 @@ async function solicitarAutorizacaoSemCPF() {
       await carregarCobradoresSelect('vnc-cobrador');
       document.getElementById('form-novo-cliente-venda').style.display = 'block';
       ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      removerFotoVnc();
     } else if (aut?.status === 'negado') {
       clearInterval(pollInterval); pollInterval = null;
       painel.innerHTML = `<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#A32D2D;font-weight:500;">✗ Autorização negada pelo gestor.</div>`;
