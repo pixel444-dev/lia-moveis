@@ -3025,10 +3025,9 @@ async function carregarEquipeVendedor() {
   const df = new Date(semana.data_fim+'T12:00:00').toLocaleDateString('pt-BR');
   infoEl.innerHTML = `Semana ${semana.numero} — <strong>${di}</strong> a <strong>${df}</strong>`;
 
-  const [{ data: estoque }, { data: vendasBruto, error: errV }, { data: minhasVendas }] = await Promise.all([
+  const [{ data: estoque }, { data: vendasBruto, error: errV }] = await Promise.all([
     sb.from('equipe_estoque').select('*').eq('equipe_id', equipe.id),
-    sb.from('vendas').select('id, codigo, produto, valor, tipo, entrada, data_venda, vendedor_id, clientes(nome)').eq('equipe_id', equipe.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
-    sb.from('vendas').select('id, codigo, produto, valor, tipo, entrada, data_venda, clientes(nome)').eq('equipe_id', equipe.id).eq('vendedor_id', funcionarioLogado.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
+    sb.from('vendas').select('id, codigo, produto, valor, tipo, entrada, data_venda, vendedor_id, clientes(nome), funcionarios(nome)').eq('equipe_id', equipe.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
   ]);
 
   const vendasEquipe = errV ? [] : (vendasBruto || []);
@@ -3037,9 +3036,9 @@ async function carregarEquipeVendedor() {
   const pct = meta ? Math.min(100, (totalGeral / meta) * 100) : null;
   const barColor = pct == null ? '#185FA5' : pct < 50 ? '#A32D2D' : pct < 80 ? '#854F0B' : '#3B6D11';
 
-  const totalMeu = (minhasVendas || []).reduce((a, v) => a + Number(v.valor), 0);
-  const qtdMeu = (minhasVendas || []).length;
-  const ticketMedio = qtdMeu > 0 ? totalMeu / qtdMeu : 0;
+  const totalEquipe = vendasEquipe.reduce((a, v) => a + Number(v.valor), 0);
+  const qtdEquipe = vendasEquipe.length;
+  const ticketMedio = qtdEquipe > 0 ? totalEquipe / qtdEquipe : 0;
 
   const vendidoPorMembro = {};
   const qtdVendasPorMembro = {};
@@ -3093,12 +3092,12 @@ async function carregarEquipeVendedor() {
     </div>`;
   }
 
-  // Desempenho individual
+  // Desempenho da equipe
   html += `<div class="card-metrica" style="margin-bottom:1rem;">
     <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:10px;">Meu desempenho</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
-      <div><div style="font-size:17px;font-weight:700;color:#185FA5;">R$ ${totalMeu.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div><div style="font-size:11px;color:#888;margin-top:2px;">Total vendido</div></div>
-      <div><div style="font-size:17px;font-weight:700;color:#185FA5;">${qtdMeu}</div><div style="font-size:11px;color:#888;margin-top:2px;">Vendas</div></div>
+      <div><div style="font-size:17px;font-weight:700;color:#185FA5;">R$ ${totalEquipe.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div><div style="font-size:11px;color:#888;margin-top:2px;">Total vendido</div></div>
+      <div><div style="font-size:17px;font-weight:700;color:#185FA5;">${qtdEquipe}</div><div style="font-size:11px;color:#888;margin-top:2px;">Vendas</div></div>
       <div><div style="font-size:17px;font-weight:700;color:#185FA5;">R$ ${ticketMedio.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div><div style="font-size:11px;color:#888;margin-top:2px;">Ticket médio</div></div>
     </div>
   </div>`;
@@ -3161,20 +3160,42 @@ async function carregarEquipeVendedor() {
     html += '<p style="color:#888;font-size:13px;padding:.25rem 0;">Nenhum item de estoque cadastrado.</p>';
   }
 
-  // Minhas vendas
-  html += `<div class="secao">Minhas vendas esta semana</div>`;
-  if (minhasVendas?.length) {
-    html += `<div class="tabela-wrap"><table>
-      <thead><tr><th>Código</th><th>Cliente</th><th>Produto</th><th>Tipo</th><th>Valor</th><th>Data</th></tr></thead>
-      <tbody>${minhasVendas.map(v => `<tr>
-        <td><span class="codigo-badge">${v.codigo||'—'}</span></td>
-        <td>${v.clientes?.nome||'—'}</td>
-        <td>${v.produto||'—'}</td>
-        <td>${v.tipo||'—'}</td>
-        <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-        <td>${v.data_venda?new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>`;
+  // Vendas da equipe
+  html += `<div class="secao">Vendas da equipe esta semana</div>`;
+  if (vendasEquipe.length) {
+    if (isMobile()) {
+      html += vendasEquipe.map(function(v) {
+        var tipoBadge = v.tipo === 'avista' ? '<span class="badge verde">À vista</span>' : '<span class="badge azul">Crediário</span>';
+        var valorFmt = 'R$ ' + Number(v.valor).toLocaleString('pt-BR', {minimumFractionDigits:2});
+        var dataFmt = v.data_venda ? new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR') : '—';
+        return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;">'
+          + '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">'
+          + '<span class="codigo-badge">' + (v.codigo||'—') + '</span>'
+          + tipoBadge
+          + '</div>'
+          + '<div style="font-size:15px;font-weight:600;margin-bottom:2px;">' + (v.clientes && v.clientes.nome ? v.clientes.nome : '—') + '</div>'
+          + '<div style="font-size:13px;color:#888;margin-bottom:2px;">📦 ' + (v.produto||'—') + '</div>'
+          + '<div style="font-size:12px;color:#185FA5;margin-bottom:6px;">👤 ' + (v.funcionarios && v.funcionarios.nome ? v.funcionarios.nome : '—') + '</div>'
+          + '<div style="display:flex;justify-content:space-between;">'
+          + '<div style="font-size:16px;font-weight:700;color:#3B6D11;">' + valorFmt + '</div>'
+          + '<div style="font-size:12px;color:#aaa;">' + dataFmt + '</div>'
+          + '</div></div>';
+      }).join('');
+    } else {
+      html += '<div class="tabela-wrap"><table>'
+        + '<thead><tr><th>Código</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Tipo</th><th>Valor</th><th>Data</th></tr></thead>'
+        + '<tbody>' + vendasEquipe.map(function(v) {
+          return '<tr>'
+            + '<td><span class="codigo-badge">' + (v.codigo||'—') + '</span></td>'
+            + '<td>' + (v.clientes && v.clientes.nome ? v.clientes.nome : '—') + '</td>'
+            + '<td>' + (v.produto||'—') + '</td>'
+            + '<td>' + (v.funcionarios && v.funcionarios.nome ? v.funcionarios.nome : '—') + '</td>'
+            + '<td>' + (v.tipo||'—') + '</td>'
+            + '<td>R$ ' + Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</td>'
+            + '<td>' + (v.data_venda ? new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR') : '—') + '</td>'
+            + '</tr>';
+        }).join('') + '</tbody></table></div>';
+    }
   } else {
     html += '<p style="color:#888;font-size:13px;padding:.25rem 0;">Nenhuma venda registrada nesta semana.</p>';
   }
