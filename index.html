@@ -209,6 +209,9 @@ tr:hover td{background:#fafafa;}
   .modal-bg{align-items:flex-end;}
   .modal-box{border-radius:20px 20px 0 0;margin:0;max-width:100%;max-height:88vh;padding:1.25rem 1rem;}
   .cards-grid{grid-template-columns:1fr 1fr;}
+  .card-metrica{min-width:0;overflow:hidden;}
+  .card-metrica .label{font-size:10px;}
+  .card-metrica .valor{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .topbar-pg{flex-direction:column;align-items:flex-start;gap:8px;}
   .campo input,.campo select,.campo textarea,.busca{font-size:16px;}
   .grid2{grid-template-columns:1fr;}
@@ -2028,25 +2031,29 @@ async function negarVenda(id) {
 function renderVendas(lista) {
   if (!lista.length) { document.getElementById('lista-vendas').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma venda registrada ainda.</p>'; return; }
   const tipoBadge = v => `<span class="badge ${v.status==='devolvida'?'vermelho':v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':v.tipo==='parcela'?'roxo':'vermelho'}">${v.status==='devolvida'?'Devolvida':v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':v.tipo==='parcela'?'Parcela avulsa':'Devolução'}</span>`;
-  const acoesGestor = v => v.status!=='devolvida' && perfilAtivo==='gestor' ? `
-    <button class="btn" style="font-size:12px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
-    <button class="btn" style="font-size:12px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>` : '';
-  const cardsHtml = lista.map(v => `
-    <div class="card-linha">
-      <div class="card-linha-header">
-        <span class="card-linha-nome">${v.clientes?.nome||'—'}</span>
-        <span class="card-linha-codigo">${v.codigo||'—'}</span>
-      </div>
-      <div class="card-linha-row"><span>Data</span><span>${new Date(v.data_venda).toLocaleDateString('pt-BR')}</span></div>
-      <div class="card-linha-row"><span>Produto</span><span>${v.produto||'—'}</span></div>
-      <div class="card-linha-row"><span>Vendedor</span><span>${v.funcionarios?.nome||'—'}</span></div>
-      <div class="card-linha-row"><span>Tipo</span><span>${tipoBadge(v)}</span></div>
-      <div class="card-linha-row"><span>Valor</span><span style="font-weight:600;">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span></div>
-      ${v.num_parcelas?`<div class="card-linha-row"><span>Parcelas</span><span>${v.num_parcelas}x</span></div>`:''}
-      <div class="card-linha-acoes">${acoesGestor(v)}</div>
-    </div>`).join('');
+  if (isMobile()) {
+    document.getElementById('lista-vendas').innerHTML = lista.map(v => `
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span class="codigo-badge">${v.codigo||'—'}</span>
+          ${tipoBadge(v)}
+        </div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:2px;">${v.clientes?.nome||'—'}</div>
+        <div style="font-size:13px;color:#888;margin-bottom:6px;">📦 ${v.produto||'—'} · ${v.funcionarios?.nome||'—'}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-size:18px;font-weight:700;color:#3B6D11;">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+          <div style="font-size:12px;color:#aaa;">${new Date(v.data_venda).toLocaleDateString('pt-BR')}</div>
+        </div>
+        ${v.status!=='devolvida' && perfilAtivo==='gestor' ? `
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn" style="flex:1;padding:8px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
+            <button class="btn" style="flex:1;padding:8px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>
+          </div>` : ''}
+      </div>`).join('');
+    return;
+  }
   document.getElementById('lista-vendas').innerHTML = `
-    <div class="tabela-wrap tabela-desktop"><table>
+    <div class="tabela-wrap"><table>
       <thead><tr><th>Código</th><th>Data</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Tipo</th><th>Valor</th><th>Parcelas</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(v => `
         <tr>
@@ -2066,8 +2073,7 @@ function renderVendas(lista) {
           </td>
         </tr>`).join('')}
       </tbody>
-    </table></div>
-    <div class="mobile-cards">${cardsHtml}</div>`;
+    </table></div>`;
 }
 
 function buscarVenda(termo) {
@@ -2101,19 +2107,36 @@ async function buscarClienteCobranca(termo) {
     .limit(5);
 
   if (vendaEncontrada && vendaEncontrada.length) {
-    document.getElementById('resultado-cobranca-cliente').innerHTML = `
-      <div class="tabela-wrap"><table>
-        <thead><tr><th>Cód. Venda</th><th>Produto</th><th>Cliente</th><th>CPF</th><th></th></tr></thead>
-        <tbody>${vendaEncontrada.map(v => `
-          <tr>
-            <td><span class="codigo-badge">${v.codigo}</span></td>
-            <td>${v.produto||'—'}</td>
-            <td>${v.clientes?.nome||'—'}</td>
-            <td>${v.clientes?.cpf||'—'}</td>
-            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasVenda('${v.id}','${v.clientes?.id}','${v.clientes?.nome}','${v.codigo}')">Ver parcelas</button></td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>`;
+    if (isMobile()) {
+      document.getElementById('resultado-cobranca-cliente').innerHTML =
+        '<div style="display:flex;flex-direction:column;gap:8px;">' +
+        vendaEncontrada.map(v =>
+          '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+          '<span class="codigo-badge">' + v.codigo + '</span>' +
+          '<span style="font-size:13px;font-weight:600;">' + (v.clientes?.nome||'—') + '</span>' +
+          '</div>' +
+          '<div style="font-size:13px;color:#888;margin-bottom:8px;">📦 ' + (v.produto||'—') + '</div>' +
+          '<button class="btn primario" style="width:100%;padding:10px;font-size:14px;" ' +
+          'onclick="verParcelasVenda(\'' + v.id + '\',\'' + (v.clientes?.id||'') + '\',\'' + (v.clientes?.nome||'').replace(/'/g,"\\'") + '\',\'' + v.codigo + '\')">Ver parcelas</button>' +
+          '</div>'
+        ).join('') +
+        '</div>';
+    } else {
+      document.getElementById('resultado-cobranca-cliente').innerHTML = `
+        <div class="tabela-wrap"><table>
+          <thead><tr><th>Cód. Venda</th><th>Produto</th><th>Cliente</th><th>CPF</th><th></th></tr></thead>
+          <tbody>${vendaEncontrada.map(v => `
+            <tr>
+              <td><span class="codigo-badge">${v.codigo}</span></td>
+              <td>${v.produto||'—'}</td>
+              <td>${v.clientes?.nome||'—'}</td>
+              <td>${v.clientes?.cpf||'—'}</td>
+              <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasVenda('${v.id}','${v.clientes?.id}','${v.clientes?.nome}','${v.codigo}')">Ver parcelas</button></td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>`;
+    }
     document.getElementById('lista-parcelas-cliente').innerHTML = '';
     return;
   }
@@ -2130,19 +2153,36 @@ async function buscarClienteCobranca(termo) {
     document.getElementById('lista-parcelas-cliente').innerHTML = '';
     return;
   }
-  document.getElementById('resultado-cobranca-cliente').innerHTML = `
-    <div class="tabela-wrap"><table>
-      <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Celular</th><th></th></tr></thead>
-      <tbody>${clientesCobranca.map(c => `
-        <tr>
-          <td><span class="codigo-badge">${c.codigo||'—'}</span></td>
-          <td>${c.nome}</td>
-          <td>${c.cpf||'—'}</td>
-          <td>${c.telefone||'—'}</td>
-          <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasCliente('${c.id}','${c.nome}')">Ver parcelas</button></td>
-        </tr>`).join('')}
-      </tbody>
-    </table></div>`;
+  if (isMobile()) {
+    document.getElementById('resultado-cobranca-cliente').innerHTML =
+      '<div style="display:flex;flex-direction:column;gap:8px;">' +
+      clientesCobranca.map(c =>
+        '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+        '<span style="font-size:15px;font-weight:600;">' + c.nome + '</span>' +
+        '<span class="codigo-badge">' + (c.codigo||'—') + '</span>' +
+        '</div>' +
+        '<div style="font-size:13px;color:#888;margin-bottom:8px;">' + (c.cpf||'—') + ' · ' + (c.telefone||'—') + '</div>' +
+        '<button class="btn primario" style="width:100%;padding:10px;font-size:14px;" ' +
+        'onclick="verParcelasCliente(\'' + c.id + '\',\'' + c.nome.replace(/'/g,"\\'") + '\')">Ver parcelas</button>' +
+        '</div>'
+      ).join('') +
+      '</div>';
+  } else {
+    document.getElementById('resultado-cobranca-cliente').innerHTML = `
+      <div class="tabela-wrap"><table>
+        <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Celular</th><th></th></tr></thead>
+        <tbody>${clientesCobranca.map(c => `
+          <tr>
+            <td><span class="codigo-badge">${c.codigo||'—'}</span></td>
+            <td>${c.nome}</td>
+            <td>${c.cpf||'—'}</td>
+            <td>${c.telefone||'—'}</td>
+            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasCliente('${c.id}','${c.nome}')">Ver parcelas</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+  }
 }
 function renderParcelasEmAbertoMobile(parcelas, showVendaCodigo) {
   return parcelas.map(function(p) {
@@ -2998,8 +3038,12 @@ async function carregarEquipeVendedor() {
   const ticketMedio = qtdMeu > 0 ? totalMeu / qtdMeu : 0;
 
   const vendidoPorMembro = {};
+  const qtdVendasPorMembro = {};
   vendasEquipe.forEach(v => {
-    if (v.vendedor_id) vendidoPorMembro[v.vendedor_id] = (vendidoPorMembro[v.vendedor_id] || 0) + Number(v.valor);
+    if (v.vendedor_id) {
+      vendidoPorMembro[v.vendedor_id] = (vendidoPorMembro[v.vendedor_id] || 0) + Number(v.valor);
+      qtdVendasPorMembro[v.vendedor_id] = (qtdVendasPorMembro[v.vendedor_id] || 0) + 1;
+    }
   });
 
   let html = '';
@@ -3057,19 +3101,39 @@ async function carregarEquipeVendedor() {
 
   // Membros da equipe
   const membrosEquipe = equipe.equipe_membros || [];
-  html += `<div class="secao">Membros da equipe</div>
-  <div class="tabela-wrap"><table>
-    <thead><tr><th>Nome</th><th>Papel</th><th>Vendido</th></tr></thead>
-    <tbody>${membrosEquipe.map(m => {
-      const v = vendidoPorMembro[m.funcionario_id] || 0;
+  html += '<div class="secao">Membros da equipe</div>';
+  if (isMobile()) {
+    html += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.5rem 1rem;margin-bottom:1rem;">';
+    html += membrosEquipe.map(function(m) {
+      const totalMembro = vendidoPorMembro[m.funcionario_id] || 0;
+      const qtdMembro = qtdVendasPorMembro[m.funcionario_id] || 0;
       const isEu = m.funcionario_id === funcionarioLogado.id;
-      return `<tr${isEu?' style="background:#f6f9ff;"':''}>
-        <td>${m.funcionarios?.nome||'—'}${isEu?' <span class="badge azul" style="font-size:10px;">Você</span>':''}</td>
-        <td>${m.papel==='chefe'?'Chefe de equipe':'Ajudante'}</td>
-        <td>R$ ${v.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-      </tr>`;
-    }).join('')}</tbody>
-  </table></div>`;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.75rem 0;border-bottom:1px solid #f0f0f0;">'
+        + '<div>'
+        + '<div style="font-size:14px;font-weight:500;">' + (m.funcionarios?.nome||'—') + (isEu ? ' <span class="badge azul" style="font-size:10px;">Você</span>' : '') + '</div>'
+        + '<div style="font-size:12px;color:#888;">' + (m.papel === 'chefe' ? 'Chefe de equipe' : 'Ajudante') + '</div>'
+        + '</div>'
+        + '<div style="text-align:right;">'
+        + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">R$ ' + totalMembro.toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>'
+        + '<div style="font-size:11px;color:#aaa;">' + qtdMembro + ' venda(s)</div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+    html += '</div>';
+  } else {
+    html += `<div class="tabela-wrap"><table>
+      <thead><tr><th>Nome</th><th>Papel</th><th>Vendido</th></tr></thead>
+      <tbody>${membrosEquipe.map(m => {
+        const v = vendidoPorMembro[m.funcionario_id] || 0;
+        const isEu = m.funcionario_id === funcionarioLogado.id;
+        return `<tr${isEu?' style="background:#f6f9ff;"':''}>
+          <td>${m.funcionarios?.nome||'—'}${isEu?' <span class="badge azul" style="font-size:10px;">Você</span>':''}</td>
+          <td>${m.papel==='chefe'?'Chefe de equipe':'Ajudante'}</td>
+          <td>R$ ${v.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  }
 
   // Estoque (somente leitura)
   html += `<div class="secao">Estoque do caminhão</div>`;
