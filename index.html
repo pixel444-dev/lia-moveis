@@ -199,19 +199,21 @@ tr:hover td{background:#fafafa;}
   #topbar-mobile{display:flex;}
   .sidebar{transform:translateX(-100%);transition:transform .25s ease;z-index:1000;}
   .sidebar.aberta{transform:translateX(0);}
-  .main{margin-left:0;padding:1rem;padding-top:68px;}
+  .main{margin-left:0;padding:1rem;padding-top:68px;overflow-x:hidden !important;}
+  .page{overflow-x:hidden !important;}
   #btn-sair-vendedor{top:60px;}
   .tabela-wrap{overflow-x:auto;}
   table{min-width:580px;}
   .btn{padding:9px 16px;font-size:14px;}
   .btn.primario{padding:10px 18px;}
   .nav-item{padding:12px 1rem;font-size:14px;}
-  .modal-bg{align-items:flex-end;}
-  .modal-box{border-radius:20px 20px 0 0;margin:0;max-width:100%;max-height:88vh;padding:1.25rem 1rem;}
-  .cards-grid{grid-template-columns:1fr 1fr;}
-  .card-metrica{min-width:0;overflow:hidden;}
-  .card-metrica .label{font-size:10px;}
-  .card-metrica .valor{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .modal-bg{align-items:flex-end !important;padding:0 !important;}
+  .modal-box{border-radius:20px 20px 0 0 !important;margin:0 !important;width:100% !important;max-width:100% !important;max-height:90vh !important;height:auto !important;overflow-y:auto !important;-webkit-overflow-scrolling:touch !important;padding:1.25rem 1rem 2rem !important;}
+  .modal-box::before{content:'';display:block;width:40px;height:4px;background:#ddd;border-radius:2px;margin:0 auto 1rem;}
+  .cards-grid{grid-template-columns:1fr 1fr !important;gap:8px !important;overflow:hidden !important;}
+  .card-metrica{min-width:0 !important;overflow:hidden !important;padding:.625rem .75rem !important;}
+  .card-metrica .label{font-size:10px !important;}
+  .card-metrica .valor{font-size:15px !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .topbar-pg{flex-direction:column;align-items:flex-start;gap:8px;}
   .campo input,.campo select,.campo textarea,.busca{font-size:16px;}
   .grid2{grid-template-columns:1fr;}
@@ -1849,17 +1851,7 @@ async function carregarVendasVendedor() {
     lista.innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma venda registrada nesta semana.</p>';
     return;
   }
-  lista.innerHTML = `<div class="tabela-wrap"><table>
-    <thead><tr><th>Código</th><th>Cliente</th><th>Produto</th><th>Tipo</th><th>Valor</th><th>Data</th></tr></thead>
-    <tbody>${vendas.map(v => `<tr>
-      <td><span class="codigo-badge">${v.codigo||'—'}</span></td>
-      <td>${v.clientes?.nome||'—'}</td>
-      <td>${v.produto||'—'}</td>
-      <td><span class="badge ${v.status==='devolvida'?'vermelho':v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':'roxo'}">${v.status==='devolvida'?'Devolvida':v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':'Outro'}</span></td>
-      <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-      <td>${v.data_venda?new Date(v.data_venda).toLocaleDateString('pt-BR'):'—'}</td>
-    </tr>`).join('')}</tbody>
-  </table></div>`;
+  renderVendas(vendas);
 }
 
 async function carregarEquipeAtivaVendedor() {
