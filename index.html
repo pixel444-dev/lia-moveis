@@ -308,6 +308,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" id="nav-desempenho" onclick="pg('desempenho',this)">Desempenho</div>
       <div class="nav-item" onclick="pg('carnes',this)">Carnês</div>
       <div class="nav-item" id="nav-relatorios" onclick="pg('relatorios',this)">Relatórios</div>
+      <div class="nav-item" id="nav-logs" onclick="pg('logs',this);carregarLogs()">Logs do sistema</div>
     </div>
     <div id="info-usuario-logado" style="padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;font-size:12px;color:#555;line-height:1.4;"></div>
     <div class="logout">
@@ -451,6 +452,32 @@ tr:hover td{background:#fafafa;}
     <div class="page" id="page-relatorios">
       <div class="page-title">Relatórios</div>
       <div id="lista-relatorios">Em construção...</div>
+    </div>
+
+    <div class="page" id="page-logs">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">Logs do sistema</div>
+        <button class="btn" onclick="limparLogsAntigos().then(()=>carregarLogs())" style="font-size:12px;color:#888;">Limpar logs antigos</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;">
+        <select id="filtro-log-level" onchange="carregarLogs(this.value,document.getElementById('filtro-log-modulo').value)" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+          <option value="todos">Todos os níveis</option>
+          <option value="warn">warn</option>
+          <option value="error">error</option>
+          <option value="fatal">fatal</option>
+        </select>
+        <select id="filtro-log-modulo" onchange="carregarLogs(document.getElementById('filtro-log-level').value,this.value)" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+          <option value="todos">Todos os módulos</option>
+          <option value="vendas">vendas</option>
+          <option value="clientes">clientes</option>
+          <option value="cobrancas">cobrancas</option>
+          <option value="equipes">equipes</option>
+          <option value="importacao">importacao</option>
+          <option value="global">global</option>
+        </select>
+        <button class="btn primario" onclick="carregarLogs(document.getElementById('filtro-log-level').value,document.getElementById('filtro-log-modulo').value)">Atualizar</button>
+      </div>
+      <div id="lista-logs">Selecione os filtros acima e clique em Atualizar.</div>
     </div>
 
   </div>
@@ -736,6 +763,75 @@ document.addEventListener('DOMContentLoaded', function() {
 const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ─── LOGGER PROFISSIONAL ──────────────────────────────────────
+const Logger = (() => {
+  const CAMPOS_SENSIVEIS = ['senha','password','token','cpf','key','secret','authorization','credit_card','foto','foto_casa'];
+  function sanitizar(obj, prof) {
+    prof = prof || 0;
+    if (prof > 5) return '[MAX_DEPTH]';
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'string') return obj.length > 500 ? obj.substring(0, 500) + '...[TRUNCADO]' : obj;
+    if (typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.slice(0, 10).map(function(i) { return sanitizar(i, prof + 1); });
+    const res = {};
+    for (const k in obj) {
+      if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+      if (CAMPOS_SENSIVEIS.some(function(s) { return k.toLowerCase().includes(s); })) {
+        res[k] = '[REDACTED]';
+      } else {
+        res[k] = sanitizar(obj[k], prof + 1);
+      }
+    }
+    return res;
+  }
+  function rid() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
+  const fila = [];
+  let processando = false;
+  async function flush() {
+    if (processando || !fila.length) return;
+    processando = true;
+    const lote = fila.splice(0, 10);
+    try { await sb.from('logs_sistema').insert(lote); } catch(e) { console.error('[Logger] persist fail:', e.message); }
+    processando = false;
+    if (fila.length) setTimeout(flush, 1000);
+  }
+  async function log(level, modulo, action, msg, ctx) {
+    const entry = {
+      level, modulo, action,
+      request_id: rid(),
+      user_id: funcionarioLogado?.id || null,
+      user_perfil: perfilAtivo || null,
+      mensagem: msg,
+      contexto: sanitizar(ctx || {})
+    };
+    const cores = { info:'#2196F3', warn:'#FF9800', error:'#F44336', fatal:'#9C27B0' };
+    console.log('%c[' + level.toUpperCase() + '] [' + modulo + '] ' + action,
+      'color:' + (cores[level]||'#999') + ';font-weight:bold', msg, entry.contexto);
+    if (['warn','error','fatal'].includes(level)) { fila.push(entry); setTimeout(flush, 100); }
+  }
+  return {
+    info:  function(m,a,s,c) { return log('info',  m,a,s,c); },
+    warn:  function(m,a,s,c) { return log('warn',  m,a,s,c); },
+    error: function(m,a,s,c) { return log('error', m,a,s,c); },
+    fatal: function(m,a,s,c) { return log('fatal', m,a,s,c); },
+  };
+})();
+window.addEventListener('error', function(e) {
+  Logger.fatal('global', 'UNHANDLED_ERROR', e.message, {
+    arquivo: e.filename ? e.filename.split('/').pop() : null,
+    linha: e.lineno,
+    stack: e.error ? e.error.stack && e.error.stack.substring(0, 300) : null
+  });
+});
+window.addEventListener('unhandledrejection', function(e) {
+  Logger.fatal('global', 'UNHANDLED_PROMISE',
+    (e.reason && e.reason.message) || 'Promise rejeitada sem mensagem', {
+    stack: e.reason && e.reason.stack ? e.reason.stack.substring(0, 300) : null
+  });
+});
+// ─────────────────────────────────────────────────────────────
+
 let perfilAtivo = null;
 let funcionarioLogado = null;
 let todosClientes = [];
@@ -822,10 +918,48 @@ async function iniciarSessao(user) {
   carregarDashboard();
 }
 
+async function carregarLogs(filtroLevel, filtroModulo) {
+  filtroLevel = filtroLevel || 'todos';
+  filtroModulo = filtroModulo || 'todos';
+  const el = document.getElementById('lista-logs');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#888;padding:.5rem;">Carregando...</p>';
+  let query = sb.from('logs_sistema').select('*').order('criado_em', { ascending: false }).limit(100);
+  if (filtroLevel !== 'todos') query = query.eq('level', filtroLevel);
+  if (filtroModulo !== 'todos') query = query.eq('modulo', filtroModulo);
+  const { data, error } = await query;
+  if (error) { el.innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Erro ao carregar logs.</p>'; return; }
+  const cores = { info:'azul', warn:'amarelo', error:'vermelho', fatal:'roxo' };
+  el.innerHTML = !data.length
+    ? '<p style="color:#888;padding:1rem;">Nenhum log encontrado.</p>'
+    : data.map(function(l) {
+      const ctx = l.contexto ? '<details style="margin-top:6px;"><summary style="font-size:11px;color:#185FA5;cursor:pointer;">Ver contexto técnico</summary><pre style="font-size:10px;background:#f5f5f5;padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;white-space:pre-wrap;">' + JSON.stringify(l.contexto, null, 2) + '</pre></details>' : '';
+      return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.875rem 1rem;margin-bottom:6px;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:4px;">'
+        + '<div style="display:flex;align-items:center;gap:6px;">'
+        + '<span class="badge ' + (cores[l.level]||'cinza') + '">' + l.level.toUpperCase() + '</span>'
+        + '<span style="font-size:11px;font-weight:600;color:#555;">' + l.modulo + '</span>'
+        + '<span style="font-size:11px;color:#aaa;">→ ' + l.action + '</span>'
+        + '</div>'
+        + '<span style="font-size:11px;color:#aaa;">' + new Date(l.criado_em).toLocaleString('pt-BR') + '</span>'
+        + '</div>'
+        + '<div style="font-size:13px;color:#1a1a1a;margin-bottom:4px;">' + l.mensagem + '</div>'
+        + '<div style="font-size:11px;color:#aaa;">ID: ' + l.request_id + ' · Perfil: ' + (l.user_perfil||'—') + '</div>'
+        + ctx
+        + '</div>';
+    }).join('');
+}
+
+async function limparLogsAntigos() {
+  const trintaDiasAtras = new Date();
+  trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
+  await sb.from('logs_sistema').delete().lt('criado_em', trintaDiasAtras.toISOString()).eq('level', 'info');
+}
+
 function aplicarPermissoes(perfil) {
   const gestor = perfil === 'gestor';
   const ocultos = ['nav-funcionarios', 'nav-importacao', 'nav-caixa-vendedores',
-    'nav-cobrancas', 'nav-ciclos', 'nav-caixa-cobradores', 'nav-desempenho', 'nav-relatorios'];
+    'nav-cobrancas', 'nav-ciclos', 'nav-caixa-cobradores', 'nav-desempenho', 'nav-relatorios', 'nav-logs'];
   ocultos.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = gestor ? '' : 'none';
@@ -985,14 +1119,16 @@ function removerFotoVnc() {
 async function uploadFoto(clienteId) {
   if (!window._fotoCasaBlob) return null;
   const path = `clientes/${clienteId}.webp`;
+  const tamanhoKb = Math.round(window._fotoCasaBlob.size / 1024);
   const { error } = await sb.storage.from('fotos-clientes').upload(path, window._fotoCasaBlob, {
     contentType: 'image/webp', upsert: true
   });
   if (error) {
-    console.error('Erro upload foto:', error);
+    Logger.error('clientes', 'UPLOAD_FOTO', 'Falha ao fazer upload da foto', { supabase_code: error.code, tamanho_kb: tamanhoKb });
     alert(`Foto não foi salva: ${error.message}\n\nVerifique as políticas de acesso do bucket fotos-clientes no Supabase.`);
     return null;
   }
+  Logger.info('clientes', 'UPLOAD_FOTO', 'Foto enviada com sucesso', { tamanho_kb: tamanhoKb });
   const { data } = sb.storage.from('fotos-clientes').getPublicUrl(path);
   return data.publicUrl;
 }
@@ -1207,11 +1343,20 @@ async function salvarCliente() {
 
   let clienteId = id;
   if (id) {
-    await sb.from('clientes').update(dados).eq('id', id);
+    const { error } = await sb.from('clientes').update(dados).eq('id', id);
+    if (error) {
+      Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao atualizar cliente', { supabase_code: error.code, tem_foto: !!window._fotoCasaBlob });
+      alert('Erro ao salvar cliente! Tente novamente.'); return;
+    }
   } else {
-    const { data: novo } = await sb.from('clientes').insert(dados).select().single();
+    const { data: novo, error } = await sb.from('clientes').insert(dados).select().single();
+    if (error) {
+      Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao inserir cliente', { supabase_code: error.code, tem_foto: !!window._fotoCasaBlob });
+      alert('Erro ao cadastrar cliente! Tente novamente.'); return;
+    }
     clienteId = novo?.id;
   }
+  Logger.info('clientes', 'SALVAR_CLIENTE', id ? 'Cliente atualizado' : 'Cliente cadastrado');
 
   if (window._fotoCasaBlob && clienteId) {
     const fotoUrl = await uploadFoto(clienteId);
@@ -1337,6 +1482,7 @@ async function buscarClientePorCPF() {
   if (cpf.length < 11) { div.innerHTML = '<div class="cliente-nao-encontrado">Digite o CPF completo (11 dígitos).</div>'; return; }
   if (!validarCPF(cpf)) { div.innerHTML = '<div class="cliente-nao-encontrado">✗ CPF inválido. Verifique e tente novamente.</div>'; return; }
   const { data } = await sb.from('clientes').select('*').eq('cpf', cpf).maybeSingle();
+  Logger.info('vendas', 'BUSCAR_CLIENTE_CPF', 'Busca por CPF', { encontrado: !!data });
   if (data) {
     document.getElementById('venda-cliente-id').value = data.id;
     document.getElementById('form-novo-cliente-venda').style.display = 'none';
@@ -1424,7 +1570,11 @@ async function salvarNovoClienteVenda() {
   } else {
     const codigo = await gerarCodigoCliente();
     const { data, error } = await sb.from('clientes').insert({ ...dados, codigo, cpf }).select().single();
-    if (error) { alert('Erro ao cadastrar cliente.'); return; }
+    if (error) {
+      Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao inserir cliente (venda)', { supabase_code: error.code, tem_foto: !!window._vncFotoBlob });
+      alert('Erro ao cadastrar cliente.'); return;
+    }
+    Logger.info('clientes', 'SALVAR_CLIENTE', 'Cliente cadastrado pelo vendedor');
     clienteId = data.id;
     clienteNome = data.nome;
     clienteCodigo = data.codigo;
@@ -1432,11 +1582,13 @@ async function salvarNovoClienteVenda() {
 
   if (window._vncFotoBlob && clienteId) {
     const path = `clientes/${clienteId}.webp`;
+    const tamanhoKbVnc = Math.round(window._vncFotoBlob.size / 1024);
     const { error: errUp } = await sb.storage.from('fotos-clientes').upload(path, window._vncFotoBlob, { contentType: 'image/webp', upsert: true });
     if (errUp) {
-      console.error('Erro upload foto:', errUp);
+      Logger.error('clientes', 'UPLOAD_FOTO', 'Falha upload foto (venda)', { supabase_code: errUp.code, tamanho_kb: tamanhoKbVnc });
       alert(`Foto não foi salva: ${errUp.message}\n\nVerifique as políticas de acesso do bucket fotos-clientes no Supabase.`);
     } else {
+      Logger.info('clientes', 'UPLOAD_FOTO', 'Foto enviada com sucesso (venda)', { tamanho_kb: tamanhoKbVnc });
       const { data: pub } = sb.storage.from('fotos-clientes').getPublicUrl(path);
       await sb.from('clientes').update({ foto_casa: pub.publicUrl }).eq('id', clienteId);
     }
@@ -1611,7 +1763,11 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
     equipe_id: equipeId,
   };
   const { data: venda, error } = await sb.from('vendas').insert(dados).select().single();
-  if (error) { alert('Erro ao registrar venda!'); return; }
+  if (error) {
+    Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao inserir venda no banco', { supabase_code: error.code, supabase_msg: error.message, tipo: dados.tipo, equipe_id: dados.equipe_id });
+    alert('Erro ao registrar venda! Contate o suporte.'); return;
+  }
+  Logger.info('vendas', 'SALVAR_VENDA', 'Venda registrada com sucesso', { codigo: dados.codigo, tipo: dados.tipo, num_parcelas: dados.num_parcelas });
   if (tipo === 'entrada' && dados.num_parcelas) {
     const parcelas = [];
     const entradaValor = parseFloat(document.getElementById('venda-entrada').value) || 0;
@@ -1793,7 +1949,11 @@ async function solicitarAutorizacaoInadimplente() {
     cliente_id: clienteId,
     descricao,
   }).select().single();
-  if (error) { alert('Erro ao solicitar autorização!'); return; }
+  if (error) {
+    Logger.error('vendas', 'SOLICITAR_AUTH', 'Falha ao criar autorização inadimplente', { supabase_code: error.code });
+    alert('Erro ao solicitar autorização!'); return;
+  }
+  Logger.info('vendas', 'SOLICITAR_AUTH', 'Autorização solicitada', { codigo });
   window._autorizacaoInadimplenteId = aut.id;
   const div = document.getElementById('resultado-busca-cliente');
   div.innerHTML += `
@@ -2222,7 +2382,11 @@ async function confirmarBaixa() {
     forma_pagamento: forma,
   };
   const { error } = await sb.from('parcelas').update(atualizacao).eq('id', parcelaId);
-  if (error) { alert('Erro ao dar baixa!'); return; }
+  if (error) {
+    Logger.error('cobrancas', 'CONFIRMAR_BAIXA', 'Falha ao dar baixa na parcela', { supabase_code: error.code, tipo_baixa: tipo });
+    alert('Erro ao dar baixa!'); return;
+  }
+  Logger.info('cobrancas', 'CONFIRMAR_BAIXA', 'Baixa confirmada', { tipo_baixa: tipo });
   const { data: parcela } = await sb.from('parcelas').select('cliente_id, valor, vendas(codigo)').eq('id', parcelaId).single();
   await sb.from('movimentacoes_cobranca').insert({
     cobrador_id: cobradorId,
@@ -2270,11 +2434,16 @@ async function confirmarDevolucao() {
   const motivo = document.querySelector('input[name="motivo-dev"]:checked').value;
   const obs = document.getElementById('dev-observacao').value.trim();
   if (!confirm('Confirma a devolução desta venda? Esta ação não pode ser desfeita.')) return;
-  await sb.from('vendas').update({
+  const { error } = await sb.from('vendas').update({
     status: 'devolvida',
     motivo_devolucao: motivo,
     observacao_devolucao: obs
   }).eq('id', vendaId);
+  if (error) {
+    Logger.error('vendas', 'DEVOLVER_VENDA', 'Falha ao marcar venda como devolvida', { supabase_code: error.code });
+    alert('Erro ao devolver venda!'); return;
+  }
+  Logger.info('vendas', 'DEVOLVER_VENDA', 'Venda devolvida', { motivo });
   await sb.from('parcelas').update({ status: 'devolvida' }).eq('venda_id', vendaId);
   fecharModal('modal-devolucao');
   carregarVendas();
@@ -2283,7 +2452,12 @@ async function confirmarDevolucao() {
 async function cancelarVenda(vendaId, codigo) {
   if (!confirm(`Tem certeza que deseja CANCELAR a venda ${codigo}? Ela será apagada permanentemente do sistema junto com todas as parcelas.`)) return;
   await sb.from('parcelas').delete().eq('venda_id', vendaId);
-  await sb.from('vendas').delete().eq('id', vendaId);
+  const { error } = await sb.from('vendas').delete().eq('id', vendaId);
+  if (error) {
+    Logger.error('vendas', 'CANCELAR_VENDA', 'Falha ao cancelar venda', { supabase_code: error.code });
+    alert('Erro ao cancelar venda!'); return;
+  }
+  Logger.warn('vendas', 'CANCELAR_VENDA', 'Venda cancelada permanentemente', { codigo });
   carregarVendas();
   carregarDashboard();
 }
@@ -2496,7 +2670,10 @@ const uf = cols[5] ? String(cols[5]).trim() : null;
         if (i % 50 === 0) log.innerHTML = `⏳ Importando... ${i}/${rows.length} (${ok} ok, ${erros} erros)`;
       }
       log.innerHTML = `✅ Concluído! ${ok} clientes importados, ${erros} erros, ${pulados} linhas puladas.`;
+      Logger.info('importacao', 'IMPORTAR_CLIENTES', 'Importação de clientes concluída', { total: rows.length, ok, erros, pulados });
+      if (erros > 0) Logger.warn('importacao', 'IMPORTAR_CLIENTES', 'Importação concluída com erros', { erros, pulados });
     } catch (err) {
+      Logger.error('importacao', 'IMPORTAR_CLIENTES', 'Exceção ao importar clientes', { msg: err.message });
       log.innerHTML = `❌ Erro ao ler arquivo: ${err.message}`;
     }
   };
@@ -2602,7 +2779,10 @@ async function importarParcelas() {
         if (i % 100 === 0) log.innerHTML = `⏳ Importando... ${i}/${rows.length} (${ok} ok, ${erros} erros)`;
       }
       log.innerHTML = `✅ Concluído! ${ok} parcelas importadas, ${erros} erros, ${pulados} linhas puladas.`;
+      Logger.info('importacao', 'IMPORTAR_PARCELAS', 'Importação de parcelas concluída', { total: rows.length, ok, erros, pulados });
+      if (erros > 0) Logger.warn('importacao', 'IMPORTAR_PARCELAS', 'Importação concluída com erros', { erros, pulados });
     } catch (err) {
+      Logger.error('importacao', 'IMPORTAR_PARCELAS', 'Exceção ao importar parcelas', { msg: err.message });
       log.innerHTML = `❌ Erro ao ler arquivo: ${err.message}`;
     }
   };
@@ -2614,7 +2794,7 @@ async function cancelarBaixa(parcelaId, clienteId, codigoVenda) {
     .delete()
     .eq('cliente_id', clienteId)
     .ilike('descricao', `%${codigoVenda}%`);
-  await sb.from('parcelas').update({
+  const { error } = await sb.from('parcelas').update({
     pago: false,
     data_pagamento: null,
     valor_pago: 0,
@@ -2622,6 +2802,11 @@ async function cancelarBaixa(parcelaId, clienteId, codigoVenda) {
     forma_pagamento: null,
     status: 'aberta'
   }).eq('id', parcelaId);
+  if (error) {
+    Logger.error('cobrancas', 'CANCELAR_BAIXA', 'Falha ao cancelar baixa', { supabase_code: error.code });
+    alert('Erro ao cancelar baixa!'); return;
+  }
+  Logger.warn('cobrancas', 'CANCELAR_BAIXA', 'Baixa cancelada');
   const { data: parcela } = await sb.from('parcelas').select('cliente_id, vendas(codigo)').eq('id', parcelaId).single();
   if (parcela?.cliente_id) {
     const nome = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
@@ -3019,9 +3204,11 @@ async function salvarEquipe() {
     const { data: equipe, error } = await sb.from('equipes').insert(payload).select().single();
     console.log('Resultado:', { equipe, error });
     if (error) {
+      Logger.error('equipes', 'SALVAR_EQUIPE', 'Falha ao criar equipe', { supabase_code: error.code });
       msg.innerHTML = `<div class="msg erro">Erro: ${error.message || error.details || JSON.stringify(error)}</div>`;
       return;
     }
+    Logger.info('equipes', 'SALVAR_EQUIPE', 'Equipe criada com sucesso');
     const membros = [{ equipe_id: equipe.id, funcionario_id: chefeId, papel: 'chefe' }];
     ajudantes.forEach(id => membros.push({ equipe_id: equipe.id, funcionario_id: id, papel: 'ajudante' }));
     const { error: errMembros } = await sb.from('equipe_membros').insert(membros);
