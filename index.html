@@ -2691,7 +2691,7 @@ function renderLocalidades(lista, mapaContagem) {
   container.innerHTML = lista.map(function(l) {
     var qtd = mapaContagem[l.id] || 0;
     var nomeEsc = l.nome.replace(/'/g, "\\'");
-    return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">'
+    return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="verClientesLocalidade(\'' + l.id + '\',\'' + nomeEsc + '\')">'
       + '<div style="display:flex;align-items:center;gap:12px;flex:1;">'
       + '<div style="width:42px;height:42px;background:#E6F1FB;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">🏘️</div>'
       + '<div>'
@@ -2699,7 +2699,7 @@ function renderLocalidades(lista, mapaContagem) {
       + '<div style="font-size:12px;color:#888;">' + qtd + ' cliente(s) vinculado(s)</div>'
       + '</div>'
       + '</div>'
-      + '<div style="display:flex;gap:6px;">'
+      + '<div style="display:flex;gap:6px;" onclick="event.stopPropagation()">'
       + '<button class="btn" style="padding:6px 10px;font-size:12px;" onclick="editarLocalidade(\'' + l.id + '\',\'' + nomeEsc + '\')">✏️</button>'
       + (qtd === 0 ? '<button class="btn" style="padding:6px 10px;font-size:12px;color:#A32D2D;border-color:#f5c6c6;" onclick="excluirLocalidade(\'' + l.id + '\')">🗑️</button>' : '')
       + '</div>'
@@ -2786,6 +2786,43 @@ async function salvarLocalidadeCliente() {
     return;
   }
   alert('Localidade salva!');
+}
+
+async function verClientesLocalidade(localidadeId, nomeLocalidade) {
+  const titulo = document.getElementById('modal-clientes-localidade-titulo');
+  const lista = document.getElementById('lista-clientes-localidade');
+  titulo.textContent = '📍 ' + nomeLocalidade;
+  lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+  document.getElementById('modal-clientes-localidade').style.display = 'flex';
+
+  const { data, error } = await sb
+    .from('clientes')
+    .select('id, codigo, nome, cpf, telefone, endereco, cidade')
+    .eq('localidade_id', localidadeId)
+    .eq('cobrador_id', funcionarioLogado.id)
+    .order('nome');
+
+  if (error) {
+    Logger.error('localidades', 'VER_CLIENTES_LOCALIDADE', 'Erro ao buscar clientes', { supabase_code: error.code });
+    lista.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar clientes.</p>';
+    return;
+  }
+
+  if (!data || !data.length) {
+    lista.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:36px;margin-bottom:.75rem;">👥</div><div style="font-size:14px;">Nenhum cliente vinculado a esta localidade ainda.</div></div>';
+    return;
+  }
+
+  lista.innerHTML = data.map(function(c) {
+    return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;" onclick="fecharModal(\'modal-clientes-localidade\');verDetalhesCliente(\'' + c.id + '\')">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
+      + '<div style="font-size:15px;font-weight:600;">' + c.nome + '</div>'
+      + '<span class="codigo-badge">' + (c.codigo||'—') + '</span>'
+      + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + (c.cpf||'—') + ' · ' + (c.telefone||'—') + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + (c.endereco||'') + (c.cidade ? ' · ' + c.cidade : '') + '</div>'
+      + '</div>';
+  }).join('');
 }
 
 // ===== FIM MÓDULO LOCALIDADES =====
@@ -4163,6 +4200,20 @@ async function toggleUsuarioAtivo(id, ativo) {
     </div>
   </div>
 </div>
+<!-- MODAL CLIENTES DA LOCALIDADE -->
+<div class="modal-bg" id="modal-clientes-localidade">
+  <div class="modal-box" style="max-width:500px;">
+    <div class="modal-header">
+      <strong id="modal-clientes-localidade-titulo"></strong>
+      <button onclick="fecharModal('modal-clientes-localidade')">×</button>
+    </div>
+    <div id="lista-clientes-localidade"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-clientes-localidade')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL LOCALIDADE -->
 <div class="modal-bg" id="modal-localidade">
   <div class="modal-box" style="max-width:400px;">
