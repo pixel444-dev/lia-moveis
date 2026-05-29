@@ -937,6 +937,16 @@ async function iniciarSessao(user) {
   }
   if (perfilAtivo === 'vendedor') {
     carregarEquipeAtivaVendedor();
+    setInterval(async () => {
+      const equipeAntes = equipeAtiva?.id || null;
+      await carregarEquipeAtivaVendedor();
+      const equipeDepois = equipeAtiva?.id || null;
+      if (equipeAntes !== equipeDepois) {
+        const paginaAtiva = document.querySelector('.page.active')?.id?.replace('page-', '');
+        if (paginaAtiva === 'vendas') carregarVendas();
+        if (paginaAtiva === 'equipes') carregarEquipes();
+      }
+    }, 30000);
   }
   carregarDashboard();
 }
@@ -1010,10 +1020,10 @@ function pg(nome, el) {
   el.classList.add('active');
   if (nome === 'clientes') carregarClientes();
   if (nome === 'funcionarios') carregarFuncionarios();
-  if (nome === 'vendas') carregarVendas();
+  if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => carregarVendas());
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'ciclos') carregarCiclos();
-  if (nome === 'equipes') carregarEquipes();
+  if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => carregarEquipes());
   if (nome === 'usuarios') carregarUsuarios();
 }
 
