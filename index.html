@@ -2306,9 +2306,224 @@ function buscarVenda(termo) {
 }
 
 async function carregarCobrancas() {
+  if (perfilAtivo === 'cobrador') {
+    renderInterfaceCobrador();
+    return;
+  }
   document.getElementById('resultado-cobranca-cliente').innerHTML = '';
   document.getElementById('lista-parcelas-cliente').innerHTML = '';
 }
+
+// ===== INTERFACE COBRADOR =====
+
+async function renderInterfaceCobrador() {
+  document.getElementById('page-cobrancas').innerHTML = ''
+    + '<div style="padding-bottom:1rem;">'
+    + '<div id="card-saldo-cobrador" style="background:linear-gradient(135deg,#0C447C,#185FA5);border-radius:14px;padding:1.25rem;margin-bottom:1rem;color:white;">'
+    + '<div style="font-size:11px;opacity:.8;letter-spacing:.08em;margin-bottom:4px;">DINHEIRO EM MÃOS</div>'
+    + '<div style="font-size:28px;font-weight:700;" id="saldo-em-maos">R$ 0,00</div>'
+    + '<div style="font-size:11px;opacity:.7;margin-top:4px;" id="saldo-ciclo-info">Carregando...</div>'
+    + '</div>'
+    + '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:1rem;">'
+    + '<div style="font-size:12px;font-weight:500;color:#555;margin-bottom:.75rem;">Buscar cliente</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:8px;">'
+    + '<select id="filtro-busca-tipo" style="padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;background:#fff;flex-shrink:0;">'
+    + '<option value="nome">Nome</option>'
+    + '<option value="cpf">CPF</option>'
+    + '<option value="codigo">Código</option>'
+    + '<option value="telefone">Celular</option>'
+    + '<option value="endereco">Endereço</option>'
+    + '<option value="cidade">Cidade</option>'
+    + '</select>'
+    + '<input id="busca-cobrador-input" type="text" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:16px;" placeholder="Digite para buscar..." oninput="buscarClienteCobrador(this.value)">'
+    + '</div>'
+    + '<div id="resultado-busca-cobrador"></div>'
+    + '</div>'
+    + '<div id="secao-visitas-hoje"></div>'
+    + '<div id="secao-localidades-cobrador"></div>'
+    + '<div id="secao-lista-geral-cobrador"></div>'
+    + '</div>';
+
+  await Promise.all([
+    carregarSaldoCobrador(),
+    carregarVisitasHoje(),
+    carregarClientesPorLocalidade(),
+  ]);
+}
+
+async function carregarSaldoCobrador() {
+  var el = document.getElementById('saldo-em-maos');
+  var infoEl = document.getElementById('saldo-ciclo-info');
+  if (el) el.textContent = 'R$ 0,00';
+  if (infoEl) infoEl.textContent = 'Ciclo atual · ' + new Date().toLocaleDateString('pt-BR');
+}
+
+async function carregarVisitasHoje() {
+  var hoje = new Date().toISOString().split('T')[0];
+  var secao = document.getElementById('secao-visitas-hoje');
+  if (!secao) return;
+
+  var { data, error } = await sb
+    .from('visitas_agendadas')
+    .select('id, motivo, clientes(id, nome, telefone, foto_casa)')
+    .eq('cobrador_id', funcionarioLogado.id)
+    .eq('data_agendada', hoje)
+    .eq('concluida', false);
+
+  if (error || !data || !data.length) { secao.innerHTML = ''; return; }
+
+  var html = '<div style="margin-bottom:1rem;">'
+    + '<div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:.75rem;">📅 Visitas agendadas para hoje (' + data.length + ')</div>';
+  data.forEach(function(v) {
+    var cli = v.clientes || {};
+    var foto = cli.foto_casa
+      ? '<img src="' + cli.foto_casa + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+      : '<div style="width:48px;height:48px;border-radius:8px;background:#f5c6c6;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">📅</div>';
+    html += '<div onclick="verDetalhesCliente(\'' + cli.id + '\')" style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
+      + foto
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-size:14px;font-weight:600;color:#A32D2D;">' + (cli.nome||'—') + '</div>'
+      + '<div style="font-size:12px;color:#A32D2D;opacity:.8;">Motivo anterior: ' + (v.motivo||'—') + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + (cli.telefone||'—') + '</div>'
+      + '</div>'
+      + '<span style="font-size:18px;color:#A32D2D;">›</span>'
+      + '</div>';
+  });
+  html += '</div>';
+  secao.innerHTML = html;
+}
+
+async function carregarClientesPorLocalidade() {
+  var secaoLoc = document.getElementById('secao-localidades-cobrador');
+  var secaoGeral = document.getElementById('secao-lista-geral-cobrador');
+  if (!secaoLoc) return;
+
+  secaoLoc.innerHTML = '<p style="color:#888;font-size:13px;padding:1rem;">Carregando rota...</p>';
+
+  var [locRes, cliRes] = await Promise.all([
+    sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome'),
+    sb.from('clientes').select('id, codigo, nome, telefone, foto_casa, localidade_id').eq('cobrador_id', funcionarioLogado.id).order('nome'),
+  ]);
+
+  var localidades = locRes.data || [];
+  var clientes = cliRes.data || [];
+  var clienteIds = clientes.map(function(c) { return c.id; });
+
+  if (!clienteIds.length) {
+    secaoLoc.innerHTML = '<p style="color:#888;font-size:13px;text-align:center;padding:2rem;">Nenhum cliente na sua rota.</p>';
+    if (secaoGeral) secaoGeral.innerHTML = '';
+    return;
+  }
+
+  var parcelasRes = await sb.from('parcelas')
+    .select('cliente_id, valor, data_vencimento')
+    .in('cliente_id', clienteIds)
+    .eq('pago', false)
+    .neq('status', 'devolvida');
+
+  var mapaParcelas = {};
+  var hoje = new Date();
+  (parcelasRes.data || []).forEach(function(p) {
+    if (!mapaParcelas[p.cliente_id]) mapaParcelas[p.cliente_id] = { total: 0, atrasadas: 0 };
+    mapaParcelas[p.cliente_id].total++;
+    if (new Date(p.data_vencimento + 'T12:00:00') < hoje) mapaParcelas[p.cliente_id].atrasadas++;
+  });
+
+  var htmlLoc = '';
+  localidades.forEach(function(loc) {
+    var cliLoc = clientes.filter(function(c) { return c.localidade_id === loc.id && mapaParcelas[c.id] && mapaParcelas[c.id].total > 0; });
+    if (!cliLoc.length) return;
+    htmlLoc += '<div style="margin-bottom:1rem;">'
+      + '<div style="font-size:13px;font-weight:600;color:#185FA5;margin-bottom:.75rem;display:flex;justify-content:space-between;align-items:center;">'
+      + '<span>🏘️ ' + loc.nome + '</span>'
+      + '<span style="font-size:11px;background:#E6F1FB;color:#185FA5;padding:2px 8px;border-radius:6px;">' + cliLoc.length + ' clientes</span>'
+      + '</div>'
+      + renderCardsClientesCobrador(cliLoc, mapaParcelas)
+      + '</div>';
+  });
+
+  var semLoc = clientes.filter(function(c) { return !c.localidade_id && mapaParcelas[c.id] && mapaParcelas[c.id].total > 0; });
+  secaoLoc.innerHTML = htmlLoc || '';
+  if (secaoGeral) {
+    secaoGeral.innerHTML = semLoc.length
+      ? '<div style="margin-bottom:1rem;">'
+        + '<div style="font-size:13px;font-weight:600;color:#888;margin-bottom:.75rem;display:flex;justify-content:space-between;align-items:center;">'
+        + '<span>📋 Sem localidade definida</span>'
+        + '<span style="font-size:11px;background:#f0f0f0;color:#888;padding:2px 8px;border-radius:6px;">' + semLoc.length + ' clientes</span>'
+        + '</div>'
+        + renderCardsClientesCobrador(semLoc, mapaParcelas)
+        + '</div>'
+      : '';
+  }
+}
+
+function renderCardsClientesCobrador(lista, mapaParcelas) {
+  return lista.map(function(c) {
+    var info = mapaParcelas[c.id] || { total: 0, atrasadas: 0 };
+    var borda = info.atrasadas > 0 ? '#f5c6c6' : '#e0e0e0';
+    var foto = c.foto_casa
+      ? '<img src="' + c.foto_casa + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+      : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
+    return '<div onclick="verDetalhesCliente(\'' + c.id + '\')" style="background:#fff;border:1px solid ' + borda + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
+      + foto
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + c.nome + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + (c.telefone||'—') + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:4px;">'
+      + (info.atrasadas > 0 ? '<span class="badge vermelho" style="font-size:10px;">' + info.atrasadas + ' atrasada(s)</span>' : '')
+      + '<span class="badge azul" style="font-size:10px;">' + info.total + ' parcela(s) em aberto</span>'
+      + '</div>'
+      + '</div>'
+      + '<span style="font-size:18px;color:#888;">›</span>'
+      + '</div>';
+  }).join('');
+}
+
+async function buscarClienteCobrador(termo) {
+  var res = document.getElementById('resultado-busca-cobrador');
+  if (!res) return;
+  if (!termo || termo.length < 2) { res.innerHTML = ''; return; }
+
+  var tipo = document.getElementById('filtro-busca-tipo').value;
+  var t = termo.trim();
+
+  var query = sb.from('clientes')
+    .select('id, codigo, nome, cpf, telefone, cidade, foto_casa')
+    .eq('cobrador_id', funcionarioLogado.id)
+    .limit(10);
+
+  if (tipo === 'nome')     query = query.ilike('nome', '%' + t + '%');
+  else if (tipo === 'cpf')      query = query.ilike('cpf', '%' + t + '%');
+  else if (tipo === 'codigo')   query = query.ilike('codigo', '%' + t + '%');
+  else if (tipo === 'telefone') query = query.ilike('telefone', '%' + t + '%');
+  else if (tipo === 'endereco') query = query.ilike('endereco', '%' + t + '%');
+  else if (tipo === 'cidade')   query = query.ilike('cidade', '%' + t + '%');
+
+  var { data, error } = await query.order('nome');
+
+  if (error) { Logger.error('cobrador', 'BUSCAR_CLIENTE', 'Erro na busca', { supabase_code: error.code }); return; }
+
+  if (!data || !data.length) {
+    res.innerHTML = '<p style="color:#888;font-size:13px;padding:.5rem 0;">Nenhum cliente encontrado.</p>';
+    return;
+  }
+
+  res.innerHTML = data.map(function(c) {
+    var foto = c.foto_casa
+      ? '<img src="' + c.foto_casa + '" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+      : '<div style="width:44px;height:44px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">👤</div>';
+    return '<div onclick="verDetalhesCliente(\'' + c.id + '\')" style="display:flex;align-items:center;gap:10px;padding:.75rem 0;border-bottom:1px solid #f0f0f0;cursor:pointer;">'
+      + foto
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + c.nome + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + (c.cpf||'—') + ' · ' + (c.cidade||'—') + '</div>'
+      + '</div>'
+      + '<span style="font-size:18px;color:#185FA5;">›</span>'
+      + '</div>';
+  }).join('');
+}
+
+// ===== FIM INTERFACE COBRADOR =====
 
 let clientesCobranca = [];
 
