@@ -3104,12 +3104,193 @@ async function verParcelasDoCliente() {
   }).join('');
 }
 
-function abrirRegistrarRecebimento(parcelaId, numero, total, saldo, produto, clienteId, nomeCliente) {
-  alert('Em breve: Registrar recebimento de ' + nomeCliente + ' — Parcela ' + numero + '/' + total);
+function abrirRegistrarRecebimento(parcelaId, numero, total, valor, produto, clienteId, nomeCliente) {
+  document.getElementById('receb-parcela-id').value = parcelaId;
+  document.getElementById('receb-cliente-id').value = clienteId;
+  document.getElementById('receb-valor-total').value = valor;
+  document.getElementById('receb-tipo').value = 'completo';
+  document.getElementById('campo-valor-parcial').style.display = 'none';
+  document.getElementById('receb-valor-parcial').value = '';
+  document.getElementById('receb-msg-saldo').innerHTML = '';
+  document.getElementById('receb-obs').value = '';
+  document.getElementById('receb-forma').value = 'dinheiro';
+  document.getElementById('receb-info-parcela').textContent = nomeCliente + ' — Parcela ' + numero + '/' + total + ' — ' + produto;
+  document.getElementById('receb-valor-display').textContent = 'R$ ' + Number(valor).toLocaleString('pt-BR', {minimumFractionDigits: 2});
+  selecionarForma('dinheiro');
+  document.getElementById('modal-recebimento').style.display = 'flex';
+}
+
+function atualizarTipoRecebimento() {
+  const tipo = document.getElementById('receb-tipo').value;
+  document.getElementById('campo-valor-parcial').style.display = tipo === 'parcial' ? 'block' : 'none';
+  document.getElementById('receb-msg-saldo').innerHTML = '';
+}
+
+function atualizarSaldoRecebimento() {
+  const total = parseFloat(document.getElementById('receb-valor-total').value) || 0;
+  const recebido = parseFloat(document.getElementById('receb-valor-parcial').value) || 0;
+  const msg = document.getElementById('receb-msg-saldo');
+  if (recebido <= 0) { msg.innerHTML = ''; return; }
+  if (recebido >= total) {
+    msg.innerHTML = '<span style="color:#A32D2D;">Valor maior ou igual ao total — use pagamento completo.</span>';
+    return;
+  }
+  const saldo = total - recebido;
+  msg.innerHTML = 'Saldo restante: <strong>R$ ' + saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</strong>';
+}
+
+function selecionarForma(forma) {
+  document.getElementById('receb-forma').value = forma;
+  const btnDinheiro = document.getElementById('btn-dinheiro');
+  const btnPix = document.getElementById('btn-pix');
+  if (forma === 'dinheiro') {
+    btnDinheiro.style.borderColor = '#185FA5';
+    btnDinheiro.style.background = '#E6F1FB';
+    btnDinheiro.style.color = '#185FA5';
+    btnPix.style.borderColor = '#ddd';
+    btnPix.style.background = '#fff';
+    btnPix.style.color = '#888';
+  } else {
+    btnPix.style.borderColor = '#185FA5';
+    btnPix.style.background = '#E6F1FB';
+    btnPix.style.color = '#185FA5';
+    btnDinheiro.style.borderColor = '#ddd';
+    btnDinheiro.style.background = '#fff';
+    btnDinheiro.style.color = '#888';
+  }
+}
+
+async function confirmarRecebimento() {
+  const parcelaId = document.getElementById('receb-parcela-id').value;
+  const clienteId = document.getElementById('receb-cliente-id').value;
+  const tipo = document.getElementById('receb-tipo').value;
+  const valorTotal = parseFloat(document.getElementById('receb-valor-total').value) || 0;
+  const valorRecebido = tipo === 'completo'
+    ? valorTotal
+    : parseFloat(document.getElementById('receb-valor-parcial').value) || 0;
+  const forma = document.getElementById('receb-forma').value;
+  const obs = document.getElementById('receb-obs').value.trim();
+
+  if (tipo === 'parcial' && valorRecebido <= 0) { alert('Digite o valor recebido!'); return; }
+  if (tipo === 'parcial' && valorRecebido >= valorTotal) { alert('Para pagamento total use "Pagamento completo"!'); return; }
+
+  const caixaId = await obterCaixaAtiva();
+  if (!caixaId) { alert('Erro ao obter caixa ativa. Contate o gestor.'); return; }
+
+  const { error } = await sb.from('baixas_pendentes').insert({
+    caixa_id: caixaId,
+    parcela_id: parcelaId,
+    cobrador_id: funcionarioLogado.id,
+    cliente_id: clienteId,
+    valor_recebido: valorRecebido,
+    forma_pagamento: forma,
+    observacao: obs || null,
+    tipo_baixa: tipo,
+    status: 'pendente'
+  });
+
+  if (error) {
+    Logger.error('cobrador', 'CONFIRMAR_RECEBIMENTO', 'Erro ao salvar baixa pendente', { supabase_code: error.code });
+    alert('Erro ao registrar recebimento!');
+    return;
+  }
+
+  fecharModal('modal-recebimento');
+  fecharModal('modal-parcelas-cobrador');
+  await carregarSaldoCobrador();
+  await carregarClientesPorLocalidade();
+  alert('Recebimento registrado! Ficará pendente até o gestor autorizar.');
+}
+
+async function obterCaixaAtiva() {
+  const { data } = await sb.from('caixa_cobrador').select('id')
+    .eq('cobrador_id', funcionarioLogado.id).eq('status', 'aberto').single();
+  if (data) return data.id;
+
+  const hoje = new Date();
+  const dia = hoje.getDate();
+  const ano = hoje.getFullYear();
+  const mes = hoje.getMonth();
+  let inicioStr, fimStr;
+  if (dia >= 10 && dia <= 14) {
+    inicioStr = new Date(ano, mes, 10).toISOString().split('T')[0];
+    fimStr = new Date(ano, mes, 14).toISOString().split('T')[0];
+  } else if (dia >= 15 && dia <= 19) {
+    inicioStr = new Date(ano, mes, 15).toISOString().split('T')[0];
+    fimStr = new Date(ano, mes, 19).toISOString().split('T')[0];
+  } else if (dia >= 20 && dia <= 24) {
+    inicioStr = new Date(ano, mes, 20).toISOString().split('T')[0];
+    fimStr = new Date(ano, mes, 24).toISOString().split('T')[0];
+  } else if (dia >= 25 && dia <= 29) {
+    inicioStr = new Date(ano, mes, 25).toISOString().split('T')[0];
+    fimStr = new Date(ano, mes, 29).toISOString().split('T')[0];
+  } else if (dia >= 30) {
+    inicioStr = new Date(ano, mes, 30).toISOString().split('T')[0];
+    fimStr = new Date(ano, mes + 1, 4).toISOString().split('T')[0];
+  } else {
+    inicioStr = new Date(ano, mes, 5).toISOString().split('T')[0];
+    fimStr = new Date(ano, mes, 9).toISOString().split('T')[0];
+  }
+
+  const { data: novaCaixa, error } = await sb.from('caixa_cobrador').insert({
+    cobrador_id: funcionarioLogado.id,
+    ciclo_inicio: inicioStr,
+    ciclo_fim: fimStr,
+    status: 'aberto'
+  }).select().single();
+
+  if (error) {
+    Logger.error('cobrador', 'CRIAR_CAIXA', 'Erro ao criar caixa automática', { supabase_code: error.code });
+    return null;
+  }
+  return novaCaixa.id;
 }
 
 function abrirNaoRecebi(parcelaId, numero, total, clienteId, nomeCliente) {
-  alert('Em breve: Registrar não recebimento — ' + nomeCliente + ' — Parcela ' + numero + '/' + total);
+  document.getElementById('nao-recebi-parcela-id').value = parcelaId;
+  document.getElementById('nao-recebi-cliente-id').value = clienteId;
+  document.getElementById('nao-recebi-info').textContent = nomeCliente + ' — Parcela ' + numero + '/' + total;
+  document.getElementById('nao-recebi-obs').value = '';
+  document.getElementById('nao-recebi-data').value = '';
+  document.querySelectorAll('input[name="motivo-nao-recebi"]').forEach(function(r) { r.checked = false; });
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  document.getElementById('nao-recebi-data').min = amanha.toISOString().split('T')[0];
+  document.getElementById('modal-nao-recebi').style.display = 'flex';
+}
+
+async function confirmarNaoRecebi() {
+  const parcelaId = document.getElementById('nao-recebi-parcela-id').value;
+  const clienteId = document.getElementById('nao-recebi-cliente-id').value;
+  const motivoEl = document.querySelector('input[name="motivo-nao-recebi"]:checked');
+  const motivo = motivoEl ? motivoEl.value : null;
+  const obs = document.getElementById('nao-recebi-obs').value.trim();
+  const data = document.getElementById('nao-recebi-data').value;
+
+  if (!motivo) { alert('Selecione o motivo!'); return; }
+  if (!data) { alert('Selecione a data da próxima visita!'); return; }
+
+  const { error } = await sb.from('visitas_agendadas').insert({
+    cobrador_id: funcionarioLogado.id,
+    cliente_id: clienteId,
+    parcela_id: parcelaId,
+    motivo: motivo,
+    observacao: obs || null,
+    data_agendada: data,
+    concluida: false
+  });
+
+  if (error) {
+    Logger.error('cobrador', 'AGENDAR_VISITA', 'Erro ao agendar visita', { supabase_code: error.code });
+    alert('Erro ao registrar!');
+    return;
+  }
+
+  fecharModal('modal-nao-recebi');
+  fecharModal('modal-parcelas-cobrador');
+  await carregarVisitasHoje();
+  await carregarClientesPorLocalidade();
+  alert('Registrado! O cliente aparecerá na sua lista no dia agendado.');
 }
 
 // ===== FIM MÓDULO LOCALIDADES =====
@@ -4535,6 +4716,140 @@ async function toggleUsuarioAtivo(id, ativo) {
       <button class="btn" onclick="fecharModal('modal-localidade')">Cancelar</button>
       <button class="btn primario" onclick="salvarLocalidade()">Salvar</button>
     </div>
+  </div>
+</div>
+
+<!-- MODAL REGISTRAR RECEBIMENTO -->
+<div class="modal-bg" id="modal-recebimento">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <div>
+        <strong>Registrar recebimento</strong>
+        <div style="font-size:11px;color:#888;margin-top:2px;" id="receb-info-parcela"></div>
+      </div>
+      <button onclick="fecharModal('modal-recebimento')">×</button>
+    </div>
+    <input type="hidden" id="receb-parcela-id">
+    <input type="hidden" id="receb-cliente-id">
+    <input type="hidden" id="receb-valor-total">
+
+    <div style="background:#E6F1FB;border-radius:10px;padding:1rem;margin-bottom:1rem;text-align:center;">
+      <div style="font-size:12px;color:#185FA5;margin-bottom:4px;">VALOR DA PARCELA</div>
+      <div style="font-size:28px;font-weight:700;color:#0C447C;" id="receb-valor-display">R$ 0,00</div>
+    </div>
+
+    <div class="campo">
+      <label>Tipo de recebimento</label>
+      <select id="receb-tipo" onchange="atualizarTipoRecebimento()"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+        <option value="completo">Pagamento completo</option>
+        <option value="parcial">Pagamento parcial</option>
+      </select>
+    </div>
+
+    <div id="campo-valor-parcial" style="display:none;">
+      <div class="campo">
+        <label>Valor recebido (R$)</label>
+        <input id="receb-valor-parcial" type="number"
+          style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+          placeholder="0,00" oninput="atualizarSaldoRecebimento()">
+        <div id="receb-msg-saldo" style="font-size:12px;margin-top:4px;color:#854F0B;"></div>
+      </div>
+    </div>
+
+    <div class="campo">
+      <label>Forma de pagamento</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+        <button type="button" id="btn-dinheiro" onclick="selecionarForma('dinheiro')"
+          style="padding:14px;border-radius:10px;border:2px solid #185FA5;background:#E6F1FB;color:#185FA5;font-size:14px;font-weight:600;cursor:pointer;">
+          💵 Dinheiro
+        </button>
+        <button type="button" id="btn-pix" onclick="selecionarForma('pix')"
+          style="padding:14px;border-radius:10px;border:2px solid #ddd;background:#fff;color:#888;font-size:14px;font-weight:600;cursor:pointer;">
+          📱 PIX
+        </button>
+      </div>
+      <input type="hidden" id="receb-forma" value="dinheiro">
+    </div>
+
+    <div class="campo">
+      <label>Observação (opcional)</label>
+      <input id="receb-obs" type="text"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+        placeholder="Ex: cliente pagou com troco...">
+    </div>
+
+    <div style="background:#FAEEDA;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:12px;color:#854F0B;">
+      ⚠️ O recebimento ficará <strong>pendente</strong> até o gestor autorizar na prestação de contas.
+    </div>
+
+    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;"
+      onclick="confirmarRecebimento()">
+      ✓ Confirmar recebimento
+    </button>
+    <button class="btn" style="width:100%;padding:12px;font-size:14px;margin-top:8px;"
+      onclick="fecharModal('modal-recebimento')">
+      Cancelar
+    </button>
+  </div>
+</div>
+
+<!-- MODAL NÃO RECEBI -->
+<div class="modal-bg" id="modal-nao-recebi">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <div>
+        <strong>Não recebi</strong>
+        <div style="font-size:11px;color:#888;margin-top:2px;" id="nao-recebi-info"></div>
+      </div>
+      <button onclick="fecharModal('modal-nao-recebi')">×</button>
+    </div>
+    <input type="hidden" id="nao-recebi-parcela-id">
+    <input type="hidden" id="nao-recebi-cliente-id">
+
+    <div class="campo">
+      <label>Motivo *</label>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
+        <label style="display:flex;align-items:center;gap:10px;background:#f9f9f9;padding:12px;border-radius:8px;cursor:pointer;font-size:14px;">
+          <input type="radio" name="motivo-nao-recebi" value="ausente"> Cliente ausente
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;background:#f9f9f9;padding:12px;border-radius:8px;cursor:pointer;font-size:14px;">
+          <input type="radio" name="motivo-nao-recebi" value="pediu_prazo"> Cliente pediu prazo
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;background:#f9f9f9;padding:12px;border-radius:8px;cursor:pointer;font-size:14px;">
+          <input type="radio" name="motivo-nao-recebi" value="recusou"> Cliente recusou pagar
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;background:#f9f9f9;padding:12px;border-radius:8px;cursor:pointer;font-size:14px;">
+          <input type="radio" name="motivo-nao-recebi" value="endereco"> Endereço não encontrado
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;background:#f9f9f9;padding:12px;border-radius:8px;cursor:pointer;font-size:14px;">
+          <input type="radio" name="motivo-nao-recebi" value="outro"> Outro motivo
+        </label>
+      </div>
+    </div>
+
+    <div class="campo">
+      <label>Observação</label>
+      <input id="nao-recebi-obs" type="text"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+        placeholder="Detalhes adicionais...">
+    </div>
+
+    <div class="campo">
+      <label>Agendar próxima visita *</label>
+      <input id="nao-recebi-data" type="date"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+      <div style="font-size:11px;color:#888;margin-top:4px;">O cliente aparecerá na sua lista nesta data.</div>
+    </div>
+
+    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-top:.5rem;"
+      onclick="confirmarNaoRecebi()">
+      Registrar e agendar visita
+    </button>
+    <button class="btn" style="width:100%;padding:12px;font-size:14px;margin-top:8px;"
+      onclick="fecharModal('modal-nao-recebi')">
+      Cancelar
+    </button>
   </div>
 </div>
 </body>
