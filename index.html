@@ -296,10 +296,10 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" id="nav-usuarios" onclick="pg('usuarios',this)">Usuários</div>
       <div class="nav-item" id="nav-importacao" onclick="pg('importacao',this)">Importar dados</div>
     </div>
-    <div class="nav-grupo">
+    <div class="nav-grupo" id="nav-grupo-vendas">
       <div class="nav-sep">Vendas</div>
-      <div class="nav-item" onclick="pg('vendas',this)">Vendas</div>
-      <div class="nav-item" onclick="pg('equipes',this)">Equipes / Semanas</div>
+      <div class="nav-item" id="nav-vendas" onclick="pg('vendas',this)">Vendas</div>
+      <div class="nav-item" id="nav-equipes" onclick="pg('equipes',this)">Equipes / Semanas</div>
       <div class="nav-item" id="nav-caixa-vendedores" onclick="pg('caixa-vendedores',this)">Caixa em campo</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-cobrancas">
@@ -1009,6 +1009,10 @@ function aplicarPermissoes(perfil) {
     const el = document.getElementById(id);
     if (el) el.style.display = gestor ? '' : 'none';
   });
+
+  // Cobrador não vê o grupo de Vendas
+  const grupoVendas = document.getElementById('nav-grupo-vendas');
+  if (grupoVendas) grupoVendas.style.display = cobrador ? 'none' : '';
 
   // Gestor e cobrador
   const gestorCobrador = ['nav-cobrancas', 'nav-ciclos', 'nav-caixa-cobradores', 'nav-localidades'];
