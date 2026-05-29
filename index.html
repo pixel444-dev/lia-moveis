@@ -1382,9 +1382,9 @@ async function verDetalhesCliente(clienteId) {
   document.getElementById('det-atrasadas').textContent = `⚠️ ${atrasadas.length} parcela(s) atrasada(s)`;
 
   // Localidade — visível para cobrador e gestor
+  document.getElementById('det-cliente-id').value = c.id;
   const localidadeWrap = document.getElementById('det-localidade-wrap');
   if (perfilAtivo === 'cobrador' || perfilAtivo === 'gestor') {
-    document.getElementById('det-cliente-id').value = c.id;
     localidadeWrap.style.display = 'block';
     await carregarSelectLocalidades(c.localidade_id, c.cobrador_id);
   } else {
@@ -2753,13 +2753,21 @@ async function excluirLocalidade(id) {
   carregarLocalidades();
 }
 
-async function carregarSelectLocalidades(localidadeAtual, cobradorId) {
+async function carregarSelectLocalidades(localidadeAtual, clienteCobradorId) {
   const sel = document.getElementById('det-localidade-select');
+  if (!sel) return;
+
+  // Cobrador usa sempre as próprias localidades; gestor usa as do cobrador do cliente
+  const cobradorId = perfilAtivo === 'cobrador' ? funcionarioLogado.id : clienteCobradorId;
+
   if (!cobradorId) {
     sel.innerHTML = '<option value="">Sem localidade (lista geral)</option>';
     return;
   }
-  const { data } = await sb.from('localidades').select('id, nome').eq('cobrador_id', cobradorId).eq('ativo', true).order('nome');
+
+  const { data, error } = await sb.from('localidades').select('id, nome').eq('cobrador_id', cobradorId).eq('ativo', true).order('nome');
+  if (error) Logger.warn('localidades', 'CARREGAR_SELECT', 'Erro ao carregar select', { supabase_code: error.code });
+
   sel.innerHTML = '<option value="">Sem localidade (lista geral)</option>' +
     (data || []).map(function(l) {
       return '<option value="' + l.id + '"' + (l.id === localidadeAtual ? ' selected' : '') + '>' + l.nome + '</option>';
