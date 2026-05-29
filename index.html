@@ -1600,6 +1600,21 @@ async function abrirNovaVenda() {
 async function buscarClientePorCPF() {
   const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
   const div = document.getElementById('resultado-busca-cliente');
+
+  if (perfilAtivo === 'gestor' && cpf.length === 0) {
+    div.innerHTML = '<div class="cliente-nao-encontrado">CPF não informado — preencha os dados do cliente abaixo.</div>';
+    await carregarCobradoresSelect('vnc-cobrador');
+    document.getElementById('form-novo-cliente-venda').style.display = 'block';
+    document.getElementById('form-dados-venda').style.display = 'none';
+    document.getElementById('btn-salvar-venda').style.display = 'none';
+    ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('vnc-edit-id').value = '';
+    window._vncFotoUrl = null;
+    removerFotoVnc();
+    _resetLocStatus();
+    return;
+  }
+
   if (cpf.length < 11) { div.innerHTML = '<div class="cliente-nao-encontrado">Digite o CPF completo (11 dígitos).</div>'; return; }
   if (!validarCPF(cpf)) { div.innerHTML = '<div class="cliente-nao-encontrado">✗ CPF inválido. Verifique e tente novamente.</div>'; return; }
   const { data } = await sb.from('clientes').select('*').eq('cpf', cpf).maybeSingle();
@@ -1637,6 +1652,28 @@ async function buscarClientePorCPF() {
       }
     }
 
+    if (perfilAtivo === 'gestor') {
+      const hoje = new Date().toISOString().split('T')[0];
+      const { data: atrasadas } = await sb.from('parcelas')
+        .select('id, valor')
+        .eq('cliente_id', data.id)
+        .eq('pago', false)
+        .neq('status', 'devolvida')
+        .lt('data_vencimento', hoje);
+
+      if (atrasadas && atrasadas.length > 0) {
+        const totalAtrasado = atrasadas.reduce((a, p) => a + Number(p.valor), 0);
+        div.innerHTML = `
+          <div class="cliente-encontrado">✓ Cliente: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>
+          <div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;color:#854F0B;">
+            ⚠️ Atenção: cliente tem ${atrasadas.length} parcela(s) em atraso — R$ ${totalAtrasado.toLocaleString('pt-BR',{minimumFractionDigits:2})}
+          </div>`;
+        window._clienteInadimplente = false;
+        await mostrarFormVenda();
+        return;
+      }
+    }
+
     div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>`;
     window._clienteInadimplente = false;
     await mostrarFormVenda();
@@ -1662,32 +1699,34 @@ async function salvarNovoClienteVenda() {
   const cidade = document.getElementById('vnc-cidade').value.trim();
   const cobradorId = document.getElementById('vnc-cobrador').value || null;
 
-  if (!nome) { alert('Preencha o nome completo!'); return; }
-  if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
-  if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
-  if (!endereco) { alert('Preencha o endereço!'); return; }
-  if (!cidade) { alert('Preencha a cidade!'); return; }
-  if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
   const editId = document.getElementById('vnc-edit-id').value;
-  if (!editId && !window._vncFotoBlob) { alert('Tire uma foto da casa do cliente!'); return; }
-  const lat = document.getElementById('vnc-latitude').value;
-  const lng = document.getElementById('vnc-longitude').value;
-  if (!editId && (!lat || !lng)) {
-    alert('Localização obrigatória! Clique em "Salvar localização atual" antes de continuar.');
-    return;
+  if (!nome) { alert('Preencha o nome completo!'); return; }
+  if (perfilAtivo === 'vendedor') {
+    if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
+    if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
+    if (!endereco) { alert('Preencha o endereço!'); return; }
+    if (!cidade) { alert('Preencha a cidade!'); return; }
+    if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
+    if (!editId && !window._vncFotoBlob) { alert('Tire uma foto da casa do cliente!'); return; }
+    const lat = document.getElementById('vnc-latitude').value;
+    const lng = document.getElementById('vnc-longitude').value;
+    if (!editId && (!lat || !lng)) {
+      alert('Localização obrigatória! Clique em "Salvar localização atual" antes de continuar.');
+      return;
+    }
   }
 
   const dados = {
     nome, cpf,
     telefone: document.getElementById('vnc-telefone').value.trim(),
-    data_nascimento: nascimento,
+    data_nascimento: nascimento || null,
     endereco,
     bairro: document.getElementById('vnc-bairro').value.trim(),
     cidade,
     referencia: document.getElementById('vnc-referencia').value.trim(),
     cobrador_id: cobradorId,
-    latitude: lat || null,
-    longitude: lng || null,
+    latitude: document.getElementById('vnc-latitude').value || null,
+    longitude: document.getElementById('vnc-longitude').value || null,
     localizacao_endereco: document.getElementById('vnc-localizacao-endereco').value || null,
   };
 
