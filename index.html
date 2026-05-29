@@ -557,6 +557,19 @@ tr:hover td{background:#fafafa;}
         <input id="vnc-referencia" type="text" placeholder="Próximo ao mercado X...">
       </div>
       <div class="campo">
+        <label>Localização do cliente *</label>
+        <div id="loc-status" style="background:#f9f9f9;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;color:#888;margin-bottom:6px;">
+          📍 Localização não capturada ainda
+        </div>
+        <input type="hidden" id="vnc-latitude">
+        <input type="hidden" id="vnc-longitude">
+        <input type="hidden" id="vnc-localizacao-endereco">
+        <button type="button" class="btn primario" style="width:100%;padding:12px;font-size:14px;" onclick="capturarLocalizacao()">
+          📍 Salvar localização atual
+        </button>
+        <div style="font-size:11px;color:#888;margin-top:6px;">O vendedor deve estar na frente da casa do cliente ao capturar.</div>
+      </div>
+      <div class="campo">
         <label>Cobrador responsável *</label>
         <select id="vnc-cobrador">
           <option value="">Selecione...</option>
@@ -1133,6 +1146,74 @@ function removerFotoVnc() {
   document.getElementById('vnc-foto-preview-wrap').style.display = 'none';
 }
 
+function _resetLocStatus() {
+  var el = document.getElementById('loc-status');
+  if (!el) return;
+  el.innerHTML = '📍 Localização não capturada ainda';
+  el.style.background = '#f9f9f9';
+  el.style.borderColor = '#ddd';
+  el.style.color = '#888';
+  document.getElementById('vnc-latitude').value = '';
+  document.getElementById('vnc-longitude').value = '';
+  document.getElementById('vnc-localizacao-endereco').value = '';
+}
+
+async function capturarLocalizacao() {
+  var statusEl = document.getElementById('loc-status');
+
+  if (!navigator.geolocation) {
+    statusEl.innerHTML = '❌ Seu celular não suporta GPS.';
+    statusEl.style.background = '#FCEBEB';
+    statusEl.style.borderColor = '#f5c6c6';
+    statusEl.style.color = '#A32D2D';
+    return;
+  }
+
+  statusEl.innerHTML = '⏳ Capturando localização...';
+  statusEl.style.background = '#FAEEDA';
+  statusEl.style.borderColor = '#FAC775';
+  statusEl.style.color = '#854F0B';
+
+  navigator.geolocation.getCurrentPosition(
+    async function(pos) {
+      var lat = pos.coords.latitude;
+      var lng = pos.coords.longitude;
+      var precisao = Math.round(pos.coords.accuracy);
+
+      document.getElementById('vnc-latitude').value = lat;
+      document.getElementById('vnc-longitude').value = lng;
+
+      try {
+        var resp = await fetch(
+          'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&accept-language=pt-BR'
+        );
+        var data = await resp.json();
+        var endereco = data.display_name || (lat.toFixed(6) + ', ' + lng.toFixed(6));
+        document.getElementById('vnc-localizacao-endereco').value = endereco;
+        statusEl.innerHTML = '✅ Localização capturada!<br><span style="font-size:11px;color:#555;">' + endereco.substring(0, 80) + '...</span><br><span style="font-size:10px;color:#888;">Precisão: ~' + precisao + 'm</span>';
+      } catch (e) {
+        document.getElementById('vnc-localizacao-endereco').value = lat.toFixed(6) + ', ' + lng.toFixed(6);
+        statusEl.innerHTML = '✅ Localização capturada!<br><span style="font-size:11px;color:#555;">Lat: ' + lat.toFixed(6) + ' · Lng: ' + lng.toFixed(6) + '</span><br><span style="font-size:10px;color:#888;">Precisão: ~' + precisao + 'm</span>';
+      }
+
+      statusEl.style.background = '#EAF3DE';
+      statusEl.style.borderColor = '#c0dd97';
+      statusEl.style.color = '#3B6D11';
+    },
+    function(erro) {
+      var msg = 'Erro ao capturar localização.';
+      if (erro.code === 1) msg = '❌ Permissão de localização negada. Ative o GPS nas configurações do celular.';
+      if (erro.code === 2) msg = '❌ GPS indisponível. Verifique se o GPS está ativado.';
+      if (erro.code === 3) msg = '❌ Tempo esgotado. Tente novamente em um local aberto.';
+      statusEl.innerHTML = msg;
+      statusEl.style.background = '#FCEBEB';
+      statusEl.style.borderColor = '#f5c6c6';
+      statusEl.style.color = '#A32D2D';
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+  );
+}
+
 async function uploadFoto(clienteId) {
   if (!window._fotoCasaBlob) return null;
   const path = `clientes/${clienteId}.webp`;
@@ -1253,6 +1334,12 @@ async function verDetalhesCliente(clienteId) {
   document.getElementById('det-telefone').textContent = c.telefone || '—';
   document.getElementById('det-endereco').textContent = [c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') || '—';
   document.getElementById('det-referencia').textContent = c.referencia || '—';
+  if (c.latitude && c.longitude) {
+    const mapsUrl = 'https://www.google.com/maps?q=' + c.latitude + ',' + c.longitude;
+    document.getElementById('det-localizacao').innerHTML = '<a href="' + mapsUrl + '" target="_blank" style="color:#185FA5;font-size:13px;text-decoration:none;display:flex;align-items:center;gap:6px;">📍 Ver no Google Maps <span style="font-size:11px;color:#888;">(' + Number(c.latitude).toFixed(4) + ', ' + Number(c.longitude).toFixed(4) + ')</span></a>';
+  } else {
+    document.getElementById('det-localizacao').innerHTML = '<span style="color:#aaa;font-size:13px;">Localização não cadastrada</span>';
+  }
   document.getElementById('det-cobrador').textContent = cobradorData?.nome || '—';
   const dataCadastro = c.criado_em || c.created_at;
   document.getElementById('det-cadastro').textContent = dataCadastro ? new Date(dataCadastro).toLocaleDateString('pt-BR') : '—';
@@ -1546,6 +1633,7 @@ async function buscarClientePorCPF() {
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
     removerFotoVnc();
+    _resetLocStatus();
   }
 }
 
@@ -1565,6 +1653,12 @@ async function salvarNovoClienteVenda() {
   if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
   const editId = document.getElementById('vnc-edit-id').value;
   if (!editId && !window._vncFotoBlob) { alert('Tire uma foto da casa do cliente!'); return; }
+  const lat = document.getElementById('vnc-latitude').value;
+  const lng = document.getElementById('vnc-longitude').value;
+  if (!editId && (!lat || !lng)) {
+    alert('Localização obrigatória! Clique em "Salvar localização atual" antes de continuar.');
+    return;
+  }
 
   const dados = {
     nome, cpf,
@@ -1575,6 +1669,9 @@ async function salvarNovoClienteVenda() {
     cidade,
     referencia: document.getElementById('vnc-referencia').value.trim(),
     cobrador_id: cobradorId,
+    latitude: lat || null,
+    longitude: lng || null,
+    localizacao_endereco: document.getElementById('vnc-localizacao-endereco').value || null,
   };
 
   let clienteId, clienteNome, clienteCodigo;
@@ -1703,6 +1800,18 @@ async function editarClienteNoModal(clienteId) {
     document.getElementById('vnc-foto-preview-wrap').style.display = 'block';
   } else {
     removerFotoVnc();
+  }
+  if (data.latitude && data.longitude) {
+    var statusEl = document.getElementById('loc-status');
+    document.getElementById('vnc-latitude').value = data.latitude;
+    document.getElementById('vnc-longitude').value = data.longitude;
+    document.getElementById('vnc-localizacao-endereco').value = data.localizacao_endereco || '';
+    statusEl.innerHTML = '✅ Localização já cadastrada<br><span style="font-size:11px;color:#555;">' + Number(data.latitude).toFixed(6) + ', ' + Number(data.longitude).toFixed(6) + '</span>';
+    statusEl.style.background = '#EAF3DE';
+    statusEl.style.borderColor = '#c0dd97';
+    statusEl.style.color = '#3B6D11';
+  } else {
+    _resetLocStatus();
   }
   await carregarCobradoresSelect('vnc-cobrador');
   document.getElementById('vnc-cobrador').value = data.cobrador_id || '';
@@ -3787,6 +3896,10 @@ async function toggleUsuarioAtivo(id, ativo) {
       <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
         <div style="font-size:10px;color:#888;margin-bottom:3px;">PONTO DE REFERÊNCIA</div>
         <div style="font-size:13px;" id="det-referencia"></div>
+      </div>
+      <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:3px;">LOCALIZAÇÃO</div>
+        <div id="det-localizacao"></div>
       </div>
       <div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">
         <div style="font-size:10px;color:#888;margin-bottom:3px;">COBRADOR RESPONSÁVEL</div>
