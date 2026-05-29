@@ -305,6 +305,7 @@ tr:hover td{background:#fafafa;}
     <div class="nav-grupo" id="nav-grupo-cobrancas">
       <div class="nav-sep">Cobranças</div>
       <div class="nav-item" id="nav-cobrancas" onclick="pg('cobrancas',this)">Cobranças</div>
+      <div class="nav-item" id="nav-localidades" onclick="pg('localidades',this);carregarLocalidades()">Localidades</div>
       <div class="nav-item" id="nav-ciclos" onclick="pg('ciclos',this)">Ciclos</div>
       <div class="nav-item" id="nav-caixa-cobradores" onclick="pg('caixa-cobradores',this)">Caixa cobradores</div>
     </div>
@@ -406,6 +407,14 @@ tr:hover td{background:#fafafa;}
     <div class="page" id="page-ciclos">
       <div class="page-title">Ciclos de cobrança</div>
       <div id="lista-ciclos">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-localidades">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">Localidades</div>
+        <button class="btn primario" onclick="abrirModalLocalidade()">+ Nova</button>
+      </div>
+      <div id="lista-localidades">Carregando...</div>
     </div>
 
     <div class="page" id="page-caixa-cobradores">
@@ -925,9 +934,8 @@ async function iniciarSessao(user) {
   document.getElementById('topbar-mobile').style.removeProperty('display');
   document.getElementById('msg-login').innerHTML = '';
   if (perfilAtivo === 'cobrador') {
-    document.getElementById('lista-equipes').innerHTML = '';
-    document.querySelector('.main').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:60vh;flex-direction:column;gap:1rem;"><div style="font-size:16px;color:#888;">Perfil em configuração.</div><div style="font-size:13px;color:#aaa;">Contate o administrador.</div></div>';
     aplicarPermissoes(perfilAtivo);
+    carregarDashboard();
     return;
   }
   aplicarPermissoes(perfilAtivo);
@@ -991,18 +999,29 @@ async function limparLogsAntigos() {
 
 function aplicarPermissoes(perfil) {
   const gestor = perfil === 'gestor';
-  const ocultos = ['nav-funcionarios', 'nav-importacao', 'nav-caixa-vendedores',
-    'nav-cobrancas', 'nav-ciclos', 'nav-caixa-cobradores', 'nav-desempenho', 'nav-relatorios', 'nav-logs'];
-  ocultos.forEach(id => {
+  const cobrador = perfil === 'cobrador';
+  const gestorOuCobrador = gestor || cobrador;
+
+  // Somente gestor
+  const soGestor = ['nav-funcionarios', 'nav-importacao', 'nav-caixa-vendedores',
+    'nav-desempenho', 'nav-relatorios', 'nav-logs', 'nav-usuarios'];
+  soGestor.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = gestor ? '' : 'none';
   });
+
+  // Gestor e cobrador
+  const gestorCobrador = ['nav-cobrancas', 'nav-ciclos', 'nav-caixa-cobradores', 'nav-localidades'];
+  gestorCobrador.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = gestorOuCobrador ? '' : 'none';
+  });
+
   const grupoCobrancas = document.getElementById('nav-grupo-cobrancas');
   const grupoAnalise = document.getElementById('nav-grupo-analise');
-  if (grupoCobrancas) grupoCobrancas.style.display = gestor ? '' : 'none';
+  if (grupoCobrancas) grupoCobrancas.style.display = gestorOuCobrador ? '' : 'none';
   if (grupoAnalise) grupoAnalise.style.display = gestor ? '' : 'none';
-  const navUsuarios = document.getElementById('nav-usuarios');
-  if (navUsuarios) navUsuarios.style.display = gestor ? '' : 'none';
+
   const btnNovoCliente = document.querySelector('#page-clientes .btn.primario');
   if (btnNovoCliente) btnNovoCliente.style.display = gestor ? '' : 'none';
   const btnNovaEquipe = document.getElementById('btn-nova-equipe');
@@ -1022,6 +1041,7 @@ function pg(nome, el) {
   if (nome === 'funcionarios') carregarFuncionarios();
   if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => carregarVendas());
   if (nome === 'cobrancas') carregarCobrancas();
+  if (nome === 'localidades') carregarLocalidades();
   if (nome === 'ciclos') carregarCiclos();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => carregarEquipes());
   if (nome === 'usuarios') carregarUsuarios();
@@ -1360,6 +1380,16 @@ async function verDetalhesCliente(clienteId) {
   document.getElementById('det-pagas').textContent = `${pagas.length} parcelas pagas`;
   document.getElementById('det-atrasadas').style.display = atrasadas.length > 0 ? 'block' : 'none';
   document.getElementById('det-atrasadas').textContent = `⚠️ ${atrasadas.length} parcela(s) atrasada(s)`;
+
+  // Localidade — visível para cobrador e gestor
+  const localidadeWrap = document.getElementById('det-localidade-wrap');
+  if (perfilAtivo === 'cobrador' || perfilAtivo === 'gestor') {
+    document.getElementById('det-cliente-id').value = c.id;
+    localidadeWrap.style.display = 'block';
+    await carregarSelectLocalidades(c.localidade_id, c.cobrador_id);
+  } else {
+    localidadeWrap.style.display = 'none';
+  }
 
   document.getElementById('modal-detalhes-cliente').style.display = 'flex';
 }
@@ -2621,6 +2651,136 @@ async function confirmarBaixa() {
   if (clienteId) verParcelasCliente(clienteId, nomeCliente);
   carregarDashboard();
 }
+
+// ===== MÓDULO LOCALIDADES =====
+
+async function carregarLocalidades() {
+  const el = document.getElementById('lista-localidades');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+
+  const cobradorId = funcionarioLogado.id;
+
+  const [{ data: localidades, error }, { data: contagem }] = await Promise.all([
+    sb.from('localidades').select('id, nome').eq('cobrador_id', cobradorId).eq('ativo', true).order('nome'),
+    sb.from('clientes').select('localidade_id').eq('cobrador_id', cobradorId).not('localidade_id', 'is', null),
+  ]);
+
+  if (error) {
+    Logger.error('localidades', 'CARREGAR_LOCALIDADES', 'Erro ao carregar', { supabase_code: error.code });
+    el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar localidades.</p>';
+    return;
+  }
+
+  const mapaContagem = {};
+  (contagem || []).forEach(c => {
+    mapaContagem[c.localidade_id] = (mapaContagem[c.localidade_id] || 0) + 1;
+  });
+
+  renderLocalidades(localidades || [], mapaContagem);
+}
+
+function renderLocalidades(lista, mapaContagem) {
+  const container = document.getElementById('lista-localidades');
+
+  if (!lista.length) {
+    container.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:48px;margin-bottom:.75rem;">🗺️</div><div style="font-size:14px;margin-bottom:.5rem;">Nenhuma localidade criada ainda</div><div style="font-size:12px;">Crie localidades para organizar sua rota de cobranças</div></div>';
+    return;
+  }
+
+  container.innerHTML = lista.map(function(l) {
+    var qtd = mapaContagem[l.id] || 0;
+    var nomeEsc = l.nome.replace(/'/g, "\\'");
+    return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">'
+      + '<div style="display:flex;align-items:center;gap:12px;flex:1;">'
+      + '<div style="width:42px;height:42px;background:#E6F1FB;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">🏘️</div>'
+      + '<div>'
+      + '<div style="font-size:15px;font-weight:600;color:#1a1a1a;">' + l.nome + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + qtd + ' cliente(s) vinculado(s)</div>'
+      + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px;">'
+      + '<button class="btn" style="padding:6px 10px;font-size:12px;" onclick="editarLocalidade(\'' + l.id + '\',\'' + nomeEsc + '\')">✏️</button>'
+      + (qtd === 0 ? '<button class="btn" style="padding:6px 10px;font-size:12px;color:#A32D2D;border-color:#f5c6c6;" onclick="excluirLocalidade(\'' + l.id + '\')">🗑️</button>' : '')
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function abrirModalLocalidade() {
+  document.getElementById('loc-edit-id').value = '';
+  document.getElementById('loc-nome').value = '';
+  document.getElementById('modal-localidade-titulo').textContent = 'Nova localidade';
+  document.getElementById('modal-localidade').style.display = 'flex';
+}
+
+function editarLocalidade(id, nome) {
+  document.getElementById('loc-edit-id').value = id;
+  document.getElementById('loc-nome').value = nome;
+  document.getElementById('modal-localidade-titulo').textContent = 'Editar localidade';
+  document.getElementById('modal-localidade').style.display = 'flex';
+}
+
+async function salvarLocalidade() {
+  const nome = document.getElementById('loc-nome').value.trim();
+  if (!nome) { alert('Digite o nome da localidade!'); return; }
+  const editId = document.getElementById('loc-edit-id').value;
+
+  let error;
+  if (editId) {
+    ({ error } = await sb.from('localidades').update({ nome }).eq('id', editId));
+  } else {
+    ({ error } = await sb.from('localidades').insert({ cobrador_id: funcionarioLogado.id, nome, ativo: true }));
+  }
+
+  if (error) {
+    Logger.error('localidades', 'SALVAR_LOCALIDADE', 'Erro ao salvar localidade', { supabase_code: error.code });
+    alert('Erro ao salvar localidade!');
+    return;
+  }
+  fecharModal('modal-localidade');
+  carregarLocalidades();
+}
+
+async function excluirLocalidade(id) {
+  if (!confirm('Excluir esta localidade?')) return;
+  const { error } = await sb.from('localidades').update({ ativo: false }).eq('id', id);
+  if (error) {
+    Logger.error('localidades', 'EXCLUIR_LOCALIDADE', 'Erro ao excluir localidade', { supabase_code: error.code });
+    alert('Erro ao excluir localidade!');
+    return;
+  }
+  carregarLocalidades();
+}
+
+async function carregarSelectLocalidades(localidadeAtual, cobradorId) {
+  const sel = document.getElementById('det-localidade-select');
+  if (!cobradorId) {
+    sel.innerHTML = '<option value="">Sem localidade (lista geral)</option>';
+    return;
+  }
+  const { data } = await sb.from('localidades').select('id, nome').eq('cobrador_id', cobradorId).eq('ativo', true).order('nome');
+  sel.innerHTML = '<option value="">Sem localidade (lista geral)</option>' +
+    (data || []).map(function(l) {
+      return '<option value="' + l.id + '"' + (l.id === localidadeAtual ? ' selected' : '') + '>' + l.nome + '</option>';
+    }).join('');
+}
+
+async function salvarLocalidadeCliente() {
+  const clienteId = document.getElementById('det-cliente-id').value;
+  const localidadeId = document.getElementById('det-localidade-select').value || null;
+
+  const { error } = await sb.from('clientes').update({ localidade_id: localidadeId }).eq('id', clienteId);
+
+  if (error) {
+    Logger.error('localidades', 'VINCULAR_CLIENTE', 'Erro ao vincular cliente', { supabase_code: error.code });
+    alert('Erro ao salvar localidade!');
+    return;
+  }
+  alert('Localidade salva!');
+}
+
+// ===== FIM MÓDULO LOCALIDADES =====
 
 async function carregarCiclos() {
   const { data, error } = await sb.from('ciclos_cobranca').select('*').order('data_saida');
@@ -3971,6 +4131,14 @@ async function toggleUsuarioAtivo(id, ativo) {
         <div style="font-size:10px;color:#888;margin-bottom:3px;">COBRADOR RESPONSÁVEL</div>
         <div style="font-size:13px;" id="det-cobrador"></div>
       </div>
+      <div id="det-localidade-wrap" style="display:none;background:#f9f9f9;border-radius:8px;padding:.75rem;">
+        <div style="font-size:10px;color:#888;margin-bottom:6px;">LOCALIDADE</div>
+        <input type="hidden" id="det-cliente-id">
+        <select id="det-localidade-select" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;margin-bottom:8px;">
+          <option value="">Sem localidade (lista geral)</option>
+        </select>
+        <button class="btn primario" style="width:100%;padding:10px;font-size:13px;" onclick="salvarLocalidadeCliente()">Salvar localidade</button>
+      </div>
       <div style="background:#EAF3DE;border-radius:8px;padding:.75rem;">
         <div style="font-size:10px;color:#3B6D11;margin-bottom:3px;">PARCELAS PAGAS</div>
         <div style="font-size:13px;color:#3B6D11;font-weight:500;" id="det-pagas"></div>
@@ -3984,6 +4152,24 @@ async function toggleUsuarioAtivo(id, ativo) {
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-detalhes-cliente')">Fechar</button>
       <button class="btn primario" onclick="fecharModal('modal-detalhes-cliente');editarCliente(document.getElementById('det-codigo').dataset.id)">Editar cliente</button>
+    </div>
+  </div>
+</div>
+<!-- MODAL LOCALIDADE -->
+<div class="modal-bg" id="modal-localidade">
+  <div class="modal-box" style="max-width:400px;">
+    <div class="modal-header">
+      <strong id="modal-localidade-titulo">Nova localidade</strong>
+      <button onclick="fecharModal('modal-localidade')">×</button>
+    </div>
+    <input type="hidden" id="loc-edit-id">
+    <div class="campo">
+      <label>Nome da localidade *</label>
+      <input id="loc-nome" type="text" placeholder="Ex: Centro, Bairro Alto...">
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-localidade')">Cancelar</button>
+      <button class="btn primario" onclick="salvarLocalidade()">Salvar</button>
     </div>
   </div>
 </div>
