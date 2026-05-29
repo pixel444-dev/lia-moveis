@@ -367,7 +367,10 @@ tr:hover td{background:#fafafa;}
     <div class="page" id="page-vendas">
       <div class="topbar-pg">
         <div class="page-title" style="margin:0">Vendas</div>
-        <button class="btn primario" onclick="abrirNovaVenda()">+ Nova venda</button>
+        <button id="btn-nova-venda" class="btn primario" onclick="abrirNovaVenda()">+ Nova venda</button>
+      </div>
+      <div id="aviso-sem-equipe" style="display:none;background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;font-size:13px;color:#854F0B;">
+        ⚠️ Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor para ser adicionado a uma equipe.
       </div>
       <div class="busca-wrap" id="busca-vendas-wrap">
         <input class="busca" type="text" placeholder="Buscar por código da venda ou cliente..." oninput="buscarVenda(this.value)">
@@ -1565,6 +1568,10 @@ async function toggleAtivo(id, ativo) {
 }
 
 async function abrirNovaVenda() {
+  if (perfilAtivo === 'vendedor' && !equipeAtiva) {
+    alert('Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor.');
+    return;
+  }
   document.getElementById('venda-cpf-busca').value = '';
   document.getElementById('resultado-busca-cliente').innerHTML = '';
   document.getElementById('venda-cliente-id').value = '';
@@ -1852,6 +1859,10 @@ function atualizarPreviewParcelas() {
 }
 
 async function salvarVenda() {
+  if (perfilAtivo === 'vendedor' && !equipeAtiva) {
+    alert('Você não está em nenhuma equipe ativa. Venda bloqueada.');
+    return;
+  }
   if (window._clienteInadimplente) { alert('Cliente inadimplente! Solicite autorização do gestor antes de registrar a venda.'); return; }
   const clienteId = document.getElementById('venda-cliente-id').value;
   if (!clienteId) { alert('Selecione o cliente!'); return; }
@@ -1958,10 +1969,16 @@ async function carregarVendas() {
 async function carregarVendasVendedor() {
   const lista = document.getElementById('lista-vendas');
   await carregarEquipeAtivaVendedor();
+  const btnNovaVenda = document.getElementById('btn-nova-venda');
+  const avisoSemEquipe = document.getElementById('aviso-sem-equipe');
   if (!equipeAtiva) {
-    lista.innerHTML = '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:1rem 1.25rem;font-size:14px;">Você não está em nenhuma equipe ativa esta semana.</div>';
+    if (btnNovaVenda) btnNovaVenda.style.display = 'none';
+    if (avisoSemEquipe) avisoSemEquipe.style.display = 'block';
+    lista.innerHTML = '';
     return;
   }
+  if (btnNovaVenda) btnNovaVenda.style.display = '';
+  if (avisoSemEquipe) avisoSemEquipe.style.display = 'none';
   const { data, error } = await sb.from('vendas')
     .select('*, clientes(nome, codigo), funcionarios(nome)')
     .eq('equipe_id', equipeAtiva.id)
