@@ -1391,6 +1391,13 @@ async function verDetalhesCliente(clienteId) {
     localidadeWrap.style.display = 'none';
   }
 
+  // Botão "Ver parcelas" — só para cobrador
+  const btnParcelas = document.getElementById('btn-ver-parcelas-cobrador');
+  const btnEditar = document.getElementById('btn-editar-cliente-det');
+  if (btnParcelas) btnParcelas.style.display = perfilAtivo === 'cobrador' ? 'inline-block' : 'none';
+  if (btnEditar) btnEditar.style.display = perfilAtivo === 'gestor' ? 'inline-block' : 'none';
+  window._clienteDetalhesAtual = { id: c.id, nome: c.nome };
+
   document.getElementById('modal-detalhes-cliente').style.display = 'flex';
 }
 
@@ -2825,6 +2832,67 @@ async function verClientesLocalidade(localidadeId, nomeLocalidade) {
   }).join('');
 }
 
+async function verParcelasDoCliente() {
+  var cli = window._clienteDetalhesAtual || {};
+  if (!cli.id) return;
+  fecharModal('modal-detalhes-cliente');
+
+  document.getElementById('modal-parcelas-cobrador-titulo').textContent = cli.nome;
+  var lista = document.getElementById('lista-parcelas-cobrador');
+  lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+  document.getElementById('modal-parcelas-cobrador').style.display = 'flex';
+
+  var hoje = new Date();
+  var { data, error } = await sb
+    .from('parcelas')
+    .select('*, vendas(codigo, produto)')
+    .eq('cliente_id', cli.id)
+    .eq('pago', false)
+    .neq('status', 'devolvida')
+    .order('data_vencimento');
+
+  if (error) {
+    Logger.error('cobrador', 'VER_PARCELAS_CLIENTE', 'Erro ao buscar parcelas', { supabase_code: error.code });
+    lista.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar parcelas.</p>';
+    return;
+  }
+
+  if (!data || !data.length) {
+    lista.innerHTML = '<div style="text-align:center;padding:2rem;color:#3B6D11;"><div style="font-size:36px;margin-bottom:.75rem;">✅</div><div style="font-size:14px;font-weight:500;">Cliente sem parcelas em aberto!</div></div>';
+    return;
+  }
+
+  lista.innerHTML = data.map(function(p) {
+    var venc = new Date(p.data_vencimento + 'T12:00:00');
+    var atrasada = venc < hoje;
+    var saldo = Number(p.valor) - Number(p.valor_pago || 0);
+    var saldoFmt = saldo.toLocaleString('pt-BR', {minimumFractionDigits:2});
+    var nomeEsc = cli.nome.replace(/'/g, "\\'");
+    var prodEsc = ((p.vendas && p.vendas.produto) || '').replace(/'/g, "\\'");
+    return '<div style="background:' + (atrasada ? '#FCEBEB' : '#fff') + ';border:1px solid ' + (atrasada ? '#f5c6c6' : '#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+      + '<span style="font-size:14px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>'
+      + '<span class="badge ' + (atrasada ? 'vermelho' : 'azul') + '">' + (atrasada ? 'Atrasada' : 'Em aberto') + '</span>'
+      + '</div>'
+      + '<div style="font-size:12px;color:#888;margin-bottom:4px;">📦 ' + ((p.vendas && p.vendas.produto) || '—') + '</div>'
+      + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📅 Vence: ' + venc.toLocaleDateString('pt-BR') + '</div>'
+      + '<div style="font-size:20px;font-weight:700;color:' + (atrasada ? '#A32D2D' : '#1a1a1a') + ';margin-bottom:10px;">R$ ' + saldoFmt + '</div>'
+      + '<div style="display:flex;gap:8px;">'
+      + '<button class="btn primario" style="flex:1;padding:12px;font-size:14px;" onclick="abrirRegistrarRecebimento(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',' + saldo + ',\'' + prodEsc + '\',\'' + cli.id + '\',\'' + nomeEsc + '\')">💰 Registrar recebimento</button>'
+      + '<button class="btn" style="padding:12px 14px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="abrirNaoRecebi(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',\'' + cli.id + '\',\'' + nomeEsc + '\')">✗ Não recebi</button>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function abrirRegistrarRecebimento(parcelaId, numero, total, saldo, produto, clienteId, nomeCliente) {
+  alert('Em breve: Registrar recebimento de ' + nomeCliente + ' — Parcela ' + numero + '/' + total);
+}
+
+function abrirNaoRecebi(parcelaId, numero, total, clienteId, nomeCliente) {
+  alert('Em breve: Registrar não recebimento — ' + nomeCliente + ' — Parcela ' + numero + '/' + total);
+}
+
 // ===== FIM MÓDULO LOCALIDADES =====
 
 async function carregarCiclos() {
@@ -4196,10 +4264,28 @@ async function toggleUsuarioAtivo(id, ativo) {
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-detalhes-cliente')">Fechar</button>
-      <button class="btn primario" onclick="fecharModal('modal-detalhes-cliente');editarCliente(document.getElementById('det-codigo').dataset.id)">Editar cliente</button>
+      <button class="btn primario" id="btn-ver-parcelas-cobrador" onclick="verParcelasDoCliente()" style="display:none;">Ver parcelas</button>
+      <button class="btn primario" id="btn-editar-cliente-det" onclick="fecharModal('modal-detalhes-cliente');editarCliente(document.getElementById('det-codigo').dataset.id)">Editar cliente</button>
     </div>
   </div>
 </div>
+<!-- MODAL PARCELAS COBRADOR -->
+<div class="modal-bg" id="modal-parcelas-cobrador">
+  <div class="modal-box" style="max-width:500px;">
+    <div class="modal-header">
+      <div>
+        <strong id="modal-parcelas-cobrador-titulo"></strong>
+        <div style="font-size:11px;color:#888;margin-top:2px;">Parcelas em aberto</div>
+      </div>
+      <button onclick="fecharModal('modal-parcelas-cobrador')">×</button>
+    </div>
+    <div id="lista-parcelas-cobrador"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-parcelas-cobrador')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CLIENTES DA LOCALIDADE -->
 <div class="modal-bg" id="modal-clientes-localidade">
   <div class="modal-box" style="max-width:500px;">
