@@ -3208,34 +3208,81 @@ function selecionarForma(forma) {
   }
 }
 
-function processarComprovante(input) {
+async function processarComprovante(input) {
+  if (!input.files || !input.files[0]) return;
   const file = input.files[0];
-  if (!file) return;
-  window._comprovantePix = file;
-  const isPdf = file.type === 'application/pdf';
-  document.getElementById('comprovante-icone').textContent = isPdf ? '📄' : '🖼️';
-  document.getElementById('comprovante-nome').textContent = file.name;
-  document.getElementById('comprovante-preview').style.display = 'block';
-  const imgEl = document.getElementById('comprovante-img-preview');
-  if (!isPdf) {
-    const reader = new FileReader();
-    reader.onload = function(e) { imgEl.src = e.target.result; imgEl.style.display = 'block'; };
-    reader.readAsDataURL(file);
-  } else {
-    imgEl.style.display = 'none';
+  const ehPDF = file.type === 'application/pdf';
+
+  const previewWrap = document.getElementById('comprovante-preview');
+  const nomeEl = document.getElementById('comprovante-nome');
+  const iconeEl = document.getElementById('comprovante-icone');
+  const imgPreview = document.getElementById('comprovante-img-preview');
+
+  try {
+    if (ehPDF) {
+      window._comprovanteBlob = file;
+      window._comprovanteExt = 'pdf';
+      iconeEl.textContent = '📄';
+      nomeEl.textContent = file.name.length > 30 ? file.name.substring(0, 30) + '...' : file.name;
+      imgPreview.style.display = 'none';
+    } else {
+      const MAX_SIZE = 1000;
+      const bitmap = await createImageBitmap(file);
+      let w = bitmap.width, h = bitmap.height;
+      if (w > MAX_SIZE || h > MAX_SIZE) {
+        if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
+        else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+      bitmap.close();
+
+      await new Promise(function(resolve) {
+        canvas.toBlob(function(blob) {
+          window._comprovanteBlob = blob;
+          window._comprovanteExt = 'webp';
+          imgPreview.src = URL.createObjectURL(blob);
+          imgPreview.style.display = 'block';
+          iconeEl.textContent = '🖼️';
+          nomeEl.textContent = 'Comprovante anexado';
+          canvas.width = 0; canvas.height = 0;
+          resolve();
+        }, 'image/webp', 0.8);
+      });
+    }
+    previewWrap.style.display = 'block';
+  } catch (e) {
+    Logger.error('cobrador', 'PROCESSAR_COMPROVANTE', 'Erro ao processar comprovante', { erro: e.message });
+    alert('Erro ao processar o comprovante. Tente novamente.');
   }
 }
 
 function removerComprovante() {
-  window._comprovantePix = null;
-  const preview = document.getElementById('comprovante-preview');
-  const img = document.getElementById('comprovante-img-preview');
-  if (preview) preview.style.display = 'none';
-  if (img) { img.src = ''; img.style.display = 'none'; }
-  const cam = document.getElementById('comprovante-camera');
-  const arq = document.getElementById('comprovante-arquivo');
-  if (cam) cam.value = '';
-  if (arq) arq.value = '';
+  window._comprovanteBlob = null;
+  window._comprovanteExt = null;
+  document.getElementById('comprovante-preview').style.display = 'none';
+  document.getElementById('comprovante-camera').value = '';
+  document.getElementById('comprovante-arquivo').value = '';
+}
+
+async function uploadComprovante(baixaId) {
+  if (!window._comprovanteBlob) return null;
+  const ext = window._comprovanteExt || 'webp';
+  const nomeArquivo = 'pix_' + baixaId + '.' + ext;
+  const contentType = ext === 'pdf' ? 'application/pdf' : 'image/webp';
+
+  const { error } = await sb.storage
+    .from('comprovantes')
+    .upload(nomeArquivo, window._comprovanteBlob, { contentType, upsert: true });
+
+  if (error) {
+    Logger.error('cobrador', 'UPLOAD_COMPROVANTE', 'Erro no upload', { supabase_code: error.code });
+    return null;
+  }
+
+  const { data } = sb.storage.from('comprovantes').getPublicUrl(nomeArquivo);
+  return data.publicUrl;
 }
 
 async function confirmarRecebimento() {
