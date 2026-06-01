@@ -2352,10 +2352,47 @@ async function renderInterfaceCobrador() {
 }
 
 async function carregarSaldoCobrador() {
-  var el = document.getElementById('saldo-em-maos');
-  var infoEl = document.getElementById('saldo-ciclo-info');
-  if (el) el.textContent = 'R$ 0,00';
-  if (infoEl) infoEl.textContent = 'Ciclo atual · ' + new Date().toLocaleDateString('pt-BR');
+  const caixaId = await obterCaixaAtiva();
+  const saldoEl = document.getElementById('saldo-em-maos');
+  const infoEl = document.getElementById('saldo-ciclo-info');
+  if (!caixaId) {
+    if (saldoEl) saldoEl.textContent = 'R$ 0,00';
+    return;
+  }
+
+  const { data: caixa } = await sb.from('caixa_cobrador')
+    .select('saldo_esperado, ciclo_inicio, ciclo_fim').eq('id', caixaId).single();
+
+  const { data: gastos } = await sb.from('movimentacoes_caixa')
+    .select('valor').eq('caixa_id', caixaId).eq('tipo', 'gasto');
+  const { data: depositos } = await sb.from('movimentacoes_caixa')
+    .select('valor').eq('caixa_id', caixaId).eq('tipo', 'deposito');
+
+  const totalEntradas = caixa?.saldo_esperado || 0;
+  const totalGastos = (gastos || []).reduce(function(a, g) { return a + Number(g.valor); }, 0);
+  const totalDepositos = (depositos || []).reduce(function(a, d) { return a + Number(d.valor); }, 0);
+  const saldoAtual = totalEntradas - totalGastos - totalDepositos;
+
+  if (saldoEl) {
+    saldoEl.textContent = 'R$ ' + saldoAtual.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+    if (saldoAtual >= 1000) {
+      saldoEl.style.color = '#FF4444';
+    } else if (saldoAtual >= 800) {
+      saldoEl.style.color = '#FFD700';
+    } else {
+      saldoEl.style.color = 'white';
+    }
+  }
+
+  if (infoEl) {
+    if (saldoAtual >= 800) {
+      infoEl.innerHTML = '⚠️ Deposite imediatamente! Limite: R$ 1.000,00';
+    } else {
+      const inicio = caixa?.ciclo_inicio ? new Date(caixa.ciclo_inicio + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
+      const fim = caixa?.ciclo_fim ? new Date(caixa.ciclo_fim + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
+      infoEl.textContent = 'Ciclo ' + inicio + ' a ' + fim;
+    }
+  }
 }
 
 async function carregarVisitasHoje() {
@@ -3195,11 +3232,30 @@ async function confirmarRecebimento() {
     return;
   }
 
+  // Marcar parcela como paga na visão do cobrador
+  const isPagamentoCompleto = tipo === 'completo';
+  await sb.from('parcelas').update({
+    pago: isPagamentoCompleto,
+    valor_pago: valorRecebido,
+    forma_pagamento: forma,
+    cobrador_id: funcionarioLogado.id,
+    data_pagamento: isPagamentoCompleto ? new Date().toISOString() : null,
+    status: isPagamentoCompleto ? 'paga' : 'aberta'
+  }).eq('id', parcelaId);
+
+  // Se recebeu em dinheiro, somar no saldo da caixa
+  if (forma === 'dinheiro') {
+    const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', caixaId).single();
+    await sb.from('caixa_cobrador').update({
+      saldo_esperado: (caixa?.saldo_esperado || 0) + valorRecebido
+    }).eq('id', caixaId);
+  }
+
   fecharModal('modal-recebimento');
   fecharModal('modal-parcelas-cobrador');
   await carregarSaldoCobrador();
   await carregarClientesPorLocalidade();
-  alert('Recebimento registrado! Ficará pendente até o gestor autorizar.');
+  alert('Recebimento registrado com sucesso!');
 }
 
 async function obterCaixaAtiva() {
@@ -4777,10 +4833,6 @@ async function toggleUsuarioAtivo(id, ativo) {
       <input id="receb-obs" type="text"
         style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
         placeholder="Ex: cliente pagou com troco...">
-    </div>
-
-    <div style="background:#FAEEDA;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:12px;color:#854F0B;">
-      ⚠️ O recebimento ficará <strong>pendente</strong> até o gestor autorizar na prestação de contas.
     </div>
 
     <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;"
