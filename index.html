@@ -5173,15 +5173,15 @@ async function toggleUsuarioAtivo(id, ativo) {
 
 <!-- MODAL PRESTAÇÃO DE CONTAS -->
 <div class="modal-bg" id="modal-prestacao">
-  <div class="modal-box" style="max-width:520px;">
+  <div class="modal-box" style="max-width:560px;">
     <div class="modal-header">
-      <strong id="prestacao-titulo"></strong>
+      <div>
+        <strong id="prestacao-titulo"></strong>
+        <div style="font-size:11px;color:#888;margin-top:2px;">Prestação de contas</div>
+      </div>
       <button onclick="fecharModal('modal-prestacao')">×</button>
     </div>
     <div id="prestacao-conteudo"></div>
-    <div class="modal-footer">
-      <button class="btn" onclick="fecharModal('modal-prestacao')">Fechar</button>
-    </div>
   </div>
 </div>
 </body>
