@@ -2362,8 +2362,203 @@ async function renderInterfaceCobrador() {
   ]);
 }
 
-function abrirRegistrarGasto() { alert('Em breve: Registrar gasto'); }
-function abrirRegistrarDeposito() { alert('Em breve: Depositar'); }
+// ─── GASTO ───
+function abrirRegistrarGasto() {
+  document.getElementById('gasto-tipo').value = 'alimentacao';
+  document.getElementById('gasto-valor').value = '';
+  document.getElementById('gasto-descricao').value = '';
+  document.getElementById('gasto-aviso-alimentacao').innerHTML = '';
+  removerComprovanteGasto();
+  atualizarTipoGasto();
+  document.getElementById('modal-gasto').style.display = 'flex';
+}
+
+function atualizarTipoGasto() {
+  const tipo = document.getElementById('gasto-tipo').value;
+  if (tipo === 'alimentacao') {
+    document.getElementById('gasto-label-comprovante').textContent = 'Comprovante (opcional até R$ 40/dia)';
+  } else {
+    document.getElementById('gasto-label-comprovante').textContent = 'Comprovante *';
+  }
+  validarGastoAlimentacao();
+}
+
+async function validarGastoAlimentacao() {
+  const tipo = document.getElementById('gasto-tipo').value;
+  const valor = parseFloat(document.getElementById('gasto-valor').value) || 0;
+  const aviso = document.getElementById('gasto-aviso-alimentacao');
+  if (tipo !== 'alimentacao') { aviso.innerHTML = ''; return; }
+
+  const caixaId = await obterCaixaAtiva();
+  const hoje = new Date().toISOString().split('T')[0];
+  const { data } = await sb.from('movimentacoes_caixa')
+    .select('valor').eq('caixa_id', caixaId).eq('tipo', 'gasto')
+    .eq('categoria', 'alimentacao').gte('criado_em', hoje + 'T00:00:00');
+
+  const jaGastoHoje = (data || []).reduce(function(a, g) { return a + Number(g.valor); }, 0);
+  const totalComEsse = jaGastoHoje + valor;
+
+  if (totalComEsse > 40) {
+    aviso.innerHTML = '<span style="color:#A32D2D;">⚠️ Limite de alimentação: R$ 40/dia. Já gastou R$ ' + jaGastoHoje.toFixed(2) + ' hoje. Máximo agora: R$ ' + (40 - jaGastoHoje).toFixed(2) + '</span>';
+  } else {
+    aviso.innerHTML = '<span style="color:#3B6D11;">Alimentação hoje: R$ ' + totalComEsse.toFixed(2) + ' de R$ 40,00</span>';
+  }
+}
+
+async function processarComprovanteGasto(input) {
+  if (!input.files || !input.files[0]) return;
+  const blob = await comprimirArquivo(input.files[0]);
+  window._gastoComprovante = blob.dados;
+  window._gastoComprovanteExt = blob.ext;
+  document.getElementById('gasto-comprovante-preview').style.display = 'block';
+  document.getElementById('gasto-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF anexado' : 'Comprovante anexado';
+}
+
+function removerComprovanteGasto() {
+  window._gastoComprovante = null;
+  window._gastoComprovanteExt = null;
+  document.getElementById('gasto-comprovante-preview').style.display = 'none';
+  document.getElementById('gasto-camera').value = '';
+  document.getElementById('gasto-arquivo').value = '';
+}
+
+async function confirmarGasto() {
+  const tipo = document.getElementById('gasto-tipo').value;
+  const valor = parseFloat(document.getElementById('gasto-valor').value) || 0;
+  const descricao = document.getElementById('gasto-descricao').value.trim();
+
+  if (valor <= 0) { alert('Digite o valor do gasto!'); return; }
+  if (!descricao) { alert('Digite a descrição!'); return; }
+
+  if (tipo === 'alimentacao') {
+    const caixaId = await obterCaixaAtiva();
+    const hoje = new Date().toISOString().split('T')[0];
+    const { data } = await sb.from('movimentacoes_caixa')
+      .select('valor').eq('caixa_id', caixaId).eq('tipo', 'gasto')
+      .eq('categoria', 'alimentacao').gte('criado_em', hoje + 'T00:00:00');
+    const jaGasto = (data || []).reduce(function(a, g) { return a + Number(g.valor); }, 0);
+    if (jaGasto + valor > 40) {
+      alert('Limite de alimentação R$ 40/dia ultrapassado! Já gastou R$ ' + jaGasto.toFixed(2) + ' hoje.');
+      return;
+    }
+  }
+
+  if (tipo !== 'alimentacao' && !window._gastoComprovante) {
+    alert('Comprovante obrigatório para este tipo de gasto!');
+    return;
+  }
+
+  const caixaId = await obterCaixaAtiva();
+  if (!caixaId) { alert('Erro ao obter caixa.'); return; }
+
+  const { data: mov, error } = await sb.from('movimentacoes_caixa').insert({
+    caixa_id: caixaId,
+    cobrador_id: funcionarioLogado.id,
+    tipo: 'gasto',
+    categoria: tipo,
+    descricao: descricao,
+    valor: valor
+  }).select().single();
+
+  if (error) {
+    Logger.error('cobrador', 'REGISTRAR_GASTO', 'Erro ao registrar gasto', { supabase_code: error.code });
+    alert('Erro ao registrar gasto!');
+    return;
+  }
+
+  if (window._gastoComprovante) {
+    const url = await uploadArquivoComprovante('comprovantes', 'gasto_' + mov.id + '.' + window._gastoComprovanteExt, window._gastoComprovante, window._gastoComprovanteExt);
+    if (url) await sb.from('movimentacoes_caixa').update({ foto_comprovante: url }).eq('id', mov.id);
+  }
+
+  fecharModal('modal-gasto');
+  await carregarSaldoCobrador();
+  alert('Gasto registrado!');
+}
+
+// ─── DEPÓSITO ───
+function abrirRegistrarDeposito() {
+  document.getElementById('deposito-valor').value = '';
+  removerComprovanteDeposito();
+  document.getElementById('modal-deposito').style.display = 'flex';
+}
+
+async function processarComprovanteDeposito(input) {
+  if (!input.files || !input.files[0]) return;
+  const blob = await comprimirArquivo(input.files[0]);
+  window._depositoComprovante = blob.dados;
+  window._depositoComprovanteExt = blob.ext;
+  document.getElementById('deposito-comprovante-preview').style.display = 'block';
+  document.getElementById('deposito-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF anexado' : 'Comprovante anexado';
+}
+
+function removerComprovanteDeposito() {
+  window._depositoComprovante = null;
+  window._depositoComprovanteExt = null;
+  document.getElementById('deposito-comprovante-preview').style.display = 'none';
+  document.getElementById('deposito-camera').value = '';
+  document.getElementById('deposito-arquivo').value = '';
+}
+
+async function confirmarDeposito() {
+  const valor = parseFloat(document.getElementById('deposito-valor').value) || 0;
+  if (valor <= 0) { alert('Digite o valor do depósito!'); return; }
+  if (!window._depositoComprovante) { alert('Comprovante do depósito é obrigatório!'); return; }
+
+  const caixaId = await obterCaixaAtiva();
+  if (!caixaId) { alert('Erro ao obter caixa.'); return; }
+
+  const { data: mov, error } = await sb.from('movimentacoes_caixa').insert({
+    caixa_id: caixaId,
+    cobrador_id: funcionarioLogado.id,
+    tipo: 'deposito',
+    descricao: 'Depósito',
+    valor: valor
+  }).select().single();
+
+  if (error) {
+    Logger.error('cobrador', 'REGISTRAR_DEPOSITO', 'Erro ao registrar depósito', { supabase_code: error.code });
+    alert('Erro ao registrar depósito!');
+    return;
+  }
+
+  const url = await uploadArquivoComprovante('comprovantes', 'deposito_' + mov.id + '.' + window._depositoComprovanteExt, window._depositoComprovante, window._depositoComprovanteExt);
+  if (url) await sb.from('movimentacoes_caixa').update({ foto_comprovante: url }).eq('id', mov.id);
+
+  fecharModal('modal-deposito');
+  await carregarSaldoCobrador();
+  alert('Depósito registrado!');
+}
+
+// ─── HELPERS DE COMPROVANTE ───
+async function comprimirArquivo(file) {
+  if (file.type === 'application/pdf') return { dados: file, ext: 'pdf' };
+  const MAX_SIZE = 1000;
+  const bitmap = await createImageBitmap(file);
+  let w = bitmap.width, h = bitmap.height;
+  if (w > MAX_SIZE || h > MAX_SIZE) {
+    if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
+    else { w = Math.round(w * MAX_SIZE / h); h = MAX_SIZE; }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+  const blob = await new Promise(function(r) { canvas.toBlob(r, 'image/webp', 0.8); });
+  canvas.width = 0; canvas.height = 0;
+  return { dados: blob, ext: 'webp' };
+}
+
+async function uploadArquivoComprovante(bucket, nomeArquivo, dados, ext) {
+  const contentType = ext === 'pdf' ? 'application/pdf' : 'image/webp';
+  const { error } = await sb.storage.from(bucket).upload(nomeArquivo, dados, { contentType, upsert: true });
+  if (error) {
+    Logger.error('cobrador', 'UPLOAD_COMPROVANTE', 'Erro upload', { error_message: error.message });
+    return null;
+  }
+  const { data } = sb.storage.from(bucket).getPublicUrl(nomeArquivo);
+  return data.publicUrl;
+}
 
 async function carregarSaldoCobrador() {
   const caixaId = await obterCaixaAtiva();
