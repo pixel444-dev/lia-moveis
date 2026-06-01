@@ -3161,6 +3161,7 @@ function abrirRegistrarRecebimento(parcelaId, numero, total, valor, produto, cli
   document.getElementById('receb-info-parcela').textContent = nomeCliente + ' — Parcela ' + numero + '/' + total + ' — ' + produto;
   document.getElementById('receb-valor-display').textContent = 'R$ ' + Number(valor).toLocaleString('pt-BR', {minimumFractionDigits: 2});
   selecionarForma('dinheiro');
+  removerComprovante();
   document.getElementById('modal-recebimento').style.display = 'flex';
 }
 
