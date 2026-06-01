@@ -2713,7 +2713,8 @@ function renderParcelasPageasMobile(parcelas) {
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📅 Venceu: ' + new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">✅ Recebido: ' + (p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">👤 ' + (p.funcionarios && p.funcionarios.nome ? p.funcionarios.nome : '—') + '</div>';
-    html += '<div style="font-size:13px;color:#555;margin-bottom:8px;">💳 ' + formaBadge + '</div>';
+    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">💳 ' + formaBadge + '</div>';
+    if (p.comprovante_pix) html += '<a href="' + p.comprovante_pix + '" target="_blank" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-bottom:8px;">📎 Ver comprovante PIX</a>';
     html += '<div style="font-size:18px;font-weight:700;color:#3B6D11;margin-bottom:10px;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>';
     html += '<div style="display:flex;gap:8px;">';
     html += '<button class="btn" style="flex:1;padding:10px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa(\'' + p.id + '\',\'' + p.cliente_id + '\',\'' + codigoVenda + '\')">Cancelar baixa</button>';
@@ -2770,7 +2771,7 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
           <td>${p.numero}/${p.total_parcelas}</td>
           <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
           <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-          <td><span class="badge verde">Paga</span></td>
+          <td><span class="badge verde">Paga</span>${p.comprovante_pix ? `<br><a href="${p.comprovante_pix}" target="_blank" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
         </tr>`).join('')}</tbody>
       </table></div>`;
     pagasHtml = `<div style="margin-top:1rem;"><div style="font-size:13px;font-weight:500;color:#888;margin-bottom:.5rem;">${pagas.length} parcela(s) paga(s)</div>${pagasConteudo}</div>`;
@@ -2832,7 +2833,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
           <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
           <td>${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</td>
           <td>${p.funcionarios?.nome||'—'}</td>
-          <td>${p.forma_pagamento ? '<span class="badge '+(p.forma_pagamento==='pix'?'azul':'verde')+'">'+p.forma_pagamento.toUpperCase()+'</span>' : '—'}</td>
+          <td>${p.forma_pagamento ? '<span class="badge '+(p.forma_pagamento==='pix'?'azul':'verde')+'">'+p.forma_pagamento.toUpperCase()+'</span>' : '—'}${p.comprovante_pix ? `<br><a href="${p.comprovante_pix}" target="_blank" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
           <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td><span class="badge verde">Paga</span></td>
           <td>
