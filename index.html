@@ -3187,6 +3187,8 @@ function selecionarForma(forma) {
   document.getElementById('receb-forma').value = forma;
   const btnDinheiro = document.getElementById('btn-dinheiro');
   const btnPix = document.getElementById('btn-pix');
+  const campoComprovante = document.getElementById('campo-comprovante-pix');
+
   if (forma === 'dinheiro') {
     btnDinheiro.style.borderColor = '#185FA5';
     btnDinheiro.style.background = '#E6F1FB';
@@ -3194,6 +3196,7 @@ function selecionarForma(forma) {
     btnPix.style.borderColor = '#ddd';
     btnPix.style.background = '#fff';
     btnPix.style.color = '#888';
+    campoComprovante.style.display = 'none';
   } else {
     btnPix.style.borderColor = '#185FA5';
     btnPix.style.background = '#E6F1FB';
@@ -3201,10 +3204,8 @@ function selecionarForma(forma) {
     btnDinheiro.style.borderColor = '#ddd';
     btnDinheiro.style.background = '#fff';
     btnDinheiro.style.color = '#888';
+    campoComprovante.style.display = 'block';
   }
-  const campoComprovante = document.getElementById('campo-comprovante-pix');
-  if (campoComprovante) campoComprovante.style.display = forma === 'pix' ? 'block' : 'none';
-  if (forma === 'dinheiro') removerComprovante();
 }
 
 function processarComprovante(input) {
