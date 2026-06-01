@@ -3435,9 +3435,186 @@ async function calcularResumoCaixa(caixaId) {
   return { totalRecebido, recebidoDinheiro, totalGastos, totalDepositos, saldoEmMaos };
 }
 
-function abrirDetalhePrestacao(caixaId, nomeCobrador) {
-  // Implementação futura — detalhe por cobrador
-  alert('Detalhe de ' + nomeCobrador + ' em breve.');
+async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
+  window._caixaPrestacaoAtual = caixaId;
+  const resumo = await calcularResumoCaixa(caixaId);
+
+  const { data: baixas } = await sb.from('baixas_pendentes')
+    .select('*, clientes(nome), parcelas(numero, total_parcelas, vendas(codigo))')
+    .eq('caixa_id', caixaId).neq('status', 'cancelada').order('criado_em');
+
+  const { data: movs } = await sb.from('movimentacoes_caixa')
+    .select('*').eq('caixa_id', caixaId).order('criado_em');
+
+  const gastos = (movs || []).filter(function(m) { return m.tipo === 'gasto'; });
+  const depositos = (movs || []).filter(function(m) { return m.tipo === 'deposito'; });
+
+  document.getElementById('prestacao-titulo').textContent = nomeCobrador;
+
+  const fmtR = function(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2}); };
+  const fmtD = function(s) { return new Date(s).toLocaleDateString('pt-BR'); };
+
+  let baixasHtml = '<p style="font-size:12px;color:#888;">Nenhuma parcela recebida.</p>';
+  if (baixas && baixas.length) {
+    baixasHtml = '';
+    baixas.forEach(function(b) {
+      baixasHtml += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+        + '<div>'
+        + '<div style="font-size:13px;font-weight:500;">' + (b.clientes?.nome || '—') + '</div>'
+        + '<div style="font-size:11px;color:#888;">Venda ' + (b.parcelas?.vendas?.codigo || '—')
+        + ' · Parcela ' + (b.parcelas?.numero || '') + '/' + (b.parcelas?.total_parcelas || '')
+        + ' · ' + ((b.forma_pagamento || '').toUpperCase()) + '</div>'
+        + '</div>'
+        + '<div style="text-align:right;">'
+        + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">' + fmtR(b.valor_recebido) + '</div>'
+        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="corrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ')">Corrigir</button>'
+        + '</div></div></div>';
+    });
+  }
+
+  let gastosHtml = '<p style="font-size:12px;color:#888;">Nenhum gasto.</p>';
+  if (gastos.length) {
+    gastosHtml = '';
+    gastos.forEach(function(g) {
+      gastosHtml += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
+        + '<div style="flex:1;">'
+        + '<div style="font-size:13px;font-weight:500;">' + (g.descricao || 'Gasto') + '</div>'
+        + '<div style="font-size:11px;color:#888;">' + fmtD(g.criado_em) + '</div>'
+        + '</div>'
+        + (g.foto_comprovante ? '<img src="' + g.foto_comprovante + '" onclick="window.open(\'' + g.foto_comprovante + '\',\'_blank\')" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + '<div style="font-size:14px;font-weight:600;color:#854F0B;">' + fmtR(g.valor) + '</div>'
+        + '</div>';
+    });
+  }
+
+  let depositosHtml = '<p style="font-size:12px;color:#888;">Nenhum depósito.</p>';
+  if (depositos.length) {
+    depositosHtml = '';
+    depositos.forEach(function(d) {
+      depositosHtml += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
+        + '<div style="flex:1;">'
+        + '<div style="font-size:13px;font-weight:500;">Depósito</div>'
+        + '<div style="font-size:11px;color:#888;">' + fmtD(d.criado_em) + '</div>'
+        + '</div>'
+        + (d.foto_comprovante ? '<img src="' + d.foto_comprovante + '" onclick="window.open(\'' + d.foto_comprovante + '\',\'_blank\')" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + '<div style="font-size:14px;font-weight:600;color:#185FA5;">' + fmtR(d.valor) + '</div>'
+        + '</div>';
+    });
+  }
+
+  document.getElementById('prestacao-conteudo').innerHTML =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;">'
+    + '<div style="background:#EAF3DE;border-radius:10px;padding:1rem;text-align:center;">'
+    + '<div style="font-size:11px;color:#3B6D11;">TOTAL RECEBIDO</div>'
+    + '<div style="font-size:18px;font-weight:700;color:#3B6D11;">' + fmtR(resumo.totalRecebido) + '</div></div>'
+    + '<div style="background:#E6F1FB;border-radius:10px;padding:1rem;text-align:center;">'
+    + '<div style="font-size:11px;color:#185FA5;">SALDO EM MÃOS</div>'
+    + '<div style="font-size:18px;font-weight:700;color:#185FA5;">' + fmtR(resumo.saldoEmMaos) + '</div></div>'
+    + '<div style="background:#FAEEDA;border-radius:10px;padding:1rem;text-align:center;">'
+    + '<div style="font-size:11px;color:#854F0B;">GASTOS</div>'
+    + '<div style="font-size:16px;font-weight:700;color:#854F0B;">' + fmtR(resumo.totalGastos) + '</div></div>'
+    + '<div style="background:#f0f0f0;border-radius:10px;padding:1rem;text-align:center;">'
+    + '<div style="font-size:11px;color:#555;">DEPÓSITOS</div>'
+    + '<div style="font-size:16px;font-weight:700;color:#555;">' + fmtR(resumo.totalDepositos) + '</div></div>'
+    + '</div>'
+
+    + '<div style="font-size:13px;font-weight:600;color:#185FA5;margin-bottom:.5rem;">Parcelas recebidas (' + (baixas || []).length + ')</div>'
+    + '<div style="margin-bottom:1rem;">' + baixasHtml + '</div>'
+
+    + '<div style="font-size:13px;font-weight:600;color:#854F0B;margin-bottom:.5rem;">Gastos (' + gastos.length + ')</div>'
+    + '<div style="margin-bottom:1rem;">' + gastosHtml + '</div>'
+
+    + '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:.5rem;">Depósitos (' + depositos.length + ')</div>'
+    + '<div style="margin-bottom:1rem;">' + depositosHtml + '</div>'
+
+    + '<div style="background:#f9f9f9;border-radius:10px;padding:1rem;margin-bottom:1rem;">'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:.75rem;">Conferência de caixa</div>'
+    + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">'
+    + '<span style="color:#888;">Saldo esperado em mãos:</span>'
+    + '<strong>' + fmtR(resumo.saldoEmMaos) + '</strong></div>'
+    + '<div class="campo" style="margin-bottom:6px;">'
+    + '<label>Saldo físico entregue pelo cobrador (R$)</label>'
+    + '<input id="prestacao-saldo-entregue" type="number"'
+    + ' style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"'
+    + ' placeholder="0,00" oninput="conferirSaldoPrestacao(' + resumo.saldoEmMaos + ')">'
+    + '</div>'
+    + '<div id="prestacao-diferenca"></div>'
+    + '</div>'
+
+    + '<button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-bottom:8px;" onclick="autorizarCaixa()">✓ Autorizar caixa completa</button>';
+
+  document.getElementById('modal-prestacao').style.display = 'flex';
+}
+
+function conferirSaldoPrestacao(saldoEsperado) {
+  const input = document.getElementById('prestacao-saldo-entregue');
+  const div = document.getElementById('prestacao-diferenca');
+  if (!input.value) { div.innerHTML = ''; return; }
+  const entregue = parseFloat(input.value) || 0;
+  const diff = entregue - saldoEsperado;
+  if (Math.abs(diff) < 0.01) {
+    div.innerHTML = '<div style="background:#EAF3DE;color:#3B6D11;padding:8px;border-radius:6px;font-size:13px;text-align:center;">✓ Saldo confere!</div>';
+  } else if (diff > 0) {
+    div.innerHTML = '<div style="background:#E6F1FB;color:#185FA5;padding:8px;border-radius:6px;font-size:13px;text-align:center;">⚠️ Sobra de R$ ' + diff.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>';
+  } else {
+    div.innerHTML = '<div style="background:#FCEBEB;color:#A32D2D;padding:8px;border-radius:6px;font-size:13px;text-align:center;">⚠️ Falta R$ ' + Math.abs(diff).toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>';
+  }
+}
+
+async function corrigirBaixa(baixaId, valorAtual) {
+  const novoValor = prompt('Digite o valor correto recebido:', valorAtual);
+  if (novoValor === null) return;
+  const valor = parseFloat(novoValor);
+  if (isNaN(valor) || valor < 0) { alert('Valor inválido!'); return; }
+
+  await sb.from('baixas_pendentes').update({ valor_recebido: valor, status: 'corrigida' }).eq('id', baixaId);
+  Logger.info('prestacao', 'CORRIGIR_BAIXA', 'Baixa corrigida', { baixaId, valor });
+  abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
+}
+
+async function autorizarCaixa() {
+  const caixaId = window._caixaPrestacaoAtual;
+  const entregue = parseFloat(document.getElementById('prestacao-saldo-entregue').value) || 0;
+
+  if (!confirm('Autorizar esta caixa? Todas as baixas pendentes serão confirmadas no sistema definitivo.')) return;
+
+  const { data: baixas } = await sb.from('baixas_pendentes').select('*')
+    .eq('caixa_id', caixaId).in('status', ['pendente', 'corrigida']);
+
+  for (const b of (baixas || [])) {
+    const isCompleto = b.tipo_baixa === 'completo';
+    await sb.from('parcelas').update({
+      pago: isCompleto,
+      valor_pago: b.valor_recebido,
+      forma_pagamento: b.forma_pagamento,
+      cobrador_id: b.cobrador_id,
+      data_pagamento: isCompleto ? new Date().toISOString() : null,
+      status: isCompleto ? 'paga' : 'aberta'
+    }).eq('id', b.parcela_id);
+
+    await sb.from('movimentacoes_cobranca').insert({
+      cobrador_id: b.cobrador_id,
+      cliente_id: b.cliente_id,
+      tipo: 'cobranca',
+      valor: b.valor_recebido,
+      forma_pagamento: b.forma_pagamento
+    });
+
+    await sb.from('baixas_pendentes').update({ status: 'aprovada' }).eq('id', b.id);
+  }
+
+  await sb.from('caixa_cobrador').update({
+    status: 'aprovado',
+    saldo_entregue: entregue,
+    autorizado_por: funcionarioLogado.id,
+    autorizado_em: new Date().toISOString()
+  }).eq('id', caixaId);
+
+  Logger.info('prestacao', 'AUTORIZAR_CAIXA', 'Caixa autorizada', { caixaId, totalBaixas: (baixas || []).length });
+  fecharModal('modal-prestacao');
+  carregarPrestacaoContas();
+  alert('Caixa autorizada com sucesso! Todas as baixas foram confirmadas.');
 }
 
 async function carregarCiclos() {
@@ -4991,6 +5168,20 @@ async function toggleUsuarioAtivo(id, ativo) {
       onclick="fecharModal('modal-nao-recebi')">
       Cancelar
     </button>
+  </div>
+</div>
+
+<!-- MODAL PRESTAÇÃO DE CONTAS -->
+<div class="modal-bg" id="modal-prestacao">
+  <div class="modal-box" style="max-width:520px;">
+    <div class="modal-header">
+      <strong id="prestacao-titulo"></strong>
+      <button onclick="fecharModal('modal-prestacao')">×</button>
+    </div>
+    <div id="prestacao-conteudo"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-prestacao')">Fechar</button>
+    </div>
   </div>
 </div>
 </body>
