@@ -3299,10 +3299,15 @@ async function confirmarRecebimento() {
   if (tipo === 'parcial' && valorRecebido <= 0) { alert('Digite o valor recebido!'); return; }
   if (tipo === 'parcial' && valorRecebido >= valorTotal) { alert('Para pagamento total use "Pagamento completo"!'); return; }
 
+  if (forma === 'pix' && !window._comprovanteBlob) {
+    alert('Anexe o comprovante do PIX antes de confirmar!');
+    return;
+  }
+
   const caixaId = await obterCaixaAtiva();
   if (!caixaId) { alert('Erro ao obter caixa ativa. Contate o gestor.'); return; }
 
-  const { error } = await sb.from('baixas_pendentes').insert({
+  const { data: baixa, error } = await sb.from('baixas_pendentes').insert({
     caixa_id: caixaId,
     parcela_id: parcelaId,
     cobrador_id: funcionarioLogado.id,
@@ -3312,7 +3317,7 @@ async function confirmarRecebimento() {
     observacao: obs || null,
     tipo_baixa: tipo,
     status: 'pendente'
-  });
+  }).select().single();
 
   if (error) {
     Logger.error('cobrador', 'CONFIRMAR_RECEBIMENTO', 'Erro ao salvar baixa pendente', { supabase_code: error.code });
@@ -3320,18 +3325,28 @@ async function confirmarRecebimento() {
     return;
   }
 
+  // Upload do comprovante se for PIX
+  let comprovanteUrl = null;
+  if (forma === 'pix' && window._comprovanteBlob) {
+    comprovanteUrl = await uploadComprovante(baixa.id);
+    if (comprovanteUrl) {
+      await sb.from('baixas_pendentes').update({ comprovante_pix: comprovanteUrl }).eq('id', baixa.id);
+    }
+  }
+
   // Marcar parcela como paga na visão do cobrador
-  const isPagamentoCompleto = tipo === 'completo';
+  const isCompleto = tipo === 'completo';
   await sb.from('parcelas').update({
-    pago: isPagamentoCompleto,
+    pago: isCompleto,
     valor_pago: valorRecebido,
     forma_pagamento: forma,
     cobrador_id: funcionarioLogado.id,
-    data_pagamento: isPagamentoCompleto ? new Date().toISOString() : null,
-    status: isPagamentoCompleto ? 'paga' : 'aberta'
+    data_pagamento: isCompleto ? new Date().toISOString() : null,
+    status: isCompleto ? 'paga' : 'aberta',
+    comprovante_pix: comprovanteUrl
   }).eq('id', parcelaId);
 
-  // Se recebeu em dinheiro, somar no saldo da caixa
+  // Se foi dinheiro, somar no saldo da caixa
   if (forma === 'dinheiro') {
     const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', caixaId).single();
     await sb.from('caixa_cobrador').update({
@@ -3339,11 +3354,12 @@ async function confirmarRecebimento() {
     }).eq('id', caixaId);
   }
 
+  removerComprovante();
   fecharModal('modal-recebimento');
   fecharModal('modal-parcelas-cobrador');
   await carregarSaldoCobrador();
   await carregarClientesPorLocalidade();
-  alert('Recebimento registrado com sucesso!');
+  alert('Recebimento registrado!');
 }
 
 async function obterCaixaAtiva() {
