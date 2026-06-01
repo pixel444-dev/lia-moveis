@@ -3166,23 +3166,20 @@ async function verClientesLocalidade(localidadeId, nomeLocalidade) {
 }
 
 async function verParcelasDoCliente() {
-  var cli = window._clienteDetalhesAtual || {};
-  if (!cli.id) return;
+  const { id, nome } = window._clienteDetalhesAtual || {};
+  if (!id) return;
   fecharModal('modal-detalhes-cliente');
 
-  document.getElementById('modal-parcelas-cobrador-titulo').textContent = cli.nome;
-  var lista = document.getElementById('lista-parcelas-cobrador');
+  document.getElementById('modal-parcelas-cobrador-titulo').textContent = nome;
+  const lista = document.getElementById('lista-parcelas-cobrador');
   lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
   document.getElementById('modal-parcelas-cobrador').style.display = 'flex';
 
-  var hoje = new Date();
-  var { data, error } = await sb
-    .from('parcelas')
-    .select('*, vendas(codigo, produto)')
-    .eq('cliente_id', cli.id)
-    .eq('pago', false)
+  const { data, error } = await sb.from('parcelas')
+    .select('*, vendas(codigo, produto), funcionarios(nome)')
+    .eq('cliente_id', id)
     .neq('status', 'devolvida')
-    .order('data_vencimento');
+    .order('numero');
 
   if (error) {
     Logger.error('cobrador', 'VER_PARCELAS_CLIENTE', 'Erro ao buscar parcelas', { supabase_code: error.code });
@@ -3190,32 +3187,56 @@ async function verParcelasDoCliente() {
     return;
   }
 
-  if (!data || !data.length) {
-    lista.innerHTML = '<div style="text-align:center;padding:2rem;color:#3B6D11;"><div style="font-size:36px;margin-bottom:.75rem;">✅</div><div style="font-size:14px;font-weight:500;">Cliente sem parcelas em aberto!</div></div>';
-    return;
+  const emAberto = (data || []).filter(function(p) { return !p.pago; });
+  const pagas = (data || []).filter(function(p) { return p.pago; });
+  const hoje = new Date();
+  let html = '';
+
+  if (emAberto.length) {
+    emAberto.forEach(function(p) {
+      const venc = new Date(p.data_vencimento + 'T12:00:00');
+      const atrasada = venc < hoje;
+      const saldo = Number(p.valor) - Number(p.valor_pago || 0);
+      const saldoFmt = saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+      const nomeEsc = nome.replace(/'/g, "\\'");
+      const prodEsc = ((p.vendas && p.vendas.produto) || '').replace(/'/g, "\\'");
+      html += '<div style="background:' + (atrasada ? '#FCEBEB' : '#fff') + ';border:1px solid ' + (atrasada ? '#f5c6c6' : '#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+        + '<span style="font-size:14px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>'
+        + '<span class="badge ' + (atrasada ? 'vermelho' : 'azul') + '">' + (atrasada ? 'Atrasada' : 'Em aberto') + '</span>'
+        + '</div>'
+        + '<div style="font-size:12px;color:#888;margin-bottom:4px;">📦 ' + ((p.vendas && p.vendas.produto) || '—') + '</div>'
+        + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📅 Vence: ' + venc.toLocaleDateString('pt-BR') + '</div>'
+        + '<div style="font-size:20px;font-weight:700;color:' + (atrasada ? '#A32D2D' : '#1a1a1a') + ';margin-bottom:10px;">R$ ' + saldoFmt + '</div>'
+        + '<div style="display:flex;gap:8px;">'
+        + '<button class="btn primario" style="flex:1;padding:12px;font-size:14px;" onclick="abrirRegistrarRecebimento(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',' + saldo + ',\'' + prodEsc + '\',\'' + id + '\',\'' + nomeEsc + '\')">💰 Registrar recebimento</button>'
+        + '<button class="btn" style="padding:12px 14px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="abrirNaoRecebi(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',\'' + id + '\',\'' + nomeEsc + '\')">✗ Não recebi</button>'
+        + '</div></div>';
+    });
+  } else {
+    html += '<div style="text-align:center;padding:1.5rem;color:#3B6D11;font-size:14px;">✅ Nenhuma parcela em aberto!</div>';
   }
 
-  lista.innerHTML = data.map(function(p) {
-    var venc = new Date(p.data_vencimento + 'T12:00:00');
-    var atrasada = venc < hoje;
-    var saldo = Number(p.valor) - Number(p.valor_pago || 0);
-    var saldoFmt = saldo.toLocaleString('pt-BR', {minimumFractionDigits:2});
-    var nomeEsc = cli.nome.replace(/'/g, "\\'");
-    var prodEsc = ((p.vendas && p.vendas.produto) || '').replace(/'/g, "\\'");
-    return '<div style="background:' + (atrasada ? '#FCEBEB' : '#fff') + ';border:1px solid ' + (atrasada ? '#f5c6c6' : '#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-      + '<span style="font-size:14px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>'
-      + '<span class="badge ' + (atrasada ? 'vermelho' : 'azul') + '">' + (atrasada ? 'Atrasada' : 'Em aberto') + '</span>'
-      + '</div>'
-      + '<div style="font-size:12px;color:#888;margin-bottom:4px;">📦 ' + ((p.vendas && p.vendas.produto) || '—') + '</div>'
-      + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📅 Vence: ' + venc.toLocaleDateString('pt-BR') + '</div>'
-      + '<div style="font-size:20px;font-weight:700;color:' + (atrasada ? '#A32D2D' : '#1a1a1a') + ';margin-bottom:10px;">R$ ' + saldoFmt + '</div>'
-      + '<div style="display:flex;gap:8px;">'
-      + '<button class="btn primario" style="flex:1;padding:12px;font-size:14px;" onclick="abrirRegistrarRecebimento(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',' + saldo + ',\'' + prodEsc + '\',\'' + cli.id + '\',\'' + nomeEsc + '\')">💰 Registrar recebimento</button>'
-      + '<button class="btn" style="padding:12px 14px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="abrirNaoRecebi(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',\'' + cli.id + '\',\'' + nomeEsc + '\')">✗ Não recebi</button>'
-      + '</div>'
-      + '</div>';
-  }).join('');
+  if (pagas.length) {
+    html += '<div style="font-size:13px;font-weight:600;color:#888;margin:1rem 0 .5rem;">' + pagas.length + ' parcela(s) paga(s)</div>';
+    pagas.forEach(function(p) {
+      const comprovante = p.comprovante_pix
+        ? '<a href="' + p.comprovante_pix + '" target="_blank" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:6px;">📎 Ver comprovante PIX</a>'
+        : '';
+      html += '<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:12px;padding:1rem;margin-bottom:8px;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+        + '<span style="font-size:14px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>'
+        + '<span class="badge verde">Paga</span></div>'
+        + '<div style="font-size:12px;color:#555;margin-bottom:2px;">📦 ' + ((p.vendas && p.vendas.produto) || '—') + '</div>'
+        + '<div style="font-size:12px;color:#555;margin-bottom:2px;">✅ Recebido: ' + (p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—') + '</div>'
+        + '<div style="font-size:12px;color:#555;margin-bottom:6px;">' + ((p.forma_pagamento || '').toUpperCase() || '—') + '</div>'
+        + '<div style="font-size:16px;font-weight:700;color:#3B6D11;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+        + comprovante
+        + '</div>';
+    });
+  }
+
+  lista.innerHTML = html;
 }
 
 function abrirRegistrarRecebimento(parcelaId, numero, total, valor, produto, clienteId, nomeCliente) {
