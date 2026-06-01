@@ -5610,5 +5610,51 @@ async function toggleUsuarioAtivo(id, ativo) {
     </button>
   </div>
 </div>
+
+<!-- MODAL REGISTRAR DEPÓSITO -->
+<div class="modal-bg" id="modal-deposito">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <strong>Registrar depósito</strong>
+      <button onclick="fecharModal('modal-deposito')">×</button>
+    </div>
+
+    <div class="campo">
+      <label>Valor depositado (R$) *</label>
+      <input id="deposito-valor" type="number"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+        placeholder="0,00">
+    </div>
+
+    <div class="campo">
+      <label>Comprovante do depósito *</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <button type="button" onclick="document.getElementById('deposito-camera').click()"
+          style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:24px;">📷</span> Tirar foto
+        </button>
+        <button type="button" onclick="document.getElementById('deposito-arquivo').click()"
+          style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:24px;">📎</span> Escolher arquivo
+        </button>
+      </div>
+      <input type="file" id="deposito-camera" accept="image/*" capture="environment" style="display:none;" onchange="processarComprovanteDeposito(this)">
+      <input type="file" id="deposito-arquivo" accept="image/png,image/jpeg,image/jpg,application/pdf" style="display:none;" onchange="processarComprovanteDeposito(this)">
+      <div id="deposito-comprovante-preview" style="display:none;margin-top:8px;">
+        <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px;display:flex;align-items:center;justify-content:space-between;">
+          <span id="deposito-comprovante-nome" style="font-size:12px;color:#3B6D11;font-weight:500;">Comprovante anexado</span>
+          <button type="button" onclick="removerComprovanteDeposito()" style="background:none;border:none;color:#A32D2D;cursor:pointer;font-size:18px;">×</button>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-top:.5rem;" onclick="confirmarDeposito()">
+      ✓ Registrar depósito
+    </button>
+    <button class="btn" style="width:100%;padding:12px;font-size:14px;margin-top:8px;" onclick="fecharModal('modal-deposito')">
+      Cancelar
+    </button>
+  </div>
+</div>
 </body>
 </html>
