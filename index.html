@@ -2716,12 +2716,79 @@ function renderParcelasPageasMobile(parcelas) {
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">💳 ' + formaBadge + '</div>';
     if (p.comprovante_pix) html += '<a href="' + p.comprovante_pix + '" target="_blank" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-bottom:8px;">📎 Ver comprovante PIX</a>';
     html += '<div style="font-size:18px;font-weight:700;color:#3B6D11;margin-bottom:10px;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>';
-    html += '<div style="display:flex;gap:8px;">';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
     html += '<button class="btn" style="flex:1;padding:10px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa(\'' + p.id + '\',\'' + p.cliente_id + '\',\'' + codigoVenda + '\')">Cancelar baixa</button>';
+    html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="verDetalhesParcela(\'' + p.id + '\')">Ver detalhes</button>';
     html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="abrirEditarParcela(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + p.valor + '\',\'' + p.data_vencimento + '\',\'' + produtoSafe + '\',true,\'' + p.cliente_id + '\',\'' + codigoVenda + '\')">Editar</button>';
     html += '</div></div>';
     return html;
   }).join('');
+}
+
+async function verDetalhesParcela(parcelaId) {
+  const { data: p, error } = await sb.from('parcelas')
+    .select('*, vendas(codigo, produto), funcionarios(nome), clientes(nome)')
+    .eq('id', parcelaId).single();
+
+  if (error || !p) { alert('Erro ao carregar parcela.'); return; }
+
+  const venc = new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR');
+  const pagamento = p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—';
+  const fmtR = function(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2}); };
+
+  let comprovanteHtml = '';
+  if (p.comprovante_pix) {
+    const isPdf = p.comprovante_pix.endsWith('.pdf');
+    comprovanteHtml = '<div style="background:#E6F1FB;border-radius:8px;padding:.75rem;">'
+      + '<div style="font-size:10px;color:#185FA5;margin-bottom:6px;">COMPROVANTE PIX</div>'
+      + (isPdf
+        ? '<a href="' + p.comprovante_pix + '" target="_blank" style="color:#185FA5;font-size:13px;">📄 Abrir comprovante PDF</a>'
+        : '<img src="' + p.comprovante_pix + '" onclick="window.open(\'' + p.comprovante_pix + '\',\'_blank\')" style="width:100%;max-height:250px;object-fit:contain;border-radius:6px;cursor:pointer;border:1px solid #c0dd97;">')
+      + '</div>';
+  }
+
+  document.getElementById('detalhe-parcela-conteudo').innerHTML =
+    '<div style="display:flex;flex-direction:column;gap:.5rem;">'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#888;">CLIENTE</div>'
+    + '<div style="font-size:14px;font-weight:600;">' + (p.clientes?.nome || '—') + '</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#888;">PARCELA</div>'
+    + '<div style="font-size:13px;">' + p.numero + '/' + p.total_parcelas + '</div></div>'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#888;">VENDA</div>'
+    + '<div style="font-size:13px;">' + (p.vendas?.codigo || '—') + '</div></div>'
+    + '</div>'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#888;">PRODUTO</div>'
+    + '<div style="font-size:13px;">' + (p.vendas?.produto || '—') + '</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#888;">VENCIMENTO</div>'
+    + '<div style="font-size:13px;">' + venc + '</div></div>'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#888;">RECEBIDO EM</div>'
+    + '<div style="font-size:13px;">' + pagamento + '</div></div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+    + '<div style="background:#EAF3DE;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#3B6D11;">VALOR</div>'
+    + '<div style="font-size:15px;font-weight:600;color:#3B6D11;">' + fmtR(p.valor) + '</div></div>'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#888;">FORMA</div>'
+    + '<div style="font-size:13px;">' + (p.forma_pagamento ? p.forma_pagamento.toUpperCase() : '—') + '</div></div>'
+    + '</div>'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:10px;color:#888;">COBRADOR</div>'
+    + '<div style="font-size:13px;">' + (p.funcionarios?.nome || '—') + '</div>'
+    + '</div>'
+    + comprovanteHtml
+    + '</div>';
+
+  document.getElementById('modal-detalhe-parcela').style.display = 'flex';
 }
 
 async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
@@ -2766,12 +2833,13 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
   if (pagas.length) {
     const pagasConteudo = mobile ? renderParcelasPageasMobile(pagas) : `
       <div class="tabela-wrap"><table>
-        <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th></tr></thead>
+        <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
         <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
           <td>${p.numero}/${p.total_parcelas}</td>
           <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
           <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td><span class="badge verde">Paga</span>${p.comprovante_pix ? `<br><a href="${p.comprovante_pix}" target="_blank" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
+          <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button></td>
         </tr>`).join('')}</tbody>
       </table></div>`;
     pagasHtml = `<div style="margin-top:1rem;"><div style="font-size:13px;font-weight:500;color:#888;margin-bottom:.5rem;">${pagas.length} parcela(s) paga(s)</div>${pagasConteudo}</div>`;
@@ -2838,6 +2906,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
           <td><span class="badge verde">Paga</span></td>
           <td>
             <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${p.vendas?.codigo||''}')">Cancelar baixa</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button>
             <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${p.vendas?.produto||''}',true,'${p.cliente_id}','${p.vendas?.codigo||''}')">Editar</button>
           </td>
         </tr>`).join('')}</tbody>
@@ -5410,6 +5479,20 @@ async function toggleUsuarioAtivo(id, ativo) {
       <button onclick="fecharModal('modal-prestacao')">×</button>
     </div>
     <div id="prestacao-conteudo"></div>
+  </div>
+</div>
+
+<!-- MODAL DETALHE PARCELA -->
+<div class="modal-bg" id="modal-detalhe-parcela">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <strong>Detalhes da parcela</strong>
+      <button onclick="fecharModal('modal-detalhe-parcela')">×</button>
+    </div>
+    <div id="detalhe-parcela-conteudo"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-detalhe-parcela')">Fechar</button>
+    </div>
   </div>
 </div>
 </body>
