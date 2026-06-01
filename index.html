@@ -3301,8 +3301,12 @@ function selecionarForma(forma) {
 }
 
 async function processarComprovante(input) {
-  if (!input.files || !input.files[0]) return;
+  if (!input.files || !input.files[0]) {
+    console.log('[comprovante] Nenhum arquivo selecionado');
+    return;
+  }
   const file = input.files[0];
+  console.log('[comprovante] Arquivo selecionado:', file.name, file.type, file.size);
   const ehPDF = file.type === 'application/pdf';
 
   const previewWrap = document.getElementById('comprovante-preview');
@@ -3344,6 +3348,7 @@ async function processarComprovante(input) {
       });
     }
     previewWrap.style.display = 'block';
+    console.log('[comprovante] Blob criado:', window._comprovanteBlob, 'ext:', window._comprovanteExt);
   } catch (e) {
     Logger.error('cobrador', 'PROCESSAR_COMPROVANTE', 'Erro ao processar comprovante', { erro: e.message });
     alert('Erro ao processar o comprovante. Tente novamente.');
@@ -3359,22 +3364,35 @@ function removerComprovante() {
 }
 
 async function uploadComprovante(baixaId) {
-  if (!window._comprovanteBlob) return null;
+  if (!window._comprovanteBlob) {
+    console.log('[upload] Sem blob para upload');
+    return null;
+  }
   const ext = window._comprovanteExt || 'webp';
   const nomeArquivo = 'pix_' + baixaId + '.' + ext;
   const contentType = ext === 'pdf' ? 'application/pdf' : 'image/webp';
 
-  const { error } = await sb.storage
+  console.log('[upload] Iniciando:', nomeArquivo, contentType, 'tamanho:', window._comprovanteBlob.size);
+
+  const { data, error } = await sb.storage
     .from('comprovantes')
     .upload(nomeArquivo, window._comprovanteBlob, { contentType, upsert: true });
 
+  console.log('[upload] Resultado:', data, '| Erro:', error);
+
   if (error) {
-    Logger.error('cobrador', 'UPLOAD_COMPROVANTE', 'Erro no upload', { supabase_code: error.code });
+    Logger.error('cobrador', 'UPLOAD_COMPROVANTE', 'Erro no upload do comprovante', {
+      error_message: error.message,
+      error_name: error.name,
+      nomeArquivo
+    });
+    alert('Erro ao enviar comprovante: ' + error.message);
     return null;
   }
 
-  const { data } = sb.storage.from('comprovantes').getPublicUrl(nomeArquivo);
-  return data.publicUrl;
+  const { data: urlData } = sb.storage.from('comprovantes').getPublicUrl(nomeArquivo);
+  console.log('[upload] URL pública:', urlData.publicUrl);
+  return urlData.publicUrl;
 }
 
 async function confirmarRecebimento() {
@@ -3417,10 +3435,14 @@ async function confirmarRecebimento() {
     return;
   }
 
+  console.log('[recebimento] Baixa criada com ID:', baixa.id);
+
   // Upload do comprovante se for PIX
   let comprovanteUrl = null;
   if (forma === 'pix' && window._comprovanteBlob) {
+    console.log('[recebimento] Vai fazer upload do comprovante PIX');
     comprovanteUrl = await uploadComprovante(baixa.id);
+    console.log('[recebimento] URL retornada:', comprovanteUrl);
     if (comprovanteUrl) {
       await sb.from('baixas_pendentes').update({ comprovante_pix: comprovanteUrl }).eq('id', baixa.id);
     }
