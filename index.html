@@ -3468,7 +3468,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + '</div>'
         + '<div style="text-align:right;">'
         + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">' + fmtR(b.valor_recebido) + '</div>'
-        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="corrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ')">Corrigir</button>'
+        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + (b.clientes?.nome || '').replace(/'/g, "\\'") + '\')">Corrigir</button>'
         + '</div></div></div>';
     });
   }
@@ -3562,14 +3562,68 @@ function conferirSaldoPrestacao(saldoEsperado) {
   }
 }
 
-async function corrigirBaixa(baixaId, valorAtual) {
-  const novoValor = prompt('Digite o valor correto recebido:', valorAtual);
-  if (novoValor === null) return;
-  const valor = parseFloat(novoValor);
-  if (isNaN(valor) || valor < 0) { alert('Valor inválido!'); return; }
+function abrirCorrigirBaixa(baixaId, valor, tipoBaixa, forma, nomeCliente) {
+  document.getElementById('corrigir-baixa-id').value = baixaId;
+  document.getElementById('corrigir-valor').value = valor;
+  document.getElementById('corrigir-tipo').value = tipoBaixa || 'completo';
+  document.getElementById('corrigir-forma').value = forma || 'dinheiro';
+  document.getElementById('corrigir-info').textContent = nomeCliente;
+  document.getElementById('modal-corrigir-baixa').style.display = 'flex';
+}
 
-  await sb.from('baixas_pendentes').update({ valor_recebido: valor, status: 'corrigida' }).eq('id', baixaId);
-  Logger.info('prestacao', 'CORRIGIR_BAIXA', 'Baixa corrigida', { baixaId, valor });
+async function salvarCorrecaoBaixa() {
+  const baixaId = document.getElementById('corrigir-baixa-id').value;
+  const valor = parseFloat(document.getElementById('corrigir-valor').value);
+  const tipo = document.getElementById('corrigir-tipo').value;
+  const forma = document.getElementById('corrigir-forma').value;
+
+  if (isNaN(valor) || valor <= 0) { alert('Digite um valor válido!'); return; }
+
+  const { error } = await sb.from('baixas_pendentes').update({
+    valor_recebido: valor,
+    tipo_baixa: tipo,
+    forma_pagamento: forma,
+    status: 'corrigida'
+  }).eq('id', baixaId);
+
+  if (error) {
+    Logger.error('prestacao', 'CORRIGIR_BAIXA', 'Erro ao corrigir', { supabase_code: error.code });
+    alert('Erro ao corrigir!');
+    return;
+  }
+
+  Logger.info('prestacao', 'CORRIGIR_BAIXA', 'Baixa corrigida', { baixaId, valor, tipo, forma });
+  fecharModal('modal-corrigir-baixa');
+  abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
+}
+
+async function cancelarBaixaPrestacao() {
+  const baixaId = document.getElementById('corrigir-baixa-id').value;
+  if (!confirm('Cancelar esta baixa? O recebimento será removido e o dinheiro em mãos ajustado.')) return;
+
+  const { data: baixa } = await sb.from('baixas_pendentes').select('*').eq('id', baixaId).single();
+  if (!baixa) { alert('Baixa não encontrada!'); return; }
+
+  await sb.from('baixas_pendentes').update({ status: 'cancelada' }).eq('id', baixaId);
+
+  await sb.from('parcelas').update({
+    pago: false,
+    valor_pago: 0,
+    forma_pagamento: null,
+    cobrador_id: null,
+    data_pagamento: null,
+    status: 'aberta'
+  }).eq('id', baixa.parcela_id);
+
+  if (baixa.forma_pagamento === 'dinheiro') {
+    const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', baixa.caixa_id).single();
+    await sb.from('caixa_cobrador').update({
+      saldo_esperado: Math.max(0, (caixa?.saldo_esperado || 0) - Number(baixa.valor_recebido))
+    }).eq('id', baixa.caixa_id);
+  }
+
+  Logger.info('prestacao', 'CANCELAR_BAIXA', 'Baixa cancelada na prestação', { baixaId });
+  fecharModal('modal-corrigir-baixa');
   abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
 
@@ -5168,6 +5222,51 @@ async function toggleUsuarioAtivo(id, ativo) {
       onclick="fecharModal('modal-nao-recebi')">
       Cancelar
     </button>
+  </div>
+</div>
+
+<!-- MODAL CORRIGIR BAIXA -->
+<div class="modal-bg" id="modal-corrigir-baixa">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <div>
+        <strong>Corrigir baixa</strong>
+        <div style="font-size:11px;color:#888;margin-top:2px;" id="corrigir-info"></div>
+      </div>
+      <button onclick="fecharModal('modal-corrigir-baixa')">×</button>
+    </div>
+    <input type="hidden" id="corrigir-baixa-id">
+    <div class="campo">
+      <label>Tipo de pagamento</label>
+      <select id="corrigir-tipo" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+        <option value="completo">Pagamento completo</option>
+        <option value="parcial">Pagamento parcial</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label>Valor recebido (R$)</label>
+      <input id="corrigir-valor" type="number"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+        placeholder="0,00">
+    </div>
+    <div class="campo">
+      <label>Forma de pagamento</label>
+      <select id="corrigir-forma" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+        <option value="dinheiro">Dinheiro</option>
+        <option value="pix">PIX</option>
+      </select>
+    </div>
+    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-bottom:8px;"
+      onclick="salvarCorrecaoBaixa()">
+      ✓ Salvar correção
+    </button>
+    <button class="btn" style="width:100%;padding:14px;font-size:15px;border-radius:10px;color:#A32D2D;border-color:#f5c6c6;background:#FCEBEB;"
+      onclick="cancelarBaixaPrestacao()">
+      🗑️ Cancelar esta baixa
+    </button>
+    <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
+      Cancelar a baixa remove o recebimento e ajusta o dinheiro em mãos.
+    </div>
   </div>
 </div>
 
