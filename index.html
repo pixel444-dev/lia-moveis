@@ -2330,6 +2330,10 @@ async function renderInterfaceCobrador() {
     + '<div style="font-size:11px;opacity:.8;letter-spacing:.08em;margin-bottom:4px;">DINHEIRO EM MÃOS</div>'
     + '<div style="font-size:28px;font-weight:700;" id="saldo-em-maos">R$ 0,00</div>'
     + '<div style="font-size:11px;opacity:.7;margin-top:4px;" id="saldo-ciclo-info">Carregando...</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:1rem;">'
+    + '<button onclick="abrirRegistrarGasto()" style="padding:12px;border-radius:10px;border:none;background:rgba(255,255,255,.15);color:white;font-size:14px;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);">💸 Registrar gasto</button>'
+    + '<button onclick="abrirRegistrarDeposito()" style="padding:12px;border-radius:10px;border:none;background:rgba(255,255,255,.15);color:white;font-size:14px;font-weight:600;cursor:pointer;">🏦 Depositar</button>'
+    + '</div>'
     + '</div>'
     + '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:1rem;">'
     + '<div style="font-size:12px;font-weight:500;color:#555;margin-bottom:.75rem;">Buscar cliente</div>'
@@ -2357,6 +2361,9 @@ async function renderInterfaceCobrador() {
     carregarClientesPorLocalidade(),
   ]);
 }
+
+function abrirRegistrarGasto() { alert('Em breve: Registrar gasto'); }
+function abrirRegistrarDeposito() { alert('Em breve: Depositar'); }
 
 async function carregarSaldoCobrador() {
   const caixaId = await obterCaixaAtiva();
