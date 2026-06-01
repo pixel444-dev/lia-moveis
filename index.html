@@ -3359,7 +3359,85 @@ async function confirmarNaoRecebi() {
 // ===== FIM MÓDULO LOCALIDADES =====
 
 async function carregarPrestacaoContas() {
-  document.getElementById('lista-prestacao').innerHTML = 'Em construção...';
+  if (perfilAtivo !== 'gestor') {
+    document.getElementById('lista-prestacao').innerHTML = '<p style="color:#888;">Acesso restrito ao gestor.</p>';
+    return;
+  }
+
+  const { data: caixas, error } = await sb
+    .from('caixa_cobrador')
+    .select('*, funcionarios(nome)')
+    .in('status', ['aberto', 'pendente_aprovacao'])
+    .order('criado_em', { ascending: false });
+
+  if (error) {
+    Logger.error('prestacao', 'CARREGAR', 'Erro ao buscar caixas', { supabase_code: error.code });
+    document.getElementById('lista-prestacao').innerHTML = 'Erro ao carregar.';
+    return;
+  }
+
+  if (!caixas || !caixas.length) {
+    document.getElementById('lista-prestacao').innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:48px;margin-bottom:.75rem;">📋</div><div style="font-size:14px;">Nenhuma caixa aberta no momento.</div></div>';
+    return;
+  }
+
+  let html = '';
+  for (const caixa of caixas) {
+    const resumo = await calcularResumoCaixa(caixa.id);
+    const nomeEsc = (caixa.funcionarios?.nome || '').replace(/'/g, "\\'");
+    html += '<div onclick="abrirDetalhePrestacao(\'' + caixa.id + '\',\'' + nomeEsc + '\')"'
+      + ' style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:10px;cursor:pointer;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+      + '<div style="font-size:16px;font-weight:600;">' + (caixa.funcionarios?.nome || '—') + '</div>'
+      + '<span class="badge ' + (caixa.status === 'aberto' ? 'azul' : 'amarelo') + '">'
+      + (caixa.status === 'aberto' ? 'Aberta' : 'Aguardando') + '</span>'
+      + '</div>'
+      + '<div style="font-size:12px;color:#888;margin-bottom:10px;">Ciclo: '
+      + new Date(caixa.ciclo_inicio + 'T12:00:00').toLocaleDateString('pt-BR')
+      + ' a ' + new Date(caixa.ciclo_fim + 'T12:00:00').toLocaleDateString('pt-BR')
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">'
+      + '<div style="background:#EAF3DE;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#3B6D11;">RECEBIDO</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">R$ ' + resumo.totalRecebido.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '<div style="background:#FAEEDA;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#854F0B;">GASTOS</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#854F0B;">R$ ' + resumo.totalGastos.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '<div style="background:#E6F1FB;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#185FA5;">EM MÃOS</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#185FA5;">R$ ' + resumo.saldoEmMaos.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+  document.getElementById('lista-prestacao').innerHTML = html;
+}
+
+async function calcularResumoCaixa(caixaId) {
+  const { data: baixas } = await sb.from('baixas_pendentes')
+    .select('valor_recebido, forma_pagamento, status')
+    .eq('caixa_id', caixaId).neq('status', 'cancelada');
+
+  const { data: movs } = await sb.from('movimentacoes_caixa')
+    .select('valor, tipo').eq('caixa_id', caixaId);
+
+  const totalRecebido = (baixas || []).reduce(function(a, b) { return a + Number(b.valor_recebido); }, 0);
+  const recebidoDinheiro = (baixas || []).filter(function(b) { return b.forma_pagamento === 'dinheiro'; })
+    .reduce(function(a, b) { return a + Number(b.valor_recebido); }, 0);
+  const totalGastos = (movs || []).filter(function(g) { return g.tipo === 'gasto'; })
+    .reduce(function(a, g) { return a + Number(g.valor); }, 0);
+  const totalDepositos = (movs || []).filter(function(g) { return g.tipo === 'deposito'; })
+    .reduce(function(a, g) { return a + Number(g.valor); }, 0);
+  const saldoEmMaos = recebidoDinheiro - totalGastos - totalDepositos;
+
+  return { totalRecebido, recebidoDinheiro, totalGastos, totalDepositos, saldoEmMaos };
+}
+
+function abrirDetalhePrestacao(caixaId, nomeCobrador) {
+  // Implementação futura — detalhe por cobrador
+  alert('Detalhe de ' + nomeCobrador + ' em breve.');
 }
 
 async function carregarCiclos() {
