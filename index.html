@@ -308,6 +308,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" id="nav-localidades" onclick="pg('localidades',this);carregarLocalidades()">Localidades</div>
       <div class="nav-item" id="nav-ciclos" onclick="pg('ciclos',this)">Ciclos</div>
       <div class="nav-item" id="nav-caixa-cobradores" onclick="pg('caixa-cobradores',this)">Caixa cobradores</div>
+      <div class="nav-item" id="nav-prestacao" onclick="pg('prestacao',this)">Prestação de contas</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-analise">
       <div class="nav-sep">Análise</div>
@@ -420,6 +421,11 @@ tr:hover td{background:#fafafa;}
     <div class="page" id="page-caixa-cobradores">
       <div class="page-title">Caixa em campo — cobradores</div>
       <div id="lista-caixa-c">Em construção...</div>
+    </div>
+
+    <div class="page" id="page-prestacao">
+      <div class="page-title">Prestação de contas</div>
+      <div id="lista-prestacao">Carregando...</div>
     </div>
 
     <div class="page" id="page-desempenho">
@@ -1004,7 +1010,7 @@ function aplicarPermissoes(perfil) {
 
   // Somente gestor
   const soGestor = ['nav-funcionarios', 'nav-importacao', 'nav-caixa-vendedores',
-    'nav-desempenho', 'nav-relatorios', 'nav-logs', 'nav-usuarios'];
+    'nav-desempenho', 'nav-relatorios', 'nav-logs', 'nav-usuarios', 'nav-prestacao'];
   soGestor.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = gestor ? '' : 'none';
@@ -1047,6 +1053,7 @@ function pg(nome, el) {
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'localidades') carregarLocalidades();
   if (nome === 'ciclos') carregarCiclos();
+  if (nome === 'prestacao') carregarPrestacaoContas();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => carregarEquipes());
   if (nome === 'usuarios') carregarUsuarios();
 }
@@ -3350,6 +3357,10 @@ async function confirmarNaoRecebi() {
 }
 
 // ===== FIM MÓDULO LOCALIDADES =====
+
+async function carregarPrestacaoContas() {
+  document.getElementById('lista-prestacao').innerHTML = 'Em construção...';
+}
 
 async function carregarCiclos() {
   const { data, error } = await sb.from('ciclos_cobranca').select('*').order('data_saida');
