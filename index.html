@@ -2641,9 +2641,141 @@ async function carregarVisitasHoje() {
 }
 
 async function carregarCaixaECiclos() {
-  // Implementação na Parte 5B
-  document.getElementById('secao-ciclo-tabs').innerHTML = '';
-  document.getElementById('secao-ciclo-conteudo').innerHTML = '';
+  const caixaId = await obterCaixaAtiva();
+  const tabsEl = document.getElementById('secao-ciclo-tabs');
+  const conteudo = document.getElementById('secao-ciclo-conteudo');
+
+  if (!caixaId) {
+    tabsEl.innerHTML = '';
+    conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Não há caixa ativa no momento.</p>';
+    return;
+  }
+
+  const { data: caixa } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  window._caixaCobradorAtiva = caixa;
+
+  const ciclos = calcularCiclosDaCaixa(caixa.ciclo_inicio, caixa.ciclo_fim);
+  window._ciclosCaixa = ciclos;
+
+  const hojeChave = cicloDoDia(new Date().getDate()).chave;
+  let selecionado = window._cicloSelecionado;
+  if (!selecionado || !ciclos.find(c => c.chave === selecionado)) {
+    selecionado = ciclos.find(c => c.chave === hojeChave)?.chave || ciclos[0]?.chave;
+  }
+  window._cicloSelecionado = selecionado;
+
+  if (ciclos.length > 1) {
+    tabsEl.innerHTML = '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:1rem;-webkit-overflow-scrolling:touch;">'
+      + ciclos.map(c => '<button onclick="selecionarCicloCobrador(\'' + c.chave + '\')"'
+        + ' style="flex-shrink:0;padding:10px 16px;border-radius:10px;border:1.5px solid ' + (c.chave===selecionado?'#185FA5':'#ddd') + ';background:' + (c.chave===selecionado?'#185FA5':'#fff') + ';color:' + (c.chave===selecionado?'#fff':'#555') + ';font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">'
+        + '📦 ' + c.label + '</button>').join('')
+      + '</div>';
+  } else {
+    tabsEl.innerHTML = '';
+  }
+
+  await renderCicloSelecionado(selecionado);
+}
+
+function selecionarCicloCobrador(chave) {
+  window._cicloSelecionado = chave;
+  carregarCaixaECiclos();
+}
+
+async function renderCicloSelecionado(cicloChave) {
+  const caixa = window._caixaCobradorAtiva;
+  const conteudo = document.getElementById('secao-ciclo-conteudo');
+  conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:1rem;">Carregando fichas...</p>';
+
+  const { data: localidades } = await sb.from('localidades')
+    .select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome');
+
+  const { data: clientes } = await sb.from('clientes')
+    .select('id, codigo, nome, telefone, foto_casa, localidade_id')
+    .eq('cobrador_id', funcionarioLogado.id);
+
+  const clienteIds = (clientes||[]).map(c => c.id);
+  if (!clienteIds.length) {
+    conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Nenhum cliente na sua rota.</p>';
+    return;
+  }
+
+  const { data: parcelas } = await sb.from('parcelas')
+    .select('id, cliente_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
+    .in('cliente_id', clienteIds).eq('pago', false).neq('status', 'devolvida');
+
+  const { data: visitas } = await sb.from('visitas_agendadas')
+    .select('parcela_id, data_agendada, concluida, criado_em')
+    .eq('cobrador_id', funcionarioLogado.id).eq('concluida', false)
+    .order('criado_em', { ascending: false });
+  const mapaRemarque = {};
+  (visitas||[]).forEach(v => { if (v.parcela_id && !mapaRemarque[v.parcela_id]) mapaRemarque[v.parcela_id] = v.data_agendada; });
+
+  const inicio = new Date(caixa.ciclo_inicio + 'T12:00:00');
+  const fim = new Date(caixa.ciclo_fim + 'T12:00:00');
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+
+  const mapaCliente = {};
+  (clientes||[]).forEach(c => mapaCliente[c.id] = c);
+
+  const fichas = [];
+  (parcelas||[]).forEach(p => {
+    const remarque = mapaRemarque[p.id];
+    const dataEf = remarque ? new Date(remarque + 'T12:00:00') : new Date(p.data_vencimento + 'T12:00:00');
+    if (dataEf < inicio || dataEf > fim) return;
+    if (cicloDoDia(dataEf.getDate()).chave !== cicloChave) return;
+    const cli = mapaCliente[p.cliente_id];
+    if (!cli) return;
+    fichas.push({ cliente: cli, parcela: p, dataEf, atrasada: dataEf < hoje, remarcada: !!remarque });
+  });
+
+  if (!fichas.length) {
+    conteudo.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:40px;margin-bottom:.5rem;">📭</div><div style="font-size:14px;">Nenhuma ficha para cobrar nesta caixa.</div></div>';
+    return;
+  }
+
+  let html = '';
+  (localidades||[]).forEach(loc => {
+    const fLoc = fichas.filter(f => f.cliente.localidade_id === loc.id);
+    if (fLoc.length) html += secaoFichasHtml('🏘️ ' + loc.nome, fLoc, '#185FA5', '#E6F1FB');
+  });
+  const semLoc = fichas.filter(f => !f.cliente.localidade_id);
+  if (semLoc.length) html += secaoFichasHtml('📋 Sem localidade', semLoc, '#888', '#f0f0f0');
+
+  conteudo.innerHTML = html;
+}
+
+function secaoFichasHtml(titulo, fichas, cor, bg) {
+  return '<div style="margin-bottom:1rem;">'
+    + '<div style="font-size:13px;font-weight:600;color:' + cor + ';margin-bottom:.75rem;display:flex;justify-content:space-between;align-items:center;">'
+    + '<span>' + titulo + '</span>'
+    + '<span style="font-size:11px;background:' + bg + ';color:' + cor + ';padding:2px 8px;border-radius:6px;">' + fichas.length + ' ficha(s)</span>'
+    + '</div>'
+    + fichas.map(f => fichaCardHtml(f)).join('')
+    + '</div>';
+}
+
+function fichaCardHtml(f) {
+  const c = f.cliente, p = f.parcela;
+  const saldo = Number(p.valor) - Number(p.valor_pago || 0);
+  const fotoHtml = c.foto_casa
+    ? '<img src="' + c.foto_casa + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+    : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
+  const badgesHtml = (f.remarcada ? '<span class="badge" style="font-size:10px;background:#FAEEDA;color:#854F0B;">📅 Remarcada ' + f.dataEf.toLocaleDateString('pt-BR') + '</span>' : '')
+    + (f.atrasada ? '<span class="badge vermelho" style="font-size:10px;">Atrasada</span>' : '');
+  return '<div onclick="verDetalhesCliente(\'' + c.id + '\')"'
+    + ' style="background:' + (f.atrasada?'#FCEBEB':'#fff') + ';border:1px solid ' + (f.atrasada?'#f5c6c6':'#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
+    + fotoHtml
+    + '<div style="flex:1;min-width:0;">'
+    + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + c.nome + '</div>'
+    + '<div style="font-size:12px;color:#888;">Parcela ' + p.numero + '/' + p.total_parcelas + ' · ' + (c.telefone||'—') + '</div>'
+    + '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">' + badgesHtml + '</div>'
+    + '</div>'
+    + '<div style="text-align:right;flex-shrink:0;">'
+    + '<div style="font-size:15px;font-weight:700;color:' + (f.atrasada?'#A32D2D':'#1a1a1a') + ';">R$ ' + saldo.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+    + '<span style="font-size:18px;color:#888;">›</span>'
+    + '</div>'
+    + '</div>';
 }
 
 async function carregarClientesPorLocalidade() {
