@@ -2713,7 +2713,7 @@ async function renderCicloSelecionado(cicloChave) {
 
   const inicio = new Date(caixa.ciclo_inicio + 'T12:00:00');
   const fim = new Date(caixa.ciclo_fim + 'T12:00:00');
-  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const hoje = new Date(); hoje.setHours(12,0,0,0);
 
   const mapaCliente = {};
   (clientes||[]).forEach(c => mapaCliente[c.id] = c);
@@ -2721,12 +2721,33 @@ async function renderCicloSelecionado(cicloChave) {
   const fichas = [];
   (parcelas||[]).forEach(p => {
     const remarque = mapaRemarque[p.id];
-    const dataEf = remarque ? new Date(remarque + 'T12:00:00') : new Date(p.data_vencimento + 'T12:00:00');
+    const venc = new Date(p.data_vencimento + 'T12:00:00');
+    let dataEf, tipo;
+
+    if (remarque) {
+      dataEf = new Date(remarque + 'T12:00:00');
+      tipo = 'remarcada';
+    } else if (venc >= hoje) {
+      dataEf = venc;
+      tipo = 'normal';
+    } else {
+      // Venceu e ninguém cobrou nem remarcou: rola pro ciclo atual (nunca some)
+      dataEf = new Date(hoje);
+      if (dataEf < inicio) dataEf = new Date(inicio);
+      if (dataEf > fim) dataEf = new Date(fim);
+      tipo = 'atrasada_rolada';
+    }
+
     if (dataEf < inicio || dataEf > fim) return;
     if (cicloDoDia(dataEf.getDate()).chave !== cicloChave) return;
     const cli = mapaCliente[p.cliente_id];
     if (!cli) return;
-    fichas.push({ cliente: cli, parcela: p, dataEf, atrasada: dataEf < hoje, remarcada: !!remarque });
+    fichas.push({
+      cliente: cli, parcela: p, dataEf, venc,
+      atrasada: venc < hoje,
+      remarcada: tipo === 'remarcada',
+      rolada: tipo === 'atrasada_rolada'
+    });
   });
 
   if (!fichas.length) {
@@ -2762,7 +2783,9 @@ function fichaCardHtml(f) {
     ? '<img src="' + c.foto_casa + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
     : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
   const badgesHtml = (f.remarcada ? '<span class="badge" style="font-size:10px;background:#FAEEDA;color:#854F0B;">📅 Remarcada ' + f.dataEf.toLocaleDateString('pt-BR') + '</span>' : '')
-    + (f.atrasada ? '<span class="badge vermelho" style="font-size:10px;">Atrasada</span>' : '');
+    + (f.rolada
+      ? '<span class="badge vermelho" style="font-size:10px;">⚠️ Venceu ' + f.venc.toLocaleDateString('pt-BR') + ' — não cobrada</span>'
+      : (f.atrasada ? '<span class="badge vermelho" style="font-size:10px;">Atrasada</span>' : ''));
   return '<div onclick="verDetalhesCliente(\'' + c.id + '\')"'
     + ' style="background:' + (f.atrasada?'#FCEBEB':'#fff') + ';border:1px solid ' + (f.atrasada?'#f5c6c6':'#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
     + fotoHtml
