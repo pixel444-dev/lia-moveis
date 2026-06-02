@@ -3678,6 +3678,32 @@ async function confirmarRecebimento() {
   alert('Recebimento registrado!');
 }
 
+// ─── UTILITÁRIOS DE CICLO ───
+function cicloDoDia(dia) {
+  if (dia >= 10 && dia <= 14) return { chave: '10', label: 'Ciclo dia 10', diaInicio: 10, diaFim: 14 };
+  if (dia >= 15 && dia <= 19) return { chave: '15', label: 'Ciclo dia 15', diaInicio: 15, diaFim: 19 };
+  if (dia >= 20 && dia <= 24) return { chave: '20', label: 'Ciclo dia 20', diaInicio: 20, diaFim: 24 };
+  if (dia >= 25 && dia <= 29) return { chave: '25', label: 'Ciclo dia 25', diaInicio: 25, diaFim: 29 };
+  if (dia >= 30 || dia <= 4)  return { chave: '30', label: 'Ciclo dia 30', diaInicio: 30, diaFim: 4 };
+  return { chave: '05', label: 'Ciclo dia 05', diaInicio: 5, diaFim: 9 };
+}
+
+function calcularCiclosDaCaixa(inicioStr, fimStr) {
+  const inicio = new Date(inicioStr + 'T12:00:00');
+  const fim = new Date(fimStr + 'T12:00:00');
+  const vistos = new Set();
+  const ciclos = [];
+  const d = new Date(inicio);
+  let guard = 0;
+  while (d <= fim && guard < 400) {
+    const c = cicloDoDia(d.getDate());
+    if (!vistos.has(c.chave)) { vistos.add(c.chave); ciclos.push(c); }
+    d.setDate(d.getDate() + 1);
+    guard++;
+  }
+  return ciclos;
+}
+
 async function obterCaixaAtiva() {
   const { data } = await sb.from('caixa_cobrador').select('id')
     .eq('cobrador_id', funcionarioLogado.id).eq('status', 'aberto').single();
