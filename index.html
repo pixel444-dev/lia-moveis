@@ -425,6 +425,7 @@ tr:hover td{background:#fafafa;}
 
     <div class="page" id="page-prestacao">
       <div class="page-title">Prestação de contas</div>
+      <button class="btn primario" style="margin-bottom:1rem;" onclick="abrirGerenciarCaixa()">+ Definir / estender caixa</button>
       <div id="lista-prestacao">Carregando...</div>
     </div>
 
@@ -3796,6 +3797,8 @@ async function confirmarNaoRecebi() {
 }
 
 // ===== FIM MÓDULO LOCALIDADES =====
+
+function abrirGerenciarCaixa() { alert('Em breve: Definir / estender caixa'); }
 
 async function carregarPrestacaoContas() {
   if (perfilAtivo !== 'gestor') {
