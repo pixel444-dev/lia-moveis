@@ -3868,8 +3868,8 @@ function calcularCiclosDaCaixa(inicioStr, fimStr) {
 
 async function obterCaixaAtiva() {
   const { data } = await sb.from('caixa_cobrador').select('id')
-    .eq('cobrador_id', funcionarioLogado.id).eq('status', 'aberto').single();
-  if (data) return data.id;
+    .eq('cobrador_id', funcionarioLogado.id).eq('status', 'aberto').limit(1);
+  if (data?.[0]) return data[0].id;
 
   const hoje = new Date();
   const dia = hoje.getDate();
@@ -4040,19 +4040,35 @@ async function salvarCaixaManual() {
     Logger.info('prestacao', 'ESTENDER_CAIXA', 'Caixa estendida', { caixaId: _caixaAbertaCobrador.id, inicio, fim });
     alert('Caixa estendida com sucesso!');
   } else {
-    const { error } = await sb.from('caixa_cobrador').insert({
-      cobrador_id: cobradorId,
-      ciclo_inicio: inicio,
-      ciclo_fim: fim,
-      status: 'aberto'
-    });
-    if (error) {
-      Logger.error('prestacao', 'CRIAR_CAIXA_MANUAL', 'Erro ao criar caixa', { supabase_code: error.code });
-      alert('Erro ao criar caixa!');
-      return;
+    // Verificação final: cobrador pode ter criado caixa automaticamente enquanto modal estava aberto
+    const { data: existente } = await sb.from('caixa_cobrador').select('id')
+      .eq('cobrador_id', cobradorId).eq('status', 'aberto').limit(1);
+    if (existente?.[0]) {
+      const { error } = await sb.from('caixa_cobrador')
+        .update({ ciclo_inicio: inicio, ciclo_fim: fim })
+        .eq('id', existente[0].id);
+      if (error) {
+        Logger.error('prestacao', 'CRIAR_CAIXA_MANUAL', 'Erro ao atualizar caixa existente', { supabase_code: error.code });
+        alert('Erro ao salvar caixa!');
+        return;
+      }
+      Logger.info('prestacao', 'CRIAR_CAIXA_MANUAL', 'Caixa existente atualizada (race condition evitada)', { cobradorId, inicio, fim });
+      alert('Caixa atualizada com sucesso!');
+    } else {
+      const { error } = await sb.from('caixa_cobrador').insert({
+        cobrador_id: cobradorId,
+        ciclo_inicio: inicio,
+        ciclo_fim: fim,
+        status: 'aberto'
+      });
+      if (error) {
+        Logger.error('prestacao', 'CRIAR_CAIXA_MANUAL', 'Erro ao criar caixa', { supabase_code: error.code });
+        alert('Erro ao criar caixa!');
+        return;
+      }
+      Logger.info('prestacao', 'CRIAR_CAIXA_MANUAL', 'Caixa criada manualmente', { cobradorId, inicio, fim });
+      alert('Caixa criada com sucesso!');
     }
-    Logger.info('prestacao', 'CRIAR_CAIXA_MANUAL', 'Caixa criada manualmente', { cobradorId, inicio, fim });
-    alert('Caixa criada com sucesso!');
   }
 
   fecharModal('modal-gerenciar-caixa');
