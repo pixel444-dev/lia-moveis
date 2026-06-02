@@ -3798,7 +3798,105 @@ async function confirmarNaoRecebi() {
 
 // ===== FIM MÓDULO LOCALIDADES =====
 
-function abrirGerenciarCaixa() { alert('Em breve: Definir / estender caixa'); }
+let _caixaAbertaCobrador = null;
+
+async function abrirGerenciarCaixa() {
+  _caixaAbertaCobrador = null;
+  document.getElementById('gc-cobrador').value = '';
+  document.getElementById('gc-inicio').value = '';
+  document.getElementById('gc-fim').value = '';
+  document.getElementById('gc-info-caixa').style.display = 'none';
+  document.getElementById('gc-preview-ciclos').innerHTML = '';
+
+  const { data } = await sb.from('funcionarios').select('id, nome')
+    .eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+
+  document.getElementById('gc-cobrador').innerHTML = '<option value="">Selecione o cobrador...</option>'
+    + (data || []).map(function(f) { return '<option value="' + f.id + '">' + f.nome + '</option>'; }).join('');
+
+  document.getElementById('modal-gerenciar-caixa').style.display = 'flex';
+}
+
+async function onSelecionarCobradorCaixa() {
+  const cobradorId = document.getElementById('gc-cobrador').value;
+  const infoEl = document.getElementById('gc-info-caixa');
+  _caixaAbertaCobrador = null;
+
+  if (!cobradorId) { infoEl.style.display = 'none'; return; }
+
+  const { data } = await sb.from('caixa_cobrador').select('*')
+    .eq('cobrador_id', cobradorId).eq('status', 'aberto').maybeSingle();
+
+  if (data) {
+    _caixaAbertaCobrador = data;
+    const ini = new Date(data.ciclo_inicio + 'T12:00:00').toLocaleDateString('pt-BR');
+    const fim = new Date(data.ciclo_fim + 'T12:00:00').toLocaleDateString('pt-BR');
+    infoEl.innerHTML = '⚠️ Este cobrador já tem uma caixa aberta de <strong>' + ini + '</strong> a <strong>' + fim + '</strong>.<br>Ao salvar, o período será atualizado (estendido).';
+    infoEl.style.display = 'block';
+    document.getElementById('gc-inicio').value = data.ciclo_inicio;
+    document.getElementById('gc-fim').value = data.ciclo_fim;
+    previewCiclosCaixa();
+  } else {
+    infoEl.innerHTML = 'Este cobrador não tem caixa aberta. Será criada uma nova.';
+    infoEl.style.display = 'block';
+  }
+}
+
+function previewCiclosCaixa() {
+  const inicio = document.getElementById('gc-inicio').value;
+  const fim = document.getElementById('gc-fim').value;
+  const el = document.getElementById('gc-preview-ciclos');
+  if (!inicio || !fim) { el.innerHTML = ''; return; }
+  if (new Date(fim) < new Date(inicio)) {
+    el.innerHTML = '<div style="color:#A32D2D;font-size:12px;">A data final deve ser depois da inicial.</div>';
+    return;
+  }
+  const ciclos = calcularCiclosDaCaixa(inicio, fim);
+  el.innerHTML = '<div style="font-size:12px;color:#555;margin-bottom:6px;">Esta caixa abrange ' + ciclos.length + ' ciclo(s):</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;">'
+    + ciclos.map(function(c) { return '<span style="background:#E6F1FB;color:#185FA5;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:500;">' + c.label + '</span>'; }).join('')
+    + '</div>';
+}
+
+async function salvarCaixaManual() {
+  const cobradorId = document.getElementById('gc-cobrador').value;
+  const inicio = document.getElementById('gc-inicio').value;
+  const fim = document.getElementById('gc-fim').value;
+
+  if (!cobradorId) { alert('Selecione o cobrador!'); return; }
+  if (!inicio || !fim) { alert('Informe o período!'); return; }
+  if (new Date(fim) < new Date(inicio)) { alert('A data final deve ser depois da inicial!'); return; }
+
+  if (_caixaAbertaCobrador) {
+    const { error } = await sb.from('caixa_cobrador')
+      .update({ ciclo_inicio: inicio, ciclo_fim: fim })
+      .eq('id', _caixaAbertaCobrador.id);
+    if (error) {
+      Logger.error('prestacao', 'ESTENDER_CAIXA', 'Erro ao estender caixa', { supabase_code: error.code });
+      alert('Erro ao estender caixa!');
+      return;
+    }
+    Logger.info('prestacao', 'ESTENDER_CAIXA', 'Caixa estendida', { caixaId: _caixaAbertaCobrador.id, inicio, fim });
+    alert('Caixa estendida com sucesso!');
+  } else {
+    const { error } = await sb.from('caixa_cobrador').insert({
+      cobrador_id: cobradorId,
+      ciclo_inicio: inicio,
+      ciclo_fim: fim,
+      status: 'aberto'
+    });
+    if (error) {
+      Logger.error('prestacao', 'CRIAR_CAIXA_MANUAL', 'Erro ao criar caixa', { supabase_code: error.code });
+      alert('Erro ao criar caixa!');
+      return;
+    }
+    Logger.info('prestacao', 'CRIAR_CAIXA_MANUAL', 'Caixa criada manualmente', { cobradorId, inicio, fim });
+    alert('Caixa criada com sucesso!');
+  }
+
+  fecharModal('modal-gerenciar-caixa');
+  carregarPrestacaoContas();
+}
 
 async function carregarPrestacaoContas() {
   if (perfilAtivo !== 'gestor') {
