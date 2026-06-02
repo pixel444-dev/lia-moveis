@@ -5880,5 +5880,48 @@ async function toggleUsuarioAtivo(id, ativo) {
     </button>
   </div>
 </div>
+
+<!-- MODAL GERENCIAR CAIXA -->
+<div class="modal-bg" id="modal-gerenciar-caixa">
+  <div class="modal-box" style="max-width:460px;">
+    <div class="modal-header">
+      <strong>Definir / estender caixa</strong>
+      <button onclick="fecharModal('modal-gerenciar-caixa')">×</button>
+    </div>
+
+    <div class="campo">
+      <label>Cobrador *</label>
+      <select id="gc-cobrador" onchange="onSelecionarCobradorCaixa()"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+        <option value="">Selecione o cobrador...</option>
+      </select>
+    </div>
+
+    <div id="gc-info-caixa" style="display:none;background:#E6F1FB;border-radius:8px;padding:.75rem;margin-bottom:1rem;font-size:13px;color:#185FA5;"></div>
+
+    <div class="campo">
+      <label>Período da caixa *</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <div style="font-size:11px;color:#888;margin-bottom:4px;">Início</div>
+          <input id="gc-inicio" type="date" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;" onchange="previewCiclosCaixa()">
+        </div>
+        <div>
+          <div style="font-size:11px;color:#888;margin-bottom:4px;">Fim</div>
+          <input id="gc-fim" type="date" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;" onchange="previewCiclosCaixa()">
+        </div>
+      </div>
+    </div>
+
+    <div id="gc-preview-ciclos" style="margin-bottom:1rem;"></div>
+
+    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;" onclick="salvarCaixaManual()">
+      Salvar
+    </button>
+    <button class="btn" style="width:100%;padding:12px;font-size:14px;margin-top:8px;" onclick="fecharModal('modal-gerenciar-caixa')">
+      Cancelar
+    </button>
+  </div>
+</div>
 </body>
 </html>
