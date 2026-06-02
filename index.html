@@ -2352,14 +2352,14 @@ async function renderInterfaceCobrador() {
     + '<div id="resultado-busca-cobrador"></div>'
     + '</div>'
     + '<div id="secao-visitas-hoje"></div>'
-    + '<div id="secao-localidades-cobrador"></div>'
-    + '<div id="secao-lista-geral-cobrador"></div>'
+    + '<div id="secao-ciclo-tabs"></div>'
+    + '<div id="secao-ciclo-conteudo"></div>'
     + '</div>';
 
   await Promise.all([
     carregarSaldoCobrador(),
     carregarVisitasHoje(),
-    carregarClientesPorLocalidade(),
+    carregarCaixaECiclos(),
   ]);
 }
 
@@ -2638,6 +2638,12 @@ async function carregarVisitasHoje() {
   });
   html += '</div>';
   secao.innerHTML = html;
+}
+
+async function carregarCaixaECiclos() {
+  // Implementação na Parte 5B
+  document.getElementById('secao-ciclo-tabs').innerHTML = '';
+  document.getElementById('secao-ciclo-conteudo').innerHTML = '';
 }
 
 async function carregarClientesPorLocalidade() {
@@ -3675,7 +3681,7 @@ async function confirmarRecebimento() {
   fecharModal('modal-recebimento');
   fecharModal('modal-parcelas-cobrador');
   await carregarSaldoCobrador();
-  await carregarClientesPorLocalidade();
+  await carregarCaixaECiclos();
   alert('Recebimento registrado!');
 }
 
@@ -3792,7 +3798,7 @@ async function confirmarNaoRecebi() {
   fecharModal('modal-nao-recebi');
   fecharModal('modal-parcelas-cobrador');
   await carregarVisitasHoje();
-  await carregarClientesPorLocalidade();
+  await carregarCaixaECiclos();
   alert('Registrado! O cliente aparecerá na sua lista no dia agendado.');
 }
 
