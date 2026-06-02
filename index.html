@@ -3873,27 +3873,23 @@ async function obterCaixaAtiva() {
 
   const hoje = new Date();
   const dia = hoje.getDate();
-  const ano = hoje.getFullYear();
-  const mes = hoje.getMonth();
+  const ciclo = cicloDoDia(dia);
   let inicioStr, fimStr;
-  if (dia >= 10 && dia <= 14) {
-    inicioStr = new Date(ano, mes, 10).toISOString().split('T')[0];
-    fimStr = new Date(ano, mes, 14).toISOString().split('T')[0];
-  } else if (dia >= 15 && dia <= 19) {
-    inicioStr = new Date(ano, mes, 15).toISOString().split('T')[0];
-    fimStr = new Date(ano, mes, 19).toISOString().split('T')[0];
-  } else if (dia >= 20 && dia <= 24) {
-    inicioStr = new Date(ano, mes, 20).toISOString().split('T')[0];
-    fimStr = new Date(ano, mes, 24).toISOString().split('T')[0];
-  } else if (dia >= 25 && dia <= 29) {
-    inicioStr = new Date(ano, mes, 25).toISOString().split('T')[0];
-    fimStr = new Date(ano, mes, 29).toISOString().split('T')[0];
-  } else if (dia >= 30) {
-    inicioStr = new Date(ano, mes, 30).toISOString().split('T')[0];
-    fimStr = new Date(ano, mes + 1, 4).toISOString().split('T')[0];
+  if (ciclo.chave === '30') {
+    if (dia <= 4) {
+      // Estamos na cauda do ciclo 30 — início foi no mês anterior
+      const mesAnt = hoje.getMonth() === 0 ? 11 : hoje.getMonth() - 1;
+      const anoAnt = hoje.getMonth() === 0 ? hoje.getFullYear() - 1 : hoje.getFullYear();
+      inicioStr = new Date(anoAnt, mesAnt, 30).toISOString().split('T')[0];
+      fimStr = new Date(hoje.getFullYear(), hoje.getMonth(), 4).toISOString().split('T')[0];
+    } else {
+      // dia >= 30 — início este mês, fim no próximo
+      inicioStr = new Date(hoje.getFullYear(), hoje.getMonth(), 30).toISOString().split('T')[0];
+      fimStr = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 4).toISOString().split('T')[0];
+    }
   } else {
-    inicioStr = new Date(ano, mes, 5).toISOString().split('T')[0];
-    fimStr = new Date(ano, mes, 9).toISOString().split('T')[0];
+    inicioStr = new Date(hoje.getFullYear(), hoje.getMonth(), ciclo.diaInicio).toISOString().split('T')[0];
+    fimStr = new Date(hoje.getFullYear(), hoje.getMonth(), ciclo.diaFim).toISOString().split('T')[0];
   }
 
   const { data: novaCaixa, error } = await sb.from('caixa_cobrador').insert({
