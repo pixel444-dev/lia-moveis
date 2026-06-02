@@ -4280,6 +4280,9 @@ async function salvarCorrecaoBaixa() {
 
   if (isNaN(valor) || valor <= 0) { alert('Digite um valor válido!'); return; }
 
+  const { data: baixa } = await sb.from('baixas_pendentes').select('*').eq('id', baixaId).single();
+  if (!baixa) { alert('Baixa não encontrada!'); return; }
+
   const { error } = await sb.from('baixas_pendentes').update({
     valor_recebido: valor,
     tipo_baixa: tipo,
@@ -4291,6 +4294,27 @@ async function salvarCorrecaoBaixa() {
     Logger.error('prestacao', 'CORRIGIR_BAIXA', 'Erro ao corrigir', { supabase_code: error.code });
     alert('Erro ao corrigir!');
     return;
+  }
+
+  // Sincronizar parcela com os novos valores
+  const isCompleto = tipo === 'completo';
+  await sb.from('parcelas').update({
+    pago: isCompleto,
+    valor_pago: valor,
+    forma_pagamento: forma,
+    data_pagamento: isCompleto ? (baixa.data_pagamento || new Date().toISOString()) : null,
+    status: isCompleto ? 'paga' : 'aberta'
+  }).eq('id', baixa.parcela_id);
+
+  // Ajustar saldo_esperado se a forma de dinheiro mudou ou o valor mudou
+  const deltaAnterior = baixa.forma_pagamento === 'dinheiro' ? Number(baixa.valor_recebido) : 0;
+  const deltaNovo = forma === 'dinheiro' ? valor : 0;
+  const delta = deltaNovo - deltaAnterior;
+  if (delta !== 0) {
+    const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', baixa.caixa_id).single();
+    await sb.from('caixa_cobrador').update({
+      saldo_esperado: (caixa?.saldo_esperado || 0) + delta
+    }).eq('id', baixa.caixa_id);
   }
 
   Logger.info('prestacao', 'CORRIGIR_BAIXA', 'Baixa corrigida', { baixaId, valor, tipo, forma });
