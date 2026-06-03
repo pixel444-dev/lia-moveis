@@ -3891,6 +3891,28 @@ function calcularCiclosDaCaixa(inicioStr, fimStr) {
   return ciclos;
 }
 
+function intervaloCicloNoMes(ano, mes, chave) {
+  switch (chave) {
+    case '10': return { inicio: new Date(ano, mes, 10, 12), fim: new Date(ano, mes, 14, 12) };
+    case '15': return { inicio: new Date(ano, mes, 15, 12), fim: new Date(ano, mes, 19, 12) };
+    case '20': return { inicio: new Date(ano, mes, 20, 12), fim: new Date(ano, mes, 24, 12) };
+    case '25': return { inicio: new Date(ano, mes, 25, 12), fim: new Date(ano, mes, 29, 12) };
+    case '30': return { inicio: new Date(ano, mes, 30, 12), fim: new Date(ano, mes+1, 4, 12) };
+    case '05': return { inicio: new Date(ano, mes+1, 5, 12), fim: new Date(ano, mes+1, 9, 12) };
+  }
+}
+
+async function totalRecebidoNoIntervalo(cobradorId, inicio, fim) {
+  const fimDia = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate(), 23, 59, 59);
+  const { data } = await sb.from('baixas_pendentes')
+    .select('valor_recebido, criado_em, status')
+    .eq('cobrador_id', cobradorId)
+    .neq('status', 'cancelada')
+    .gte('criado_em', inicio.toISOString())
+    .lte('criado_em', fimDia.toISOString());
+  return (data||[]).reduce((a,b) => a + Number(b.valor_recebido), 0);
+}
+
 async function obterCaixaAtiva() {
   const { data } = await sb.from('caixa_cobrador').select('id')
     .eq('cobrador_id', funcionarioLogado.id).eq('status', 'aberto').limit(1);
