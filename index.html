@@ -4517,6 +4517,84 @@ async function carregarHistoricoCaixas() {
   document.getElementById('lista-historico').innerHTML = await montarHistoricoHtml(caixas);
 }
 
+async function getConfigImpressao() {
+  const { data } = await sb.from('configuracoes').select('valor').eq('chave','impressao').maybeSingle();
+  return data?.valor || {};
+}
+
+async function carregarConfigImpressao() {
+  if (perfilAtivo !== 'gestor') return;
+  const c = await getConfigImpressao();
+  document.getElementById('cfg-nome').value = c.nome_loja || '';
+  document.getElementById('cfg-endereco').value = c.endereco || '';
+  document.getElementById('cfg-telefone').value = c.telefone || '';
+  document.getElementById('cfg-cnpj').value = c.cnpj || '';
+  document.getElementById('cfg-cor').value = c.cor || '#0C447C';
+  document.getElementById('cfg-logo-url').value = c.logo_url || '';
+  const lp = document.getElementById('cfg-logo-preview');
+  if (c.logo_url) { lp.src = c.logo_url; lp.style.display = 'block'; } else { lp.style.display = 'none'; }
+
+  const k = c.carne || {};
+  document.getElementById('cfg-carne-logo').checked = k.mostrar_logo ?? true;
+  document.getElementById('cfg-carne-endereco').checked = k.mostrar_endereco ?? true;
+  document.getElementById('cfg-carne-telefone').checked = k.mostrar_telefone ?? true;
+  document.getElementById('cfg-carne-cnpj').checked = k.mostrar_cnpj ?? false;
+  document.getElementById('cfg-carne-rodape').value = k.texto_rodape || '';
+
+  const f = c.ficha || {};
+  document.getElementById('cfg-ficha-foto').checked = f.mostrar_foto ?? true;
+  document.getElementById('cfg-ficha-cpf').checked = f.mostrar_cpf ?? true;
+  document.getElementById('cfg-ficha-localizacao').checked = f.mostrar_localizacao ?? true;
+  document.getElementById('cfg-ficha-parcelas').checked = f.mostrar_parcelas ?? true;
+  document.getElementById('cfg-ficha-rodape').value = f.texto_rodape || '';
+}
+
+async function processarLogoConfig(input) {
+  if (!input.files || !input.files[0]) return;
+  const blob = await comprimirArquivo(input.files[0]);
+  const url = await uploadArquivoComprovante('comprovantes', `config_logo_${Date.now()}.${blob.ext}`, blob.dados, blob.ext);
+  if (!url) { alert('Erro ao enviar a logo.'); return; }
+  document.getElementById('cfg-logo-url').value = url;
+  const prev = document.getElementById('cfg-logo-preview');
+  prev.src = url; prev.style.display = 'block';
+}
+
+async function salvarConfigImpressao() {
+  const valor = {
+    logo_url: document.getElementById('cfg-logo-url').value || '',
+    nome_loja: document.getElementById('cfg-nome').value.trim(),
+    endereco: document.getElementById('cfg-endereco').value.trim(),
+    telefone: document.getElementById('cfg-telefone').value.trim(),
+    cnpj: document.getElementById('cfg-cnpj').value.trim(),
+    cor: document.getElementById('cfg-cor').value,
+    carne: {
+      mostrar_logo: document.getElementById('cfg-carne-logo').checked,
+      mostrar_endereco: document.getElementById('cfg-carne-endereco').checked,
+      mostrar_telefone: document.getElementById('cfg-carne-telefone').checked,
+      mostrar_cnpj: document.getElementById('cfg-carne-cnpj').checked,
+      texto_rodape: document.getElementById('cfg-carne-rodape').value.trim()
+    },
+    ficha: {
+      mostrar_foto: document.getElementById('cfg-ficha-foto').checked,
+      mostrar_cpf: document.getElementById('cfg-ficha-cpf').checked,
+      mostrar_localizacao: document.getElementById('cfg-ficha-localizacao').checked,
+      mostrar_parcelas: document.getElementById('cfg-ficha-parcelas').checked,
+      texto_rodape: document.getElementById('cfg-ficha-rodape').value.trim()
+    }
+  };
+
+  const { error } = await sb.from('configuracoes')
+    .upsert({ chave: 'impressao', valor, atualizado_em: new Date().toISOString() }, { onConflict: 'chave' });
+
+  if (error) {
+    Logger.error('config', 'SALVAR_CONFIG_IMPRESSAO', 'Erro ao salvar config', { error_message: error.message });
+    alert('Erro ao salvar configurações!');
+    return;
+  }
+  Logger.info('config', 'SALVAR_CONFIG_IMPRESSAO', 'Configuração salva');
+  alert('Configurações salvas!');
+}
+
 async function verDetalheHistorico(caixaId, nomeCobrador) {
   const { data: caixa } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
   const resumo = await calcularResumoCaixa(caixaId);
