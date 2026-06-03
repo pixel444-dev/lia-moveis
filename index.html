@@ -4243,6 +4243,57 @@ async function calcularResumoCaixa(caixaId) {
   return { totalRecebido, recebidoDinheiro, recebidoPix, totalGastos, totalDepositos, saldoEmMaos };
 }
 
+async function montarHistoricoHtml(caixas) {
+  if (!caixas || !caixas.length) {
+    return '<div style="text-align:center;padding:2rem;color:#888;">'
+      + '<div style="font-size:48px;margin-bottom:.75rem;">📚</div>'
+      + '<div style="font-size:14px;">Nenhuma caixa autorizada no histórico ainda.</div></div>';
+  }
+
+  const grupos = {};
+  for (const caixa of caixas) {
+    const mc = mesCobrancaDaData(caixa.ciclo_inicio);
+    if (!grupos[mc.chave]) grupos[mc.chave] = { label: mc.label, caixas: [] };
+    grupos[mc.chave].caixas.push(caixa);
+  }
+  const chaves = Object.keys(grupos).sort().reverse();
+
+  let html = '';
+  for (const chave of chaves) {
+    const g = grupos[chave];
+    let cardsHtml = '', totalMes = 0;
+    for (const caixa of g.caixas) {
+      const resumo = await calcularResumoCaixa(caixa.id);
+      totalMes += resumo.totalRecebido;
+      const ciclos = calcularCiclosDaCaixa(caixa.ciclo_inicio, caixa.ciclo_fim);
+      const labelCiclos = ciclos.map(c => c.label.replace('Ciclo dia ','')).join(', ');
+      const dataAut = caixa.autorizado_em ? new Date(caixa.autorizado_em).toLocaleDateString('pt-BR') : '—';
+      const nomeSafe = (caixa.funcionarios?.nome||'').replace(/'/g,'');
+      cardsHtml += '<div onclick="verDetalheHistorico(\'' + caixa.id + '\',\'' + nomeSafe + '\')"'
+        + ' style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1rem;margin-bottom:8px;cursor:pointer;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+        + '<div style="font-size:14px;font-weight:600;">' + (caixa.funcionarios?.nome||'—') + '</div>'
+        + '<span class="badge verde" style="font-size:10px;">Autorizada ' + dataAut + '</span>'
+        + '</div>'
+        + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📦 Ciclos: ' + labelCiclos + '</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">'
+        + '<div style="background:#EAF3DE;border-radius:6px;padding:6px;text-align:center;"><div style="font-size:9px;color:#3B6D11;">RECEBIDO</div><div style="font-size:12px;font-weight:600;color:#3B6D11;">R$ ' + resumo.totalRecebido.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div></div>'
+        + '<div style="background:#FAEEDA;border-radius:6px;padding:6px;text-align:center;"><div style="font-size:9px;color:#854F0B;">GASTOS</div><div style="font-size:12px;font-weight:600;color:#854F0B;">R$ ' + resumo.totalGastos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div></div>'
+        + '<div style="background:#f0f0f0;border-radius:6px;padding:6px;text-align:center;"><div style="font-size:9px;color:#555;">DEPÓSITOS</div><div style="font-size:12px;font-weight:600;color:#555;">R$ ' + resumo.totalDepositos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div></div>'
+        + '</div>'
+        + '</div>';
+    }
+    html += '<div style="margin-bottom:1.25rem;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;background:#0C447C;color:#fff;padding:.75rem 1rem;border-radius:10px 10px 0 0;">'
+      + '<span style="font-size:15px;font-weight:700;">' + g.label + '</span>'
+      + '<span style="font-size:12px;opacity:.85;">Recebido: R$ ' + totalMes.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>'
+      + '</div>'
+      + '<div style="background:#f9f9f9;padding:.75rem;border-radius:0 0 10px 10px;">' + cardsHtml + '</div>'
+      + '</div>';
+  }
+  return html;
+}
+
 async function carregarHistoricoCaixas() {
   if (perfilAtivo !== 'gestor') {
     document.getElementById('lista-historico').innerHTML = '<p style="color:#888;">Acesso restrito ao gestor.</p>';
@@ -4269,66 +4320,7 @@ async function carregarHistoricoCaixas() {
     return;
   }
 
-  if (!caixas || !caixas.length) {
-    document.getElementById('lista-historico').innerHTML = '<div style="text-align:center;padding:2rem;color:#888;">'
-      + '<div style="font-size:48px;margin-bottom:.75rem;">📚</div>'
-      + '<div style="font-size:14px;">Nenhuma caixa autorizada no histórico ainda.</div></div>';
-    return;
-  }
-
-  const grupos = {};
-  for (const caixa of caixas) {
-    const mc = mesCobrancaDaData(caixa.ciclo_inicio);
-    if (!grupos[mc.chave]) grupos[mc.chave] = { label: mc.label, caixas: [] };
-    grupos[mc.chave].caixas.push(caixa);
-  }
-  const chaves = Object.keys(grupos).sort().reverse();
-
-  let html = '';
-  for (const chave of chaves) {
-    const g = grupos[chave];
-    let cardsHtml = '';
-    let totalMes = 0;
-    for (const caixa of g.caixas) {
-      const resumo = await calcularResumoCaixa(caixa.id);
-      totalMes += resumo.totalRecebido;
-      const ciclos = calcularCiclosDaCaixa(caixa.ciclo_inicio, caixa.ciclo_fim);
-      const labelCiclos = ciclos.map(c => c.label.replace('Ciclo dia ','')).join(', ');
-      const dataAut = caixa.autorizado_em ? new Date(caixa.autorizado_em).toLocaleDateString('pt-BR') : '—';
-      const nomeSafe = (caixa.funcionarios?.nome||'').replace(/'/g,'');
-      cardsHtml += '<div onclick="verDetalheHistorico(\'' + caixa.id + '\',\'' + nomeSafe + '\')"'
-        + ' style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1rem;margin-bottom:8px;cursor:pointer;">'
-        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-        + '<div style="font-size:14px;font-weight:600;">' + (caixa.funcionarios?.nome||'—') + '</div>'
-        + '<span class="badge verde" style="font-size:10px;">Autorizada ' + dataAut + '</span>'
-        + '</div>'
-        + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📦 Ciclos: ' + labelCiclos + '</div>'
-        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">'
-        + '<div style="background:#EAF3DE;border-radius:6px;padding:6px;text-align:center;">'
-        + '<div style="font-size:9px;color:#3B6D11;">RECEBIDO</div>'
-        + '<div style="font-size:12px;font-weight:600;color:#3B6D11;">R$ ' + resumo.totalRecebido.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
-        + '</div>'
-        + '<div style="background:#FAEEDA;border-radius:6px;padding:6px;text-align:center;">'
-        + '<div style="font-size:9px;color:#854F0B;">GASTOS</div>'
-        + '<div style="font-size:12px;font-weight:600;color:#854F0B;">R$ ' + resumo.totalGastos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
-        + '</div>'
-        + '<div style="background:#f0f0f0;border-radius:6px;padding:6px;text-align:center;">'
-        + '<div style="font-size:9px;color:#555;">DEPÓSITOS</div>'
-        + '<div style="font-size:12px;font-weight:600;color:#555;">R$ ' + resumo.totalDepositos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
-        + '</div>'
-        + '</div>'
-        + '</div>';
-    }
-    html += '<div style="margin-bottom:1.25rem;">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;background:#0C447C;color:#fff;padding:.75rem 1rem;border-radius:10px 10px 0 0;">'
-      + '<span style="font-size:15px;font-weight:700;">' + g.label + '</span>'
-      + '<span style="font-size:12px;opacity:.85;">Recebido: R$ ' + totalMes.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</span>'
-      + '</div>'
-      + '<div style="background:#f9f9f9;padding:.75rem;border-radius:0 0 10px 10px;">' + cardsHtml + '</div>'
-      + '</div>';
-  }
-
-  document.getElementById('lista-historico').innerHTML = html;
+  document.getElementById('lista-historico').innerHTML = await montarHistoricoHtml(caixas);
 }
 
 async function verDetalheHistorico(caixaId, nomeCobrador) {
