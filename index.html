@@ -4257,6 +4257,22 @@ async function calcularResumoCaixa(caixaId) {
   return { totalRecebido, recebidoDinheiro, recebidoPix, totalGastos, totalDepositos, saldoEmMaos };
 }
 
+async function carregarMeuHistorico() {
+  if (perfilAtivo !== 'cobrador') return;
+  const { data: caixas, error } = await sb.from('caixa_cobrador')
+    .select('*, funcionarios(nome)')
+    .eq('status', 'aprovado')
+    .eq('cobrador_id', funcionarioLogado.id)
+    .order('ciclo_inicio', { ascending: false });
+
+  if (error) {
+    Logger.error('historico', 'CARREGAR_MEU', 'Erro ao carregar histórico do cobrador', { error_message: error.message });
+    document.getElementById('lista-meu-historico').innerHTML = 'Erro ao carregar.';
+    return;
+  }
+  document.getElementById('lista-meu-historico').innerHTML = await montarHistoricoHtml(caixas);
+}
+
 async function montarHistoricoHtml(caixas) {
   if (!caixas || !caixas.length) {
     return '<div style="text-align:center;padding:2rem;color:#888;">'
