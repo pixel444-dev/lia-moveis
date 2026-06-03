@@ -322,6 +322,7 @@ tr:hover td{background:#fafafa;}
     <div class="nav-grupo">
       <div class="nav-sep">Impressões</div>
       <div class="nav-item" data-page="carnes" onclick="pg('carnes',this)"><span class="nav-ico">🖨️</span>Carnês</div>
+      <div class="nav-item" data-page="config-impressao" onclick="pg('config-impressao',this)"><span class="nav-ico">⚙️</span>Configurar layout</div>
     </div>
     <div id="info-usuario-logado" style="padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;font-size:12px;color:#555;line-height:1.4;"></div>
     <div class="logout">
@@ -1043,6 +1044,7 @@ function aplicarPermissoes(perfil) {
     prestacao:           gestor,
     'historico-caixas':  gestor,
     carnes:              gestor,
+    'config-impressao':  gestor,
     cobrancas:           gestorOuCobrador,
     ciclos:              gestorOuCobrador,
     'caixa-cobradores':  gestorOuCobrador,
@@ -1087,6 +1089,7 @@ function pg(nome, el) {
   if (nome === 'prestacao') carregarPrestacaoContas();
   if (nome === 'historico-caixas') carregarHistoricoCaixas();
   if (nome === 'meu-historico') carregarMeuHistorico();
+  if (nome === 'config-impressao') carregarConfigImpressao();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => carregarEquipes());
   if (nome === 'usuarios') carregarUsuarios();
 }
