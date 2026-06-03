@@ -309,6 +309,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" id="nav-ciclos" onclick="pg('ciclos',this)">Ciclos</div>
       <div class="nav-item" id="nav-caixa-cobradores" onclick="pg('caixa-cobradores',this)">Caixa cobradores</div>
       <div class="nav-item" id="nav-prestacao" onclick="pg('prestacao',this)">Prestação de contas</div>
+      <div class="nav-item" id="nav-meu-historico" onclick="pg('meu-historico',this)">Histórico</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-analise">
       <div class="nav-sep">Análise</div>
@@ -439,6 +440,11 @@ tr:hover td{background:#fafafa;}
         </select>
       </div>
       <div id="lista-historico">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-meu-historico">
+      <div class="page-title">Meu histórico</div>
+      <div id="lista-meu-historico">Carregando...</div>
     </div>
 
     <div class="page" id="page-desempenho">
@@ -1029,6 +1035,13 @@ function aplicarPermissoes(perfil) {
     if (el) el.style.display = gestor ? '' : 'none';
   });
 
+  // Somente cobrador
+  const soCobrador = ['nav-meu-historico'];
+  soCobrador.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = cobrador ? '' : 'none';
+  });
+
   // Cobrador não vê o grupo de Vendas
   const grupoVendas = document.getElementById('nav-grupo-vendas');
   if (grupoVendas) grupoVendas.style.display = cobrador ? 'none' : '';
@@ -1068,6 +1081,7 @@ function pg(nome, el) {
   if (nome === 'ciclos') carregarCiclos();
   if (nome === 'prestacao') carregarPrestacaoContas();
   if (nome === 'historico-caixas') carregarHistoricoCaixas();
+  if (nome === 'meu-historico') carregarHistoricoCobrador();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => carregarEquipes());
   if (nome === 'usuarios') carregarUsuarios();
 }
