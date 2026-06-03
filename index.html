@@ -3854,6 +3854,18 @@ async function confirmarRecebimento() {
 }
 
 // ─── UTILITÁRIOS DE CICLO ───
+function mesCobrancaDaData(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  let ano = d.getFullYear();
+  let mes = d.getMonth();
+  if (d.getDate() <= 9) {
+    mes -= 1;
+    if (mes < 0) { mes = 11; ano -= 1; }
+  }
+  const nomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  return { ano, mes, chave: ano + '-' + String(mes).padStart(2,'0'), label: nomes[mes] + '/' + ano };
+}
+
 function cicloDoDia(dia) {
   if (dia >= 10 && dia <= 14) return { chave: '10', label: 'Ciclo dia 10', diaInicio: 10, diaFim: 14 };
   if (dia >= 15 && dia <= 19) return { chave: '15', label: 'Ciclo dia 15', diaInicio: 15, diaFim: 19 };
@@ -4197,22 +4209,13 @@ async function carregarHistoricoCaixas() {
     return;
   }
 
-  // Agrupa por mês de cobrança: dia >= 10 → esse mês; dia < 10 → mês anterior
   const grupos = {};
   caixas.forEach(function(caixa) {
-    const d = new Date(caixa.ciclo_inicio + 'T12:00:00');
-    let ano = d.getFullYear();
-    let mes = d.getMonth();
-    if (d.getDate() < 10) {
-      mes -= 1;
-      if (mes < 0) { mes = 11; ano -= 1; }
-    }
-    const chave = ano + '-' + String(mes).padStart(2, '0');
-    if (!grupos[chave]) grupos[chave] = { ano, mes, caixas: [] };
-    grupos[chave].caixas.push(caixa);
+    const mc = mesCobrancaDaData(caixa.ciclo_inicio);
+    if (!grupos[mc.chave]) grupos[mc.chave] = { label: mc.label, caixas: [] };
+    grupos[mc.chave].caixas.push(caixa);
   });
 
-  const nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const chaves = Object.keys(grupos).sort().reverse();
 
   let html = '';
@@ -4220,7 +4223,7 @@ async function carregarHistoricoCaixas() {
     const g = grupos[chave];
     html += '<div style="margin-bottom:1.5rem;">'
       + '<div style="font-size:15px;font-weight:700;color:#0C447C;margin-bottom:.75rem;padding-bottom:.5rem;border-bottom:2px solid #E6F1FB;">'
-      + '📅 ' + nomesMes[g.mes] + ' ' + g.ano + '</div>';
+      + '📅 ' + g.label + '</div>';
 
     for (const caixa of g.caixas) {
       const resumo = await calcularResumoCaixa(caixa.id);
