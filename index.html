@@ -2349,6 +2349,7 @@ async function renderInterfaceCobrador() {
     + '<button onclick="abrirRegistrarDeposito()" style="padding:12px;border-radius:10px;border:none;background:rgba(255,255,255,.15);color:white;font-size:14px;font-weight:600;cursor:pointer;">🏦 Depositar</button>'
     + '</div>'
     + '</div>'
+    + '<div id="card-desempenho-ciclo" style="background:linear-gradient(135deg,#3B6D11,#5A9E1E);border-radius:14px;padding:1.25rem;margin-bottom:1rem;color:white;"></div>'
     + '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:1rem;">'
     + '<div style="font-size:12px;font-weight:500;color:#555;margin-bottom:.75rem;">Buscar cliente</div>'
     + '<div style="display:flex;gap:8px;margin-bottom:8px;">'
@@ -2371,6 +2372,7 @@ async function renderInterfaceCobrador() {
 
   await Promise.all([
     carregarSaldoCobrador(),
+    carregarDesempenhoCiclo(),
     carregarVisitasHoje(),
     carregarCaixaECiclos(),
   ]);
