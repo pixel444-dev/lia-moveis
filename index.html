@@ -2576,6 +2576,50 @@ async function uploadArquivoComprovante(bucket, nomeArquivo, dados, ext) {
   return data.publicUrl;
 }
 
+async function carregarDesempenhoCiclo() {
+  const el = document.getElementById('card-desempenho-ciclo');
+  if (!el) return;
+
+  const cobradorId = funcionarioLogado.id;
+  const hoje = new Date();
+  const chave = cicloDoDia(hoje.getDate()).chave;
+  const hojeStr = hoje.toISOString().split('T')[0];
+  const mc = mesCobrancaDaData(hojeStr);
+
+  const atual = intervaloCicloNoMes(mc.ano, mc.mes, chave);
+  let anoAnt = mc.ano, mesAnt = mc.mes - 1;
+  if (mesAnt < 0) { mesAnt = 11; anoAnt -= 1; }
+  const anterior = intervaloCicloNoMes(anoAnt, mesAnt, chave);
+
+  const recebidoAtual = await totalRecebidoNoIntervalo(cobradorId, atual.inicio, atual.fim);
+  const recebidoAnterior = await totalRecebidoNoIntervalo(cobradorId, anterior.inicio, anterior.fim);
+
+  const cicloLabel = cicloDoDia(hoje.getDate()).label.replace('Ciclo dia ', 'Ciclo ');
+
+  let metaHtml;
+  if (recebidoAnterior > 0) {
+    const pct = Math.min(100, Math.round((recebidoAtual / recebidoAnterior) * 100));
+    const superou = recebidoAtual >= recebidoAnterior;
+    const falta = recebidoAnterior - recebidoAtual;
+    metaHtml = '<div style="font-size:12px;color:rgba(255,255,255,.85);margin-top:10px;margin-bottom:4px;">'
+      + 'Meta: superar o mesmo ciclo do mês passado (R$ ' + recebidoAnterior.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ')'
+      + '</div>'
+      + '<div style="background:rgba(255,255,255,.25);border-radius:6px;height:8px;overflow:hidden;margin-bottom:6px;">'
+      + '<div style="height:100%;width:' + pct + '%;background:' + (superou?'#CFF5C0':'#FFE08A') + ';border-radius:6px;transition:width .3s;"></div>'
+      + '</div>'
+      + '<div style="font-size:12px;font-weight:600;color:white;">'
+      + (superou ? '🎉 Você já superou o mês passado!' : 'Faltam R$ ' + falta.toLocaleString('pt-BR',{minimumFractionDigits:2}) + ' para superar')
+      + '</div>';
+  } else {
+    metaHtml = '<div style="font-size:12px;color:rgba(255,255,255,.8);margin-top:8px;">Sem comparativo do mês anterior para este ciclo.</div>';
+  }
+
+  el.innerHTML = '<div style="font-size:11px;opacity:.85;letter-spacing:.06em;margin-bottom:4px;">DESEMPENHO — ' + cicloLabel.toUpperCase() + '</div>'
+    + '<div style="font-size:26px;font-weight:700;">R$ ' + recebidoAtual.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+    + '<div style="font-size:11px;opacity:.75;">recebido neste ciclo</div>'
+    + metaHtml;
+}
+
 async function carregarSaldoCobrador() {
   const caixaId = await obterCaixaAtiva();
   const saldoEl = document.getElementById('saldo-em-maos');
