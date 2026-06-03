@@ -312,6 +312,7 @@ tr:hover td{background:#fafafa;}
     </div>
     <div class="nav-grupo" id="nav-grupo-analise">
       <div class="nav-sep">Análise</div>
+      <div class="nav-item" id="nav-historico-caixas" onclick="pg('historico-caixas',this)">Histórico de cobranças</div>
       <div class="nav-item" id="nav-desempenho" onclick="pg('desempenho',this)">Desempenho</div>
       <div class="nav-item" onclick="pg('carnes',this)">Carnês</div>
       <div class="nav-item" id="nav-relatorios" onclick="pg('relatorios',this)">Relatórios</div>
@@ -427,6 +428,17 @@ tr:hover td{background:#fafafa;}
       <div class="page-title">Prestação de contas</div>
       <button class="btn primario" style="margin-bottom:1rem;" onclick="abrirGerenciarCaixa()">+ Definir / estender caixa</button>
       <div id="lista-prestacao">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-historico-caixas">
+      <div class="page-title">Histórico de cobranças</div>
+      <div class="campo" style="max-width:320px;">
+        <label>Cobrador</label>
+        <select id="hist-cobrador" onchange="carregarHistoricoCaixas()" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+          <option value="">Todos os cobradores</option>
+        </select>
+      </div>
+      <div id="lista-historico">Carregando...</div>
     </div>
 
     <div class="page" id="page-desempenho">
@@ -1011,7 +1023,7 @@ function aplicarPermissoes(perfil) {
 
   // Somente gestor
   const soGestor = ['nav-funcionarios', 'nav-importacao', 'nav-caixa-vendedores',
-    'nav-desempenho', 'nav-relatorios', 'nav-logs', 'nav-usuarios', 'nav-prestacao'];
+    'nav-desempenho', 'nav-relatorios', 'nav-logs', 'nav-usuarios', 'nav-prestacao', 'nav-historico-caixas'];
   soGestor.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = gestor ? '' : 'none';
@@ -1055,6 +1067,7 @@ function pg(nome, el) {
   if (nome === 'localidades') carregarLocalidades();
   if (nome === 'ciclos') carregarCiclos();
   if (nome === 'prestacao') carregarPrestacaoContas();
+  if (nome === 'historico-caixas') carregarHistoricoCaixas();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => carregarEquipes());
   if (nome === 'usuarios') carregarUsuarios();
 }
@@ -4146,6 +4159,105 @@ async function calcularResumoCaixa(caixaId) {
   const saldoEmMaos = recebidoDinheiro - totalGastos - totalDepositos;
 
   return { totalRecebido, recebidoDinheiro, totalGastos, totalDepositos, saldoEmMaos };
+}
+
+async function carregarHistoricoCaixas() {
+  if (perfilAtivo !== 'gestor') return;
+
+  const listaEl = document.getElementById('lista-historico');
+  listaEl.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Carregando...</p>';
+
+  // Popula o select de cobradores apenas na primeira chamada
+  const selectEl = document.getElementById('hist-cobrador');
+  if (selectEl.options.length <= 1) {
+    const { data: cobradores } = await sb.from('funcionarios')
+      .select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+    (cobradores || []).forEach(function(c) {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.nome;
+      selectEl.appendChild(opt);
+    });
+  }
+
+  const cobradorFiltro = selectEl.value;
+  let query = sb.from('caixa_cobrador')
+    .select('*, funcionarios(nome)')
+    .eq('status', 'aprovado')
+    .order('ciclo_inicio', { ascending: false });
+  if (cobradorFiltro) query = query.eq('cobrador_id', cobradorFiltro);
+
+  const { data: caixas, error } = await query;
+  if (error) {
+    listaEl.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar histórico.</p>';
+    return;
+  }
+  if (!caixas || !caixas.length) {
+    listaEl.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:48px;margin-bottom:.75rem;">📋</div><div style="font-size:14px;">Nenhuma caixa autorizada encontrada.</div></div>';
+    return;
+  }
+
+  // Agrupa por mês de cobrança: dia >= 10 → esse mês; dia < 10 → mês anterior
+  const grupos = {};
+  caixas.forEach(function(caixa) {
+    const d = new Date(caixa.ciclo_inicio + 'T12:00:00');
+    let ano = d.getFullYear();
+    let mes = d.getMonth();
+    if (d.getDate() < 10) {
+      mes -= 1;
+      if (mes < 0) { mes = 11; ano -= 1; }
+    }
+    const chave = ano + '-' + String(mes).padStart(2, '0');
+    if (!grupos[chave]) grupos[chave] = { ano, mes, caixas: [] };
+    grupos[chave].caixas.push(caixa);
+  });
+
+  const nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const chaves = Object.keys(grupos).sort().reverse();
+
+  let html = '';
+  for (const chave of chaves) {
+    const g = grupos[chave];
+    html += '<div style="margin-bottom:1.5rem;">'
+      + '<div style="font-size:15px;font-weight:700;color:#0C447C;margin-bottom:.75rem;padding-bottom:.5rem;border-bottom:2px solid #E6F1FB;">'
+      + '📅 ' + nomesMes[g.mes] + ' ' + g.ano + '</div>';
+
+    for (const caixa of g.caixas) {
+      const resumo = await calcularResumoCaixa(caixa.id);
+      const ciclos = calcularCiclosDaCaixa(caixa.ciclo_inicio, caixa.ciclo_fim);
+      const ini = new Date(caixa.ciclo_inicio + 'T12:00:00').toLocaleDateString('pt-BR');
+      const fim = new Date(caixa.ciclo_fim + 'T12:00:00').toLocaleDateString('pt-BR');
+      const autorizadoEm = caixa.autorizado_em ? new Date(caixa.autorizado_em).toLocaleDateString('pt-BR') : '—';
+
+      html += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:10px;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.75rem;">'
+        + '<div>'
+        + '<div style="font-size:15px;font-weight:600;">' + (caixa.funcionarios?.nome || '—') + '</div>'
+        + '<div style="font-size:12px;color:#666;margin-top:2px;">' + ciclos.map(function(c) { return c.label; }).join(' · ') + '</div>'
+        + '<div style="font-size:11px;color:#aaa;margin-top:2px;">' + ini + ' a ' + fim + '</div>'
+        + '</div>'
+        + '<span class="badge" style="background:#DFF0D8;color:#2D6A2D;font-size:11px;white-space:nowrap;">✓ ' + autorizadoEm + '</span>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">'
+        + '<div style="background:#EAF3DE;border-radius:8px;padding:8px;text-align:center;">'
+        + '<div style="font-size:10px;color:#555;margin-bottom:2px;">Recebido</div>'
+        + '<div style="font-size:14px;font-weight:700;color:#2D6A2D;">R$ ' + resumo.totalRecebido.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+        + '</div>'
+        + '<div style="background:#FFF3CD;border-radius:8px;padding:8px;text-align:center;">'
+        + '<div style="font-size:10px;color:#555;margin-bottom:2px;">Gastos</div>'
+        + '<div style="font-size:14px;font-weight:700;color:#856404;">R$ ' + resumo.totalGastos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+        + '</div>'
+        + '<div style="background:#E6F1FB;border-radius:8px;padding:8px;text-align:center;">'
+        + '<div style="font-size:10px;color:#555;margin-bottom:2px;">Entregue</div>'
+        + '<div style="font-size:14px;font-weight:700;color:#0C447C;">R$ ' + (caixa.saldo_entregue ? Number(caixa.saldo_entregue).toLocaleString('pt-BR',{minimumFractionDigits:2}) : '0,00') + '</div>'
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }
+    html += '</div>';
+  }
+
+  listaEl.innerHTML = html;
 }
 
 async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
