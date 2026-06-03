@@ -3947,6 +3947,15 @@ async function confirmarRecebimento() {
 }
 
 // ─── UTILITÁRIOS DE CICLO ───
+function togglePrestacaoSecao(id) {
+  const corpo = document.getElementById(id);
+  const seta = document.getElementById('seta-' + id);
+  if (!corpo) return;
+  const aberto = corpo.style.display !== 'none';
+  corpo.style.display = aberto ? 'none' : 'block';
+  if (seta) seta.textContent = aberto ? '▸' : '▾';
+}
+
 function rotuloMotivo(m) {
   const r = { ausente:'Cliente ausente', pediu_prazo:'Pediu prazo', recusou:'Recusou pagar', endereco:'Endereço não encontrado', outro:'Outro motivo' };
   return r[m] || m || '—';
@@ -4629,11 +4638,15 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     + '<div style="font-size:16px;font-weight:700;color:#555;">' + fmtR(resumo.totalDepositos) + '</div></div>'
     + '</div>'
 
-    + '<div style="font-size:13px;font-weight:600;color:#185FA5;margin-bottom:.5rem;">Parcelas recebidas (' + (baixas || []).length + ')</div>'
-    + '<div style="margin-bottom:1rem;">' + baixasHtml + '</div>'
+    + '<div onclick="togglePrestacaoSecao(\'sec-recebidas\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#EAF3DE;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
+    + '<span style="font-size:13px;font-weight:600;color:#3B6D11;">Parcelas recebidas (' + (baixas || []).length + ')</span>'
+    + '<span id="seta-sec-recebidas" style="font-size:14px;color:#3B6D11;">▸</span></div>'
+    + '<div id="sec-recebidas" style="display:none;margin-bottom:1rem;">' + baixasHtml + '</div>'
 
-    + '<div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:.5rem;">Pendentes neste ciclo (' + pendentes.length + ')</div>'
-    + '<div style="margin-bottom:1rem;">'
+    + '<div onclick="togglePrestacaoSecao(\'sec-pendentes\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#FCEBEB;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
+    + '<span style="font-size:13px;font-weight:600;color:#A32D2D;">Pendentes neste ciclo (' + pendentes.length + ')</span>'
+    + '<span id="seta-sec-pendentes" style="font-size:14px;color:#A32D2D;">▸</span></div>'
+    + '<div id="sec-pendentes" style="display:none;margin-bottom:1rem;">'
     + (pendentes.length ? pendentes.map(function(p) {
         return '<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
           + '<div>'
@@ -4645,8 +4658,10 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
       }).join('') : '<p style="font-size:12px;color:#888;">Nenhum pendente. 🎉</p>')
     + '</div>'
 
-    + '<div style="font-size:13px;font-weight:600;color:#854F0B;margin-bottom:.5rem;">Remarcados — não recebidos (' + remarcados.length + ')</div>'
-    + '<div style="margin-bottom:1rem;">'
+    + '<div onclick="togglePrestacaoSecao(\'sec-remarcados\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#FAEEDA;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
+    + '<span style="font-size:13px;font-weight:600;color:#854F0B;">Remarcados — não recebidos (' + remarcados.length + ')</span>'
+    + '<span id="seta-sec-remarcados" style="font-size:14px;color:#854F0B;">▸</span></div>'
+    + '<div id="sec-remarcados" style="display:none;margin-bottom:1rem;">'
     + (remarcados.length ? remarcados.map(function(v) {
         return '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
           + '<div style="font-size:13px;font-weight:500;">' + (mapaNome[v.cliente_id]||'—') + '</div>'
