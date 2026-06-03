@@ -3854,6 +3854,8 @@ async function confirmarRecebimento() {
   const caixaId = await obterCaixaAtiva();
   if (!caixaId) { alert('Erro ao obter caixa ativa. Contate o gestor.'); return; }
 
+  const dataCiclo = await resolverDataCobranca(parcelaId);
+
   const { data: baixa, error } = await sb.from('baixas_pendentes').insert({
     caixa_id: caixaId,
     parcela_id: parcelaId,
@@ -3863,7 +3865,8 @@ async function confirmarRecebimento() {
     forma_pagamento: forma,
     observacao: obs || null,
     tipo_baixa: tipo,
-    status: 'pendente'
+    status: 'pendente',
+    data_ciclo: dataCiclo
   }).select().single();
 
   if (error) {
@@ -3962,15 +3965,32 @@ function intervaloCicloNoMes(ano, mes, chave) {
   }
 }
 
+async function resolverDataCobranca(parcelaId) {
+  const { data: p } = await sb.from('parcelas').select('data_vencimento').eq('id', parcelaId).single();
+  const { data: v } = await sb.from('visitas_agendadas')
+    .select('data_agendada').eq('parcela_id', parcelaId).eq('concluida', false)
+    .order('criado_em', { ascending: false }).limit(1);
+
+  const hoje = new Date(); hoje.setHours(12,0,0,0);
+  if (v && v[0]) return v[0].data_agendada;
+  const venc = new Date((p?.data_vencimento||'') + 'T12:00:00');
+  if (p?.data_vencimento && venc < hoje) return hoje.toISOString().split('T')[0];
+  return p?.data_vencimento || hoje.toISOString().split('T')[0];
+}
+
 async function totalRecebidoNoIntervalo(cobradorId, inicio, fim) {
   const fimDia = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate(), 23, 59, 59);
   const { data } = await sb.from('baixas_pendentes')
-    .select('valor_recebido, criado_em, status')
+    .select('valor_recebido, status, data_ciclo, parcelas(data_vencimento)')
     .eq('cobrador_id', cobradorId)
-    .neq('status', 'cancelada')
-    .gte('criado_em', inicio.toISOString())
-    .lte('criado_em', fimDia.toISOString());
-  return (data||[]).reduce((a,b) => a + Number(b.valor_recebido), 0);
+    .neq('status', 'cancelada');
+
+  return (data||[]).filter(b => {
+    const ref = b.data_ciclo || b.parcelas?.data_vencimento;
+    if (!ref) return false;
+    const rd = new Date(ref + 'T12:00:00');
+    return rd >= inicio && rd <= fimDia;
+  }).reduce((a, b) => a + Number(b.valor_recebido), 0);
 }
 
 async function obterCaixaAtiva() {
