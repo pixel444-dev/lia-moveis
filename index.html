@@ -2823,19 +2823,33 @@ async function renderCicloSelecionado(cicloChave) {
     });
   });
 
-  // Detectar vendas novas: nenhuma parcela daquela venda foi cobrada ainda
+  // Venda nova = nenhuma parcela cobrada E nenhuma visita registrada (cobrador ainda não mexeu)
   const vendaIds = [...new Set(fichas.map(f => f.parcela.venda_id).filter(Boolean))];
-  const vendasComCobranca = new Set();
+  const vendasInteragidas = new Set();
   if (vendaIds.length) {
+    // 1) vendas com alguma parcela cobrada (total ou parcial)
     const { data: parcVendas } = await sb.from('parcelas')
-      .select('venda_id, pago, valor_pago')
+      .select('id, venda_id, pago, valor_pago')
       .in('venda_id', vendaIds);
+    const parcelaToVenda = {};
     (parcVendas||[]).forEach(p => {
-      if (p.pago || Number(p.valor_pago||0) > 0) vendasComCobranca.add(p.venda_id);
+      parcelaToVenda[p.id] = p.venda_id;
+      if (p.pago || Number(p.valor_pago||0) > 0) vendasInteragidas.add(p.venda_id);
     });
+    // 2) vendas onde o cobrador já registrou alguma visita ("não recebi" / remarcação)
+    const parcelaIds = (parcVendas||[]).map(p => p.id);
+    if (parcelaIds.length) {
+      const { data: vis } = await sb.from('visitas_agendadas')
+        .select('parcela_id')
+        .in('parcela_id', parcelaIds);
+      (vis||[]).forEach(v => {
+        const vid = parcelaToVenda[v.parcela_id];
+        if (vid) vendasInteragidas.add(vid);
+      });
+    }
   }
   fichas.forEach(f => {
-    f.novaVenda = f.parcela.venda_id && !vendasComCobranca.has(f.parcela.venda_id);
+    f.novaVenda = f.parcela.venda_id && !vendasInteragidas.has(f.parcela.venda_id);
   });
 
   if (!fichas.length) {
