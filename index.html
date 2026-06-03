@@ -4540,8 +4540,37 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
     + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#888;">Saldo entregue:</span><strong>R$ ' + (caixa.saldo_entregue||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</strong></div>'
     + '<div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:#888;">Diferença:</span><strong style="color:' + diffColor + ';">R$ ' + diff.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</strong></div>'
     + '</div>'
-    + '<div style="font-size:13px;font-weight:600;color:#185FA5;margin-bottom:.5rem;">Parcelas recebidas (' + (baixas||[]).length + ')</div>'
-    + '<div style="margin-bottom:1rem;">' + baixasHtml + '</div>'
+    + '<div onclick="togglePrestacaoSecao(\'hist-sec-receb\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#EAF3DE;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
+    + '<span style="font-size:13px;font-weight:600;color:#3B6D11;">Parcelas recebidas (' + (baixas||[]).length + ')</span>'
+    + '<span id="seta-hist-sec-receb" style="font-size:14px;color:#3B6D11;">▸</span></div>'
+    + '<div id="hist-sec-receb" style="display:none;margin-bottom:1rem;">' + baixasHtml + '</div>'
+
+    + '<div onclick="togglePrestacaoSecao(\'hist-sec-pend\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#FCEBEB;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
+    + '<span style="font-size:13px;font-weight:600;color:#A32D2D;">Pendentes no ciclo (' + (caixa.snapshot_pendentes||[]).length + ')</span>'
+    + '<span id="seta-hist-sec-pend" style="font-size:14px;color:#A32D2D;">▸</span></div>'
+    + '<div id="hist-sec-pend" style="display:none;margin-bottom:1rem;">'
+    + ((caixa.snapshot_pendentes||[]).length ? (caixa.snapshot_pendentes||[]).map(function(p) {
+        return '<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
+          + '<div><div style="font-size:13px;font-weight:500;">' + p.nome + '</div>'
+          + '<div style="font-size:11px;color:#A32D2D;">Parcela ' + p.numero + '/' + p.total + ' · vence ' + new Date(p.venc+'T12:00:00').toLocaleDateString('pt-BR') + '</div></div>'
+          + '<div style="font-size:14px;font-weight:600;color:#A32D2D;">R$ ' + Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+          + '</div>';
+      }).join('') : '<p style="font-size:12px;color:#888;">Nenhum pendente registrado.</p>')
+    + '</div>'
+
+    + '<div onclick="togglePrestacaoSecao(\'hist-sec-rem\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#FAEEDA;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
+    + '<span style="font-size:13px;font-weight:600;color:#854F0B;">Remarcados (' + (caixa.snapshot_remarcados||[]).length + ')</span>'
+    + '<span id="seta-hist-sec-rem" style="font-size:14px;color:#854F0B;">▸</span></div>'
+    + '<div id="hist-sec-rem" style="display:none;margin-bottom:1rem;">'
+    + ((caixa.snapshot_remarcados||[]).length ? (caixa.snapshot_remarcados||[]).map(function(v) {
+        return '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
+          + '<div style="font-size:13px;font-weight:500;">' + v.nome + '</div>'
+          + '<div style="font-size:11px;color:#854F0B;">Motivo: ' + rotuloMotivo(v.motivo) + ' · Próxima visita: ' + new Date(v.data+'T12:00:00').toLocaleDateString('pt-BR') + '</div>'
+          + (v.obs ? '<div style="font-size:11px;color:#888;">' + v.obs + '</div>' : '')
+          + '</div>';
+      }).join('') : '<p style="font-size:12px;color:#888;">Nenhum remarcado.</p>')
+    + '</div>'
+
     + '<div style="font-size:13px;font-weight:600;color:#854F0B;margin-bottom:.5rem;">Gastos (' + gastos.length + ')</div>'
     + '<div style="margin-bottom:1rem;">' + gastosHtml + '</div>'
     + '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:.5rem;">Depósitos (' + depositos.length + ')</div>'
