@@ -4299,6 +4299,46 @@ async function carregarPrestacaoContas() {
   document.getElementById('lista-prestacao').innerHTML = html;
 }
 
+async function calcularPendentesRemarcados(caixaId) {
+  const { data: caixaInfo } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  const cobradorId = caixaInfo.cobrador_id;
+  const iniCx = new Date(caixaInfo.ciclo_inicio + 'T00:00:00');
+  const fimCx = new Date(caixaInfo.ciclo_fim + 'T23:59:59');
+  const hojeCx = new Date(); hojeCx.setHours(12,0,0,0);
+
+  const { data: clientesCob } = await sb.from('clientes').select('id, nome').eq('cobrador_id', cobradorId);
+  const idsCli = (clientesCob||[]).map(c => c.id);
+  const mapaNome = {}; (clientesCob||[]).forEach(c => mapaNome[c.id] = c.nome);
+
+  let parcelasAbertas = [];
+  if (idsCli.length) {
+    const { data } = await sb.from('parcelas')
+      .select('id, cliente_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
+      .in('cliente_id', idsCli).eq('pago', false).neq('status','devolvida');
+    parcelasAbertas = data || [];
+  }
+
+  const { data: visitasCob } = await sb.from('visitas_agendadas')
+    .select('parcela_id, cliente_id, motivo, observacao, data_agendada, concluida, criado_em')
+    .eq('cobrador_id', cobradorId).eq('concluida', false)
+    .order('criado_em', { ascending: false });
+
+  const remarcados = (visitasCob||[]).filter(v => new Date(v.criado_em) >= iniCx);
+  const parcelasRemarcadas = new Set(remarcados.map(v => v.parcela_id));
+  const mapaRemarque = {};
+  (visitasCob||[]).forEach(v => { if (v.parcela_id && !mapaRemarque[v.parcela_id]) mapaRemarque[v.parcela_id] = v.data_agendada; });
+
+  const pendentes = parcelasAbertas.filter(p => {
+    if (parcelasRemarcadas.has(p.id)) return false;
+    const rem = mapaRemarque[p.id];
+    let ef = rem ? new Date(rem + 'T12:00:00') : new Date(p.data_vencimento + 'T12:00:00');
+    if (!rem && ef < hojeCx) ef = new Date(hojeCx);
+    return ef >= iniCx && ef <= fimCx;
+  });
+
+  return { pendentes, remarcados, mapaNome };
+}
+
 async function calcularResumoCaixa(caixaId) {
   const { data: baixas } = await sb.from('baixas_pendentes')
     .select('valor_recebido, forma_pagamento, status')
@@ -4524,49 +4564,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   const gastos = (movs || []).filter(function(m) { return m.tipo === 'gasto'; });
   const depositos = (movs || []).filter(function(m) { return m.tipo === 'deposito'; });
 
-  // Escopo da caixa
-  const { data: caixaInfo } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
-  const cobradorId = caixaInfo.cobrador_id;
-  const iniCx = new Date(caixaInfo.ciclo_inicio + 'T00:00:00');
-  const fimCx = new Date(caixaInfo.ciclo_fim + 'T23:59:59');
-  const hojeCx = new Date(); hojeCx.setHours(12,0,0,0);
-
-  // Clientes do cobrador
-  const { data: clientesCob } = await sb.from('clientes').select('id, nome').eq('cobrador_id', cobradorId);
-  const idsCli = (clientesCob||[]).map(c => c.id);
-  const mapaNome = {}; (clientesCob||[]).forEach(c => mapaNome[c.id] = c.nome);
-
-  // Parcelas em aberto
-  let parcelasAbertas = [];
-  if (idsCli.length) {
-    const { data } = await sb.from('parcelas')
-      .select('id, cliente_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
-      .in('cliente_id', idsCli).eq('pago', false).neq('status','devolvida');
-    parcelasAbertas = data || [];
-  }
-
-  // Visitas (não recebi) ativas do cobrador
-  const { data: visitasCob } = await sb.from('visitas_agendadas')
-    .select('parcela_id, cliente_id, motivo, observacao, data_agendada, concluida, criado_em')
-    .eq('cobrador_id', cobradorId).eq('concluida', false)
-    .order('criado_em', { ascending: false });
-
-  // Remarcados neste ciclo = "não recebi" registrados a partir do início da caixa
-  const remarcados = (visitasCob||[]).filter(v => new Date(v.criado_em) >= iniCx);
-  const parcelasRemarcadas = new Set(remarcados.map(v => v.parcela_id));
-
-  // Mapa de remarque ativo (para calcular data efetiva)
-  const mapaRemarquePrest = {};
-  (visitasCob||[]).forEach(v => { if (v.parcela_id && !mapaRemarquePrest[v.parcela_id]) mapaRemarquePrest[v.parcela_id] = v.data_agendada; });
-
-  // Pendentes = parcelas em aberto com data efetiva dentro do período, que não foram remarcadas neste ciclo
-  const pendentes = parcelasAbertas.filter(p => {
-    if (parcelasRemarcadas.has(p.id)) return false;
-    const rem = mapaRemarquePrest[p.id];
-    let ef = rem ? new Date(rem + 'T12:00:00') : new Date(p.data_vencimento + 'T12:00:00');
-    if (!rem && ef < hojeCx) ef = new Date(hojeCx);
-    return ef >= iniCx && ef <= fimCx;
-  });
+  const { pendentes, remarcados, mapaNome } = await calcularPendentesRemarcados(caixaId);
 
   document.getElementById('prestacao-titulo').textContent = nomeCobrador;
 
