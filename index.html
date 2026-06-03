@@ -1031,37 +1031,38 @@ function aplicarPermissoes(perfil) {
   const cobrador = perfil === 'cobrador';
   const gestorOuCobrador = gestor || cobrador;
 
-  // Somente gestor
-  const soGestor = ['nav-funcionarios', 'nav-importacao', 'nav-caixa-vendedores',
-    'nav-desempenho', 'nav-relatorios', 'nav-logs', 'nav-usuarios', 'nav-prestacao', 'nav-historico-caixas'];
-  soGestor.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = gestor ? '' : 'none';
+  // Visibilidade por data-page (robusto contra emojis no textContent)
+  const regras = {
+    funcionarios:        gestor,
+    usuarios:            gestor,
+    importacao:          gestor,
+    'caixa-vendedores':  gestor,
+    desempenho:          gestor,
+    relatorios:          gestor,
+    logs:                gestor,
+    prestacao:           gestor,
+    'historico-caixas':  gestor,
+    carnes:              gestor,
+    cobrancas:           gestorOuCobrador,
+    ciclos:              gestorOuCobrador,
+    'caixa-cobradores':  gestorOuCobrador,
+    localidades:         gestorOuCobrador,
+    'meu-historico':     cobrador,
+  };
+  document.querySelectorAll('.nav-item[data-page]').forEach(item => {
+    const pag = item.dataset.page;
+    if (pag in regras) item.style.display = regras[pag] ? '' : 'none';
   });
 
-  // Somente cobrador
-  const soCobrador = ['nav-meu-historico'];
-  soCobrador.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = cobrador ? '' : 'none';
-  });
-
-  // Cobrador não vê o grupo de Vendas
+  // Grupos (ocultam sep + todos os filhos de uma vez)
   const grupoVendas = document.getElementById('nav-grupo-vendas');
   if (grupoVendas) grupoVendas.style.display = cobrador ? 'none' : '';
-
-  // Gestor e cobrador
-  const gestorCobrador = ['nav-cobrancas', 'nav-ciclos', 'nav-caixa-cobradores', 'nav-localidades'];
-  gestorCobrador.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = gestorOuCobrador ? '' : 'none';
-  });
-
   const grupoCobrancas = document.getElementById('nav-grupo-cobrancas');
-  const grupoAnalise = document.getElementById('nav-grupo-analise');
   if (grupoCobrancas) grupoCobrancas.style.display = gestorOuCobrador ? '' : 'none';
+  const grupoAnalise = document.getElementById('nav-grupo-analise');
   if (grupoAnalise) grupoAnalise.style.display = gestor ? '' : 'none';
 
+  // Botões de página
   const btnNovoCliente = document.querySelector('#page-clientes .btn.primario');
   if (btnNovoCliente) btnNovoCliente.style.display = gestor ? '' : 'none';
   const btnNovaEquipe = document.getElementById('btn-nova-equipe');
