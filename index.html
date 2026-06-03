@@ -29,11 +29,12 @@ body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#1a1a1a;}
 .sidebar-logo{padding:1rem;border-bottom:1px solid #e0e0e0;}
 .sidebar-logo .nome{font-size:15px;font-weight:600;color:#185FA5;}
 .sidebar-logo .sub{font-size:11px;color:#888;}
-.nav-grupo{padding:.5rem 0;}
-.nav-sep{font-size:10px;font-weight:600;color:#aaa;letter-spacing:.06em;text-transform:uppercase;padding:6px 1rem 3px;}
-.nav-item{display:flex;align-items:center;gap:8px;padding:8px 1rem;font-size:13px;color:#555;cursor:pointer;border-left:2px solid transparent;}
-.nav-item:hover{background:#f5f5f5;color:#1a1a1a;}
-.nav-item.active{color:#185FA5;background:#E6F1FB;border-left:2px solid #185FA5;font-weight:500;}
+.nav-grupo{padding:.25rem 0;}
+.nav-sep{font-size:10px;letter-spacing:.08em;font-weight:700;color:#9aa3ad;text-transform:uppercase;padding:14px 16px 6px;}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:2px 8px;border-radius:10px;font-size:14px;color:#333;cursor:pointer;transition:background .15s,color .15s;}
+.nav-item:hover{background:#EAF1F9;}
+.nav-item.active{background:#185FA5;color:#fff;}
+.nav-ico{font-size:16px;width:22px;text-align:center;flex-shrink:0;line-height:1;}
 .main{margin-left:200px;padding:1.5rem;}
 .page{display:none;}.page.active{display:block;}
 .page-title{font-size:18px;font-weight:600;margin-bottom:1.25rem;color:#1a1a1a;}
@@ -206,7 +207,7 @@ tr:hover td{background:#fafafa;}
   table{min-width:580px;}
   .btn{padding:9px 16px;font-size:14px;}
   .btn.primario{padding:10px 18px;}
-  .nav-item{padding:12px 1rem;font-size:14px;}
+  .nav-item{padding:12px 14px;font-size:14px;margin:2px 8px;}
   .modal-bg{align-items:flex-end !important;padding:0 !important;}
   .modal-box{border-radius:20px 20px 0 0 !important;margin:0 !important;width:100% !important;max-width:100% !important;max-height:90vh !important;height:auto !important;overflow-y:auto !important;-webkit-overflow-scrolling:touch !important;padding:1.25rem 1rem 2rem !important;}
   .modal-box::before{content:'';display:block;width:40px;height:4px;background:#ddd;border-radius:2px;margin:0 auto 1rem;}
@@ -290,34 +291,37 @@ tr:hover td{background:#fafafa;}
     </div>
     <div class="nav-grupo">
       <div class="nav-sep">Geral</div>
-      <div class="nav-item active" onclick="pg('dashboard',this)">Dashboard</div>
-      <div class="nav-item" onclick="pg('clientes',this)">Clientes</div>
-      <div class="nav-item" id="nav-funcionarios" onclick="pg('funcionarios',this)">Funcionários</div>
-      <div class="nav-item" id="nav-usuarios" onclick="pg('usuarios',this)">Usuários</div>
-      <div class="nav-item" id="nav-importacao" onclick="pg('importacao',this)">Importar dados</div>
+      <div class="nav-item active" data-page="dashboard" onclick="pg('dashboard',this)"><span class="nav-ico">📊</span>Dashboard</div>
+      <div class="nav-item" data-page="clientes" onclick="pg('clientes',this)"><span class="nav-ico">👥</span>Clientes</div>
+      <div class="nav-item" id="nav-funcionarios" data-page="funcionarios" onclick="pg('funcionarios',this)"><span class="nav-ico">🧑‍💼</span>Funcionários</div>
+      <div class="nav-item" id="nav-usuarios" data-page="usuarios" onclick="pg('usuarios',this)"><span class="nav-ico">🔐</span>Usuários</div>
+      <div class="nav-item" id="nav-importacao" data-page="importacao" onclick="pg('importacao',this)"><span class="nav-ico">📥</span>Importar dados</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-vendas">
       <div class="nav-sep">Vendas</div>
-      <div class="nav-item" id="nav-vendas" onclick="pg('vendas',this)">Vendas</div>
-      <div class="nav-item" id="nav-equipes" onclick="pg('equipes',this)">Equipes / Semanas</div>
-      <div class="nav-item" id="nav-caixa-vendedores" onclick="pg('caixa-vendedores',this)">Caixa em campo</div>
+      <div class="nav-item" id="nav-vendas" data-page="vendas" onclick="pg('vendas',this)"><span class="nav-ico">🛒</span>Vendas</div>
+      <div class="nav-item" id="nav-equipes" data-page="equipes" onclick="pg('equipes',this)"><span class="nav-ico">🚚</span>Equipes / Semanas</div>
+      <div class="nav-item" id="nav-caixa-vendedores" data-page="caixa-vendedores" onclick="pg('caixa-vendedores',this)"><span class="nav-ico">💵</span>Caixa em campo</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-cobrancas">
       <div class="nav-sep">Cobranças</div>
-      <div class="nav-item" id="nav-cobrancas" onclick="pg('cobrancas',this)">Cobranças</div>
-      <div class="nav-item" id="nav-localidades" onclick="pg('localidades',this);carregarLocalidades()">Localidades</div>
-      <div class="nav-item" id="nav-ciclos" onclick="pg('ciclos',this)">Ciclos</div>
-      <div class="nav-item" id="nav-caixa-cobradores" onclick="pg('caixa-cobradores',this)">Caixa cobradores</div>
-      <div class="nav-item" id="nav-prestacao" onclick="pg('prestacao',this)">Prestação de contas</div>
-      <div class="nav-item" id="nav-meu-historico" onclick="pg('meu-historico',this)">Histórico</div>
+      <div class="nav-item" id="nav-cobrancas" data-page="cobrancas" onclick="pg('cobrancas',this)"><span class="nav-ico">💳</span>Cobranças</div>
+      <div class="nav-item" id="nav-localidades" data-page="localidades" onclick="pg('localidades',this);carregarLocalidades()"><span class="nav-ico">🗺️</span>Localidades</div>
+      <div class="nav-item" id="nav-ciclos" data-page="ciclos" onclick="pg('ciclos',this)"><span class="nav-ico">🔄</span>Ciclos</div>
+      <div class="nav-item" id="nav-caixa-cobradores" data-page="caixa-cobradores" onclick="pg('caixa-cobradores',this)"><span class="nav-ico">💰</span>Caixa cobradores</div>
+      <div class="nav-item" id="nav-prestacao" data-page="prestacao" onclick="pg('prestacao',this)"><span class="nav-ico">🧾</span>Prestação de contas</div>
+      <div class="nav-item" id="nav-meu-historico" data-page="meu-historico" onclick="pg('meu-historico',this)"><span class="nav-ico">📚</span>Histórico</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-analise">
       <div class="nav-sep">Análise</div>
-      <div class="nav-item" id="nav-historico-caixas" onclick="pg('historico-caixas',this)">Histórico de cobranças</div>
-      <div class="nav-item" id="nav-desempenho" onclick="pg('desempenho',this)">Desempenho</div>
-      <div class="nav-item" onclick="pg('carnes',this)">Carnês</div>
-      <div class="nav-item" id="nav-relatorios" onclick="pg('relatorios',this)">Relatórios</div>
-      <div class="nav-item" id="nav-logs" onclick="pg('logs',this);carregarLogs()">Logs do sistema</div>
+      <div class="nav-item" id="nav-historico-caixas" data-page="historico-caixas" onclick="pg('historico-caixas',this)"><span class="nav-ico">📚</span>Histórico de cobranças</div>
+      <div class="nav-item" id="nav-desempenho" data-page="desempenho" onclick="pg('desempenho',this)"><span class="nav-ico">📈</span>Desempenho</div>
+      <div class="nav-item" id="nav-relatorios" data-page="relatorios" onclick="pg('relatorios',this)"><span class="nav-ico">📑</span>Relatórios</div>
+      <div class="nav-item" id="nav-logs" data-page="logs" onclick="pg('logs',this);carregarLogs()"><span class="nav-ico">🗒️</span>Logs do sistema</div>
+    </div>
+    <div class="nav-grupo">
+      <div class="nav-sep">Impressões</div>
+      <div class="nav-item" data-page="carnes" onclick="pg('carnes',this)"><span class="nav-ico">🖨️</span>Carnês</div>
     </div>
     <div id="info-usuario-logado" style="padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;font-size:12px;color:#555;line-height:1.4;"></div>
     <div class="logout">
