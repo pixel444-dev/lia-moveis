@@ -6412,15 +6412,13 @@ async function toggleUsuarioAtivo(id, ativo) {
 
 <!-- MODAL DETALHE HISTÓRICO -->
 <div class="modal-bg" id="modal-historico-detalhe">
-  <div class="modal-box" style="max-width:480px;">
+  <div class="modal-box" style="max-width:560px;">
     <div class="modal-header">
-      <strong id="hist-detalhe-titulo">Detalhe da caixa</strong>
+      <div><strong id="hist-detalhe-titulo"></strong><div style="font-size:11px;color:#888;margin-top:2px;">Caixa autorizada</div></div>
       <button onclick="fecharModal('modal-historico-detalhe')">×</button>
     </div>
-    <div id="hist-detalhe-conteudo" style="padding:1rem;overflow-y:auto;max-height:70vh;"></div>
-    <div class="modal-footer">
-      <button class="btn" onclick="fecharModal('modal-historico-detalhe')">Fechar</button>
-    </div>
+    <div id="hist-detalhe-conteudo"></div>
+    <div class="modal-footer"><button class="btn" onclick="fecharModal('modal-historico-detalhe')">Fechar</button></div>
   </div>
 </div>
 </body>
