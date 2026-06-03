@@ -527,6 +527,58 @@ tr:hover td{background:#fafafa;}
       <div id="lista-logs">Selecione os filtros acima e clique em Atualizar.</div>
     </div>
 
+    <div class="page" id="page-config-impressao">
+      <div class="page-title">Configurar layout das impressões</div>
+      <div style="max-width:560px;">
+
+        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
+          <div style="font-size:13px;font-weight:700;color:#185FA5;margin-bottom:1rem;">🏪 Dados da loja</div>
+          <div class="campo"><label>Logo da loja</label>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <img id="cfg-logo-preview" src="" style="display:none;width:64px;height:64px;object-fit:contain;border:1px solid #e0e0e0;border-radius:8px;background:#fafafa;">
+              <button type="button" class="btn" onclick="document.getElementById('cfg-logo-input').click()">Escolher logo</button>
+              <input type="file" id="cfg-logo-input" accept="image/png,image/jpeg,image/jpg" style="display:none;" onchange="processarLogoConfig(this)">
+            </div>
+            <input type="hidden" id="cfg-logo-url">
+          </div>
+          <div class="campo"><label>Nome da loja (cabeçalho)</label>
+            <input id="cfg-nome" type="text" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
+          <div class="campo"><label>Endereço</label>
+            <input id="cfg-endereco" type="text" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="campo"><label>Telefone</label>
+              <input id="cfg-telefone" type="text" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
+            <div class="campo"><label>CNPJ</label>
+              <input id="cfg-cnpj" type="text" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
+          </div>
+          <div class="campo"><label>Cor principal</label>
+            <input id="cfg-cor" type="color" value="#0C447C" style="width:60px;height:40px;border:1px solid #ddd;border-radius:8px;padding:2px;"></div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
+          <div style="font-size:13px;font-weight:700;color:#185FA5;margin-bottom:1rem;">🖨️ Carnê</div>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-carne-logo"> Mostrar logo</label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-carne-endereco"> Mostrar endereço</label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-carne-telefone"> Mostrar telefone</label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-carne-cnpj"> Mostrar CNPJ</label>
+          <div class="campo"><label>Texto do rodapé</label>
+            <input id="cfg-carne-rodape" type="text" placeholder="Ex: Pague em dia e evite juros" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
+        </div>
+
+        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
+          <div style="font-size:13px;font-weight:700;color:#185FA5;margin-bottom:1rem;">📄 Ficha do cliente</div>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-ficha-foto"> Mostrar foto da casa</label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-ficha-cpf"> Mostrar CPF</label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-ficha-localizacao"> Mostrar localização</label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-ficha-parcelas"> Mostrar resumo de parcelas</label>
+          <div class="campo"><label>Texto do rodapé</label>
+            <input id="cfg-ficha-rodape" type="text" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
+        </div>
+
+        <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;" onclick="salvarConfigImpressao()">Salvar configurações</button>
+      </div>
+    </div>
+
   </div>
 </div>
 
