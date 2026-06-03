@@ -4829,11 +4829,25 @@ async function autorizarCaixa() {
     await sb.from('baixas_pendentes').update({ status: 'aprovada' }).eq('id', b.id);
   }
 
+  const { pendentes: pSnap, remarcados: rSnap, mapaNome: nSnap } = await calcularPendentesRemarcados(caixaId);
+  const snapshotPendentes = pSnap.map(p => ({
+    nome: nSnap[p.cliente_id] || '—',
+    numero: p.numero, total: p.total_parcelas,
+    venc: p.data_vencimento,
+    valor: Number(p.valor - (p.valor_pago||0))
+  }));
+  const snapshotRemarcados = rSnap.map(v => ({
+    nome: nSnap[v.cliente_id] || '—',
+    motivo: v.motivo, data: v.data_agendada, obs: v.observacao || null
+  }));
+
   await sb.from('caixa_cobrador').update({
     status: 'aprovado',
     saldo_entregue: entregue,
     autorizado_por: funcionarioLogado.id,
-    autorizado_em: new Date().toISOString()
+    autorizado_em: new Date().toISOString(),
+    snapshot_pendentes: snapshotPendentes,
+    snapshot_remarcados: snapshotRemarcados
   }).eq('id', caixaId);
 
   Logger.info('prestacao', 'AUTORIZAR_CAIXA', 'Caixa autorizada', { caixaId, totalBaixas: (baixas || []).length });
