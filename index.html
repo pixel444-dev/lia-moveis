@@ -4261,6 +4261,84 @@ async function carregarHistoricoCaixas() {
   document.getElementById('lista-historico').innerHTML = html;
 }
 
+async function verDetalheHistorico(caixaId, nomeCobrador) {
+  const { data: caixa } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  const resumo = await calcularResumoCaixa(caixaId);
+
+  const { data: baixas } = await sb.from('baixas_pendentes')
+    .select('*, clientes(nome), parcelas(numero, total_parcelas, vendas(codigo))')
+    .eq('caixa_id', caixaId).neq('status','cancelada').order('criado_em');
+
+  const { data: movs } = await sb.from('movimentacoes_caixa').select('*').eq('caixa_id', caixaId).order('criado_em');
+  const gastos = (movs||[]).filter(m => m.tipo === 'gasto');
+  const depositos = (movs||[]).filter(m => m.tipo === 'deposito');
+
+  const ciclos = calcularCiclosDaCaixa(caixa.ciclo_inicio, caixa.ciclo_fim);
+  const periodo = new Date(caixa.ciclo_inicio+'T12:00:00').toLocaleDateString('pt-BR')
+    + ' a ' + new Date(caixa.ciclo_fim+'T12:00:00').toLocaleDateString('pt-BR');
+  const diff = (caixa.saldo_entregue||0) - resumo.saldoEmMaos;
+  const diffColor = Math.abs(diff) < 0.01 ? '#3B6D11' : '#A32D2D';
+
+  const baixasHtml = (baixas||[]).length
+    ? (baixas||[]).map(b =>
+        '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
+        + '<div><div style="font-size:13px;font-weight:500;">' + (b.clientes?.nome||'—') + '</div>'
+        + '<div style="font-size:11px;color:#888;">Venda ' + (b.parcelas?.vendas?.codigo||'—')
+        + ' · Parc. ' + (b.parcelas?.numero||'') + '/' + (b.parcelas?.total_parcelas||'')
+        + ' · ' + (b.forma_pagamento||'').toUpperCase() + '</div>'
+        + (b.comprovante_pix ? '<a href="' + b.comprovante_pix + '" target="_blank" style="font-size:11px;color:#185FA5;">📎 Comprovante</a>' : '')
+        + '</div>'
+        + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">R$ ' + Number(b.valor_recebido).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+        + '</div>'
+      ).join('')
+    : '<p style="font-size:12px;color:#888;">Nenhuma.</p>';
+
+  const gastosHtml = gastos.length
+    ? gastos.map(g =>
+        '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
+        + '<div style="flex:1;"><div style="font-size:13px;font-weight:500;">' + (g.descricao||'Gasto') + (g.categoria ? ' · ' + g.categoria : '') + '</div>'
+        + '<div style="font-size:11px;color:#888;">' + new Date(g.criado_em).toLocaleDateString('pt-BR') + '</div></div>'
+        + (g.foto_comprovante ? '<img src="' + g.foto_comprovante + '" onclick="window.open(\'' + g.foto_comprovante + '\',\'_blank\')" style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + '<div style="font-size:14px;font-weight:600;color:#854F0B;">R$ ' + Number(g.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+        + '</div>'
+      ).join('')
+    : '<p style="font-size:12px;color:#888;">Nenhum.</p>';
+
+  const depositosHtml = depositos.length
+    ? depositos.map(d =>
+        '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
+        + '<div style="flex:1;"><div style="font-size:13px;font-weight:500;">Depósito</div>'
+        + '<div style="font-size:11px;color:#888;">' + new Date(d.criado_em).toLocaleDateString('pt-BR') + '</div></div>'
+        + (d.foto_comprovante ? '<img src="' + d.foto_comprovante + '" onclick="window.open(\'' + d.foto_comprovante + '\',\'_blank\')" style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + '<div style="font-size:14px;font-weight:600;color:#185FA5;">R$ ' + Number(d.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+        + '</div>'
+      ).join('')
+    : '<p style="font-size:12px;color:#888;">Nenhum.</p>';
+
+  document.getElementById('hist-detalhe-titulo').textContent = nomeCobrador;
+  document.getElementById('hist-detalhe-conteudo').innerHTML =
+    '<div style="font-size:12px;color:#888;margin-bottom:.75rem;">📦 ' + periodo + ' · ' + ciclos.length + ' ciclo(s)</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;">'
+    + '<div style="background:#EAF3DE;border-radius:10px;padding:1rem;text-align:center;"><div style="font-size:11px;color:#3B6D11;">RECEBIDO</div><div style="font-size:18px;font-weight:700;color:#3B6D11;">R$ ' + resumo.totalRecebido.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div></div>'
+    + '<div style="background:#E6F1FB;border-radius:10px;padding:1rem;text-align:center;"><div style="font-size:11px;color:#185FA5;">SALDO ESPERADO</div><div style="font-size:18px;font-weight:700;color:#185FA5;">R$ ' + resumo.saldoEmMaos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div></div>'
+    + '<div style="background:#FAEEDA;border-radius:10px;padding:1rem;text-align:center;"><div style="font-size:11px;color:#854F0B;">GASTOS</div><div style="font-size:16px;font-weight:700;color:#854F0B;">R$ ' + resumo.totalGastos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div></div>'
+    + '<div style="background:#f0f0f0;border-radius:10px;padding:1rem;text-align:center;"><div style="font-size:11px;color:#555;">DEPÓSITOS</div><div style="font-size:16px;font-weight:700;color:#555;">R$ ' + resumo.totalDepositos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div></div>'
+    + '</div>'
+    + '<div style="background:#f9f9f9;border-radius:10px;padding:1rem;margin-bottom:1rem;">'
+    + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#888;">Saldo esperado:</span><strong>R$ ' + resumo.saldoEmMaos.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</strong></div>'
+    + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#888;">Saldo entregue:</span><strong>R$ ' + (caixa.saldo_entregue||0).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</strong></div>'
+    + '<div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:#888;">Diferença:</span><strong style="color:' + diffColor + ';">R$ ' + diff.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</strong></div>'
+    + '</div>'
+    + '<div style="font-size:13px;font-weight:600;color:#185FA5;margin-bottom:.5rem;">Parcelas recebidas (' + (baixas||[]).length + ')</div>'
+    + '<div style="margin-bottom:1rem;">' + baixasHtml + '</div>'
+    + '<div style="font-size:13px;font-weight:600;color:#854F0B;margin-bottom:.5rem;">Gastos (' + gastos.length + ')</div>'
+    + '<div style="margin-bottom:1rem;">' + gastosHtml + '</div>'
+    + '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:.5rem;">Depósitos (' + depositos.length + ')</div>'
+    + '<div>' + depositosHtml + '</div>';
+
+  document.getElementById('modal-historico-detalhe').style.display = 'flex';
+}
+
 async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   window._caixaPrestacaoAtual = caixaId;
   const resumo = await calcularResumoCaixa(caixaId);
@@ -6329,6 +6407,20 @@ async function toggleUsuarioAtivo(id, ativo) {
     <button class="btn" style="width:100%;padding:12px;font-size:14px;margin-top:8px;" onclick="fecharModal('modal-gerenciar-caixa')">
       Cancelar
     </button>
+  </div>
+</div>
+
+<!-- MODAL DETALHE HISTÓRICO -->
+<div class="modal-bg" id="modal-historico-detalhe">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-header">
+      <strong id="hist-detalhe-titulo">Detalhe da caixa</strong>
+      <button onclick="fecharModal('modal-historico-detalhe')">×</button>
+    </div>
+    <div id="hist-detalhe-conteudo" style="padding:1rem;overflow-y:auto;max-height:70vh;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-historico-detalhe')">Fechar</button>
+    </div>
   </div>
 </div>
 </body>
