@@ -3947,6 +3947,11 @@ async function confirmarRecebimento() {
 }
 
 // ─── UTILITÁRIOS DE CICLO ───
+function rotuloMotivo(m) {
+  const r = { ausente:'Cliente ausente', pediu_prazo:'Pediu prazo', recusou:'Recusou pagar', endereco:'Endereço não encontrado', outro:'Outro motivo' };
+  return r[m] || m || '—';
+}
+
 function mesCobrancaDaData(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
   let ano = d.getFullYear();
@@ -4510,6 +4515,50 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   const gastos = (movs || []).filter(function(m) { return m.tipo === 'gasto'; });
   const depositos = (movs || []).filter(function(m) { return m.tipo === 'deposito'; });
 
+  // Escopo da caixa
+  const { data: caixaInfo } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  const cobradorId = caixaInfo.cobrador_id;
+  const iniCx = new Date(caixaInfo.ciclo_inicio + 'T00:00:00');
+  const fimCx = new Date(caixaInfo.ciclo_fim + 'T23:59:59');
+  const hojeCx = new Date(); hojeCx.setHours(12,0,0,0);
+
+  // Clientes do cobrador
+  const { data: clientesCob } = await sb.from('clientes').select('id, nome').eq('cobrador_id', cobradorId);
+  const idsCli = (clientesCob||[]).map(c => c.id);
+  const mapaNome = {}; (clientesCob||[]).forEach(c => mapaNome[c.id] = c.nome);
+
+  // Parcelas em aberto
+  let parcelasAbertas = [];
+  if (idsCli.length) {
+    const { data } = await sb.from('parcelas')
+      .select('id, cliente_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
+      .in('cliente_id', idsCli).eq('pago', false).neq('status','devolvida');
+    parcelasAbertas = data || [];
+  }
+
+  // Visitas (não recebi) ativas do cobrador
+  const { data: visitasCob } = await sb.from('visitas_agendadas')
+    .select('parcela_id, cliente_id, motivo, observacao, data_agendada, concluida, criado_em')
+    .eq('cobrador_id', cobradorId).eq('concluida', false)
+    .order('criado_em', { ascending: false });
+
+  // Remarcados neste ciclo = "não recebi" registrados a partir do início da caixa
+  const remarcados = (visitasCob||[]).filter(v => new Date(v.criado_em) >= iniCx);
+  const parcelasRemarcadas = new Set(remarcados.map(v => v.parcela_id));
+
+  // Mapa de remarque ativo (para calcular data efetiva)
+  const mapaRemarquePrest = {};
+  (visitasCob||[]).forEach(v => { if (v.parcela_id && !mapaRemarquePrest[v.parcela_id]) mapaRemarquePrest[v.parcela_id] = v.data_agendada; });
+
+  // Pendentes = parcelas em aberto com data efetiva dentro do período, que não foram remarcadas neste ciclo
+  const pendentes = parcelasAbertas.filter(p => {
+    if (parcelasRemarcadas.has(p.id)) return false;
+    const rem = mapaRemarquePrest[p.id];
+    let ef = rem ? new Date(rem + 'T12:00:00') : new Date(p.data_vencimento + 'T12:00:00');
+    if (!rem && ef < hojeCx) ef = new Date(hojeCx);
+    return ef >= iniCx && ef <= fimCx;
+  });
+
   document.getElementById('prestacao-titulo').textContent = nomeCobrador;
 
   const fmtR = function(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2}); };
@@ -4582,6 +4631,30 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
 
     + '<div style="font-size:13px;font-weight:600;color:#185FA5;margin-bottom:.5rem;">Parcelas recebidas (' + (baixas || []).length + ')</div>'
     + '<div style="margin-bottom:1rem;">' + baixasHtml + '</div>'
+
+    + '<div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:.5rem;">Pendentes neste ciclo (' + pendentes.length + ')</div>'
+    + '<div style="margin-bottom:1rem;">'
+    + (pendentes.length ? pendentes.map(function(p) {
+        return '<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
+          + '<div>'
+          + '<div style="font-size:13px;font-weight:500;">' + (mapaNome[p.cliente_id]||'—') + '</div>'
+          + '<div style="font-size:11px;color:#A32D2D;">Parcela ' + p.numero + '/' + p.total_parcelas + ' · vence ' + new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR') + '</div>'
+          + '</div>'
+          + '<div style="font-size:14px;font-weight:600;color:#A32D2D;">R$ ' + Number(p.valor - (p.valor_pago||0)).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+          + '</div>';
+      }).join('') : '<p style="font-size:12px;color:#888;">Nenhum pendente. 🎉</p>')
+    + '</div>'
+
+    + '<div style="font-size:13px;font-weight:600;color:#854F0B;margin-bottom:.5rem;">Remarcados — não recebidos (' + remarcados.length + ')</div>'
+    + '<div style="margin-bottom:1rem;">'
+    + (remarcados.length ? remarcados.map(function(v) {
+        return '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
+          + '<div style="font-size:13px;font-weight:500;">' + (mapaNome[v.cliente_id]||'—') + '</div>'
+          + '<div style="font-size:11px;color:#854F0B;">Motivo: ' + rotuloMotivo(v.motivo) + ' · Próxima visita: ' + new Date(v.data_agendada+'T12:00:00').toLocaleDateString('pt-BR') + '</div>'
+          + (v.observacao ? '<div style="font-size:11px;color:#888;">' + v.observacao + '</div>' : '')
+          + '</div>';
+      }).join('') : '<p style="font-size:12px;color:#888;">Nenhum remarcado.</p>')
+    + '</div>'
 
     + '<div style="font-size:13px;font-weight:600;color:#854F0B;margin-bottom:.5rem;">Gastos (' + gastos.length + ')</div>'
     + '<div style="margin-bottom:1rem;">' + gastosHtml + '</div>'
