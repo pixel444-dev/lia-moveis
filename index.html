@@ -987,45 +987,48 @@ async function sair() {
 }
 
 async function iniciarSessao(user) {
-  const { data: perfil, error } = await sb.from('perfis')
-    .select('perfil, ativo, funcionario_id, funcionarios(nome)')
-    .eq('id', user.id)
-    .single();
-  if (error || !perfil) {
+  const { data: dados, error } = await sb.rpc('meus_dados_login');
+  const d = Array.isArray(dados) ? dados[0] : dados;
+  if (error || !d?.perfil) {
     await sb.auth.signOut();
     document.getElementById('tela-login').style.display = 'flex';
     document.getElementById('msg-login').innerHTML = '<div class="msg erro">Perfil não encontrado. Contate o administrador.</div>';
     return;
   }
-  if (!perfil.ativo) {
+  if (!d.ativo) {
     await sb.auth.signOut();
     document.getElementById('tela-login').style.display = 'flex';
     document.getElementById('msg-login').innerHTML = '<div class="msg erro">Usuário desativado. Contate o administrador.</div>';
     return;
   }
-  perfilAtivo = perfil.perfil;
-  funcionarioLogado = {
-    id: perfil.funcionario_id || null,
-    nome: perfil.funcionarios?.nome || user.email,
+  perfilAtivo = {
+    id: user.id,
+    perfil: d.perfil,
+    funcionario_id: d.funcionario_id || null,
+    nome: d.nome || null
   };
-  const perfilLabel = { gestor: 'Gestor', vendedor: 'Vendedor', cobrador: 'Cobrador' }[perfilAtivo] || perfilAtivo;
+  funcionarioLogado = {
+    id: d.funcionario_id || null,
+    nome: d.nome || user.email,
+  };
+  const perfilLabel = { gestor: 'Gestor', vendedor: 'Vendedor', cobrador: 'Cobrador' }[perfilAtivo.perfil] || perfilAtivo.perfil;
   document.getElementById('info-usuario-logado').innerHTML =
     `<div style="font-weight:500;color:#1a1a1a;">${funcionarioLogado.nome}</div><div style="color:#888;font-size:11px;">${perfilLabel}</div>`;
   document.getElementById('tela-login').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('topbar-mobile').style.removeProperty('display');
   document.getElementById('msg-login').innerHTML = '';
-  if (perfilAtivo === 'cobrador') {
-    aplicarPermissoes(perfilAtivo);
+  if (perfilAtivo.perfil === 'cobrador') {
+    aplicarPermissoes(perfilAtivo.perfil);
     carregarDashboard();
     return;
   }
-  aplicarPermissoes(perfilAtivo);
-  if (perfilAtivo === 'gestor') {
+  aplicarPermissoes(perfilAtivo.perfil);
+  if (perfilAtivo.perfil === 'gestor') {
     carregarAutorizacoesPendentes();
     gestorPollInterval = setInterval(carregarAutorizacoesPendentes, 10000);
   }
-  if (perfilAtivo === 'vendedor') {
+  if (perfilAtivo.perfil === 'vendedor') {
     carregarEquipeAtivaVendedor();
     setInterval(async () => {
       const equipeAntes = equipeAtiva?.id || null;
@@ -1483,7 +1486,7 @@ async function verDetalhesCliente(clienteId) {
   // Localidade — visível para cobrador e gestor
   document.getElementById('det-cliente-id').value = c.id;
   const localidadeWrap = document.getElementById('det-localidade-wrap');
-  if (perfilAtivo === 'cobrador' || perfilAtivo === 'gestor') {
+  if (perfilAtivo.perfil === 'cobrador' || perfilAtivo.perfil === 'gestor') {
     localidadeWrap.style.display = 'block';
     await carregarSelectLocalidades(c.localidade_id, c.cobrador_id);
   } else {
@@ -1493,8 +1496,8 @@ async function verDetalhesCliente(clienteId) {
   // Botão "Ver parcelas" — só para cobrador
   const btnParcelas = document.getElementById('btn-ver-parcelas-cobrador');
   const btnEditar = document.getElementById('btn-editar-cliente-det');
-  if (btnParcelas) btnParcelas.style.display = perfilAtivo === 'cobrador' ? 'inline-block' : 'none';
-  if (btnEditar) btnEditar.style.display = perfilAtivo === 'gestor' ? 'inline-block' : 'none';
+  if (btnParcelas) btnParcelas.style.display = perfilAtivo.perfil === 'cobrador' ? 'inline-block' : 'none';
+  if (btnEditar) btnEditar.style.display = perfilAtivo.perfil === 'gestor' ? 'inline-block' : 'none';
   window._clienteDetalhesAtual = { id: c.id, nome: c.nome };
 
   document.getElementById('modal-detalhes-cliente').style.display = 'flex';
@@ -1714,7 +1717,7 @@ async function toggleAtivo(id, ativo) {
 }
 
 async function abrirNovaVenda() {
-  if (perfilAtivo === 'vendedor' && !equipeAtiva) {
+  if (perfilAtivo.perfil === 'vendedor' && !equipeAtiva) {
     alert('Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor.');
     return;
   }
@@ -1726,7 +1729,7 @@ async function abrirNovaVenda() {
   document.getElementById('btn-salvar-venda').style.display = 'none';
   document.getElementById('painel-autorizacao').style.display = 'none';
   document.getElementById('painel-autorizacao').innerHTML = '';
-  document.getElementById('btn-sem-cpf-wrap').style.display = perfilAtivo === 'vendedor' ? 'block' : 'none';
+  document.getElementById('btn-sem-cpf-wrap').style.display = perfilAtivo.perfil === 'vendedor' ? 'block' : 'none';
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   window._clienteInadimplente = false;
   window._autorizacaoInadimplenteId = null;
@@ -1737,7 +1740,7 @@ async function buscarClientePorCPF() {
   const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
   const div = document.getElementById('resultado-busca-cliente');
 
-  if (perfilAtivo === 'gestor' && cpf.length === 0) {
+  if (perfilAtivo.perfil === 'gestor' && cpf.length === 0) {
     div.innerHTML = '<div class="cliente-nao-encontrado">CPF não informado — preencha os dados do cliente abaixo.</div>';
     await carregarCobradoresSelect('vnc-cobrador');
     document.getElementById('form-novo-cliente-venda').style.display = 'block';
@@ -1759,7 +1762,7 @@ async function buscarClientePorCPF() {
     document.getElementById('venda-cliente-id').value = data.id;
     document.getElementById('form-novo-cliente-venda').style.display = 'none';
 
-    if (perfilAtivo === 'vendedor') {
+    if (perfilAtivo.perfil === 'vendedor') {
       const hoje = new Date().toISOString().split('T')[0];
       const { data: atrasadas } = await sb.from('parcelas')
         .select('id, valor')
@@ -1788,7 +1791,7 @@ async function buscarClientePorCPF() {
       }
     }
 
-    if (perfilAtivo === 'gestor') {
+    if (perfilAtivo.perfil === 'gestor') {
       const hoje = new Date().toISOString().split('T')[0];
       const { data: atrasadas } = await sb.from('parcelas')
         .select('id, valor')
@@ -1837,7 +1840,7 @@ async function salvarNovoClienteVenda() {
 
   const editId = document.getElementById('vnc-edit-id').value;
   if (!nome) { alert('Preencha o nome completo!'); return; }
-  if (perfilAtivo === 'vendedor') {
+  if (perfilAtivo.perfil === 'vendedor') {
     if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
     if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
     if (!endereco) { alert('Preencha o endereço!'); return; }
@@ -1921,7 +1924,7 @@ async function mostrarFormVenda() {
   document.getElementById('venda-data-primeira').value = '';
   renderSeletorParcelas();
 
-  if (perfilAtivo === 'vendedor') {
+  if (perfilAtivo.perfil === 'vendedor') {
     await carregarEquipeAtivaVendedor();
     await carregarMembrosEquipeSelect();
     document.getElementById('campo-vendedor-wrap').style.display = '';
@@ -2044,7 +2047,7 @@ function atualizarPreviewParcelas() {
 }
 
 async function salvarVenda() {
-  if (perfilAtivo === 'vendedor' && !equipeAtiva) {
+  if (perfilAtivo.perfil === 'vendedor' && !equipeAtiva) {
     alert('Você não está em nenhuma equipe ativa. Venda bloqueada.');
     return;
   }
@@ -2071,7 +2074,7 @@ async function salvarVenda() {
     if (diffDias < 0) { alert('A data da primeira parcela não pode ser no passado!'); return; }
     if (diffDias > 70) { alert('A data da primeira parcela não pode ser mais de 70 dias a partir de hoje!'); return; }
   }
-  const equipeId = perfilAtivo === 'vendedor'
+  const equipeId = perfilAtivo.perfil === 'vendedor'
     ? (equipeAtiva?.id || null)
     : (document.getElementById('venda-equipe').value || null);
   const dados = {
@@ -2130,7 +2133,7 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
   }
   fecharModalVenda();
   // For vendedor: decrement equipe_estoque
-  if (perfilAtivo === 'vendedor' && equipeAtiva?.id && dados.produto) {
+  if (perfilAtivo.perfil === 'vendedor' && equipeAtiva?.id && dados.produto) {
     const { data: estoqueItems } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
     const item = (estoqueItems || []).find(e => e.produto.trim().toLowerCase() === dados.produto.trim().toLowerCase());
     if (item) {
@@ -2143,7 +2146,7 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
 }
 
 async function carregarVendas() {
-  if (perfilAtivo === 'vendedor') { await carregarVendasVendedor(); return; }
+  if (perfilAtivo.perfil === 'vendedor') { await carregarVendasVendedor(); return; }
   const { data, error } = await sb.from('vendas').select('*, clientes(nome, codigo), funcionarios(nome)').order('data_venda', { ascending: false }).limit(100);
   if (error) { document.getElementById('lista-vendas').innerHTML = 'Erro ao carregar.'; return; }
   todasVendas = data || [];
@@ -2359,7 +2362,7 @@ function renderVendas(lista) {
           <div style="font-size:18px;font-weight:700;color:#3B6D11;">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
           <div style="font-size:12px;color:#aaa;">${new Date(v.data_venda).toLocaleDateString('pt-BR')}</div>
         </div>
-        ${v.status!=='devolvida' && perfilAtivo==='gestor' ? `
+        ${v.status!=='devolvida' && perfilAtivo.perfil==='gestor' ? `
           <div style="display:flex;gap:8px;margin-top:10px;">
             <button class="btn" style="flex:1;padding:8px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
             <button class="btn" style="flex:1;padding:8px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>
@@ -2381,7 +2384,7 @@ function renderVendas(lista) {
           <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td>${v.num_parcelas ? v.num_parcelas+'x' : '—'}</td>
           <td>
-            ${v.status!=='devolvida' ? (perfilAtivo==='gestor' ? `
+            ${v.status!=='devolvida' ? (perfilAtivo.perfil==='gestor' ? `
               <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
               <button class="btn" style="font-size:11px;padding:3px 8px;color:#A32D2D;border-color:#f5c6c6;margin-left:4px;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>
             ` : '') : `<span style="font-size:11px;color:#A32D2D;">Devolvida</span>`}
@@ -2401,7 +2404,7 @@ function buscarVenda(termo) {
 }
 
 async function carregarCobrancas() {
-  if (perfilAtivo === 'cobrador') {
+  if (perfilAtivo.perfil === 'cobrador') {
     renderInterfaceCobrador();
     return;
   }
@@ -3625,7 +3628,7 @@ async function carregarSelectLocalidades(localidadeAtual, clienteCobradorId) {
   if (!sel) return;
 
   // Cobrador usa sempre as próprias localidades; gestor usa as do cobrador do cliente
-  const cobradorId = perfilAtivo === 'cobrador' ? funcionarioLogado.id : clienteCobradorId;
+  const cobradorId = perfilAtivo.perfil === 'cobrador' ? funcionarioLogado.id : clienteCobradorId;
 
   if (!cobradorId) {
     sel.innerHTML = '<option value="">Sem localidade (lista geral)</option>';
@@ -4303,7 +4306,7 @@ async function salvarCaixaManual() {
 }
 
 async function carregarPrestacaoContas() {
-  if (perfilAtivo !== 'gestor') {
+  if (perfilAtivo.perfil !== 'gestor') {
     document.getElementById('lista-prestacao').innerHTML = '<p style="color:#888;">Acesso restrito ao gestor.</p>';
     return;
   }
@@ -4422,7 +4425,7 @@ async function calcularResumoCaixa(caixaId) {
 }
 
 async function carregarMeuHistorico() {
-  if (perfilAtivo !== 'cobrador') return;
+  if (perfilAtivo.perfil !== 'cobrador') return;
   const { data: caixas, error } = await sb.from('caixa_cobrador')
     .select('*, funcionarios(nome)')
     .eq('status', 'aprovado')
@@ -4489,7 +4492,7 @@ async function montarHistoricoHtml(caixas) {
 }
 
 async function carregarHistoricoCaixas() {
-  if (perfilAtivo !== 'gestor') {
+  if (perfilAtivo.perfil !== 'gestor') {
     document.getElementById('lista-historico').innerHTML = '<p style="color:#888;">Acesso restrito ao gestor.</p>';
     return;
   }
@@ -4523,7 +4526,7 @@ async function getConfigImpressao() {
 }
 
 async function carregarConfigImpressao() {
-  if (perfilAtivo !== 'gestor') return;
+  if (perfilAtivo.perfil !== 'gestor') return;
   const c = await getConfigImpressao();
   document.getElementById('cfg-nome').value = c.nome_loja || '';
   document.getElementById('cfg-endereco').value = c.endereco || '';
@@ -5573,7 +5576,7 @@ sb.auth.getSession().then(({ data: { session } }) => {
 // ===== MÓDULO EQUIPES / SEMANAS =====
 
 async function carregarEquipes() {
-  if (perfilAtivo === 'vendedor') { await carregarEquipeVendedor(); return; }
+  if (perfilAtivo.perfil === 'vendedor') { await carregarEquipeVendedor(); return; }
   const hoje = new Date().toISOString().split('T')[0];
   const { data: mes } = await sb.from('meses_referencia').select('*').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
   mesAtual = mes;
@@ -5636,7 +5639,7 @@ function renderEquipes(semanas, equipes) {
           </div>
           <div style="display:flex;gap:8px;margin-top:.75rem;flex-wrap:wrap;">
             <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
-            ${!eq.encerrada && perfilAtivo==='gestor'?`
+            ${!eq.encerrada && perfilAtivo.perfil==='gestor'?`
               <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirEstoqueEquipe('${eq.id}')">Estoque</button>
               <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
             `:''}
@@ -5934,7 +5937,7 @@ async function abrirNovaEquipe() {
 }
 
 async function salvarEquipe() {
-  if (perfilAtivo !== 'gestor') { alert('Sem permissão'); return; }
+  if (perfilAtivo.perfil !== 'gestor') { alert('Sem permissão'); return; }
   const caminhaoId = document.getElementById('equipe-caminhao').value;
   const semanaId = document.getElementById('equipe-semana').value;
   const chefeId = document.getElementById('equipe-chefe').value;
@@ -6002,7 +6005,7 @@ function adicionarLinhaEstoque(produto, qtd) {
 }
 
 async function salvarEstoqueEquipe() {
-  if (perfilAtivo !== 'gestor') { alert('Sem permissão'); return; }
+  if (perfilAtivo.perfil !== 'gestor') { alert('Sem permissão'); return; }
   const equipeId = document.getElementById('estoque-equipe-id').value;
   const linhas = document.querySelectorAll('#lista-itens-estoque > div');
   const itens = [];
@@ -6061,7 +6064,7 @@ async function abrirEncerrarEquipe(equipeId) {
 }
 
 async function confirmarEncerrarEquipe() {
-  if (perfilAtivo !== 'gestor') { alert('Sem permissão'); return; }
+  if (perfilAtivo.perfil !== 'gestor') { alert('Sem permissão'); return; }
   const equipeId = document.getElementById('encerrar-equipe-id').value;
   const obs = document.getElementById('encerrar-obs').value.trim();
   const modal = document.getElementById('modal-encerrar-equipe');
