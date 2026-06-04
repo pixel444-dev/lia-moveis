@@ -995,7 +995,7 @@ async function iniciarSessao(user) {
     document.getElementById('msg-login').innerHTML = '<div class="msg erro">Perfil não encontrado. Contate o administrador.</div>';
     return;
   }
-  if (!d.ativo) {
+  if (d?.ativo === false) {
     await sb.auth.signOut();
     document.getElementById('tela-login').style.display = 'flex';
     document.getElementById('msg-login').innerHTML = '<div class="msg erro">Usuário desativado. Contate o administrador.</div>';
@@ -1003,9 +1003,10 @@ async function iniciarSessao(user) {
   }
   perfilAtivo = {
     id: user.id,
-    perfil: d.perfil,
-    funcionario_id: d.funcionario_id || null,
-    nome: d.nome || null
+    perfil: d?.perfil || null,
+    funcionario_id: d?.funcionario_id || null,
+    nome: d?.nome || null,
+    ativo: d?.ativo
   };
   funcionarioLogado = {
     id: d.funcionario_id || null,
