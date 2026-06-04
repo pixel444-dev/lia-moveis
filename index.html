@@ -5211,33 +5211,42 @@ async function imprimirCarne() {
     doc.setTextColor(255, 255, 255);
 
     let xNome = x + 5;
-    if (logoData) {
-      const altLogo = 10;
-      const largLogo = logoData.h ? altLogo * (logoData.w / logoData.h) : 8;
-      // logo 
-      try { doc.addImage(logoData.dataUrl,
-                         'PNG',
-                         x + 3, 
-                         y + 1.5, 
-                         largLogo, 
-                         altLogo
-                        ); 
-          } catch(e){}
-      try { doc.addImage(logoData.dataUrl,
-                         'PNG',
-                         x + 60, 
-                         y + 1.5, 
-                         largLogo, 
-                         altLogo
-                        ); 
-          } catch(e){}
-      xNome = x + 3 + largLogo + 2;
-    }
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    // nome da loja
-    doc.text(nomeLoja, xNome, y + 8);
-doc.text(nomeLoja, x + 60 + largLogo + 2, y + 8);
+let xNome2 = x + 60;
+
+if (logoData) {
+  const altLogo = 10;
+  const largLogo = logoData.h
+    ? altLogo * (logoData.w / logoData.h)
+    : 8;
+
+  try {
+    doc.addImage(
+      logoData.dataUrl,
+      'PNG',
+      x + 3,
+      y + 1.5,
+      largLogo,
+      altLogo
+    );
+  } catch(e){}
+
+  try {
+    doc.addImage(
+      logoData.dataUrl,
+      'PNG',
+      x + 60,
+      y + 1.5,
+      largLogo,
+      altLogo
+    );
+  } catch(e){}
+
+  xNome = x + 3 + largLogo + 2;
+  xNome2 = x + 60 + largLogo + 2;
+}
+
+doc.text(nomeLoja, xNome, y + 8);
+doc.text(nomeLoja, xNome2, y + 8);
     // Código da venda
     const codigoEl = carnes[i].querySelector('.carne-codigo');
     doc.setFontSize(8);
