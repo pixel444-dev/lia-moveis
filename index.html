@@ -2182,15 +2182,29 @@ async function carregarVendasVendedor() {
 }
 
 async function carregarEquipeAtivaVendedor() {
-  if (!funcionarioLogado?.id) { equipeAtiva = null; return; }
-  const hoje = new Date().toISOString().split('T')[0];
-  const { data: semana } = await sb.from('semanas_venda').select('id').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
-  if (!semana) { equipeAtiva = null; return; }
-  const { data: membros } = await sb.from('equipe_membros').select('equipe_id').eq('funcionario_id', funcionarioLogado.id);
-  if (!membros?.length) { equipeAtiva = null; return; }
-  const equipeIds = membros.map(m => m.equipe_id);
-  const { data: eq } = await sb.from('equipes').select('id, rota, caminhoes(identificacao)').in('id', equipeIds).eq('semana_id', semana.id).eq('encerrada', false).maybeSingle();
-  equipeAtiva = eq || null;
+  if (perfilAtivo?.perfil !== 'vendedor') return;
+  if (!perfilAtivo?.funcionario_id) { equipeAtiva = null; return; }
+  try {
+    const { data: membros, error: errM } = await sb.from('equipe_membros')
+      .select('equipe_id')
+      .eq('funcionario_id', perfilAtivo.funcionario_id);
+    if (errM) throw errM;
+
+    const ids = (membros || []).map(m => m.equipe_id);
+    if (!ids.length) { equipeAtiva = null; return; }
+
+    const { data: equipes, error: errE } = await sb.from('equipes')
+      .select('*, caminhoes(identificacao, placa), semanas_venda(numero, data_inicio, data_fim)')
+      .in('id', ids)
+      .eq('encerrada', false)
+      .order('id', { ascending: false });
+    if (errE) throw errE;
+
+    equipeAtiva = (equipes && equipes[0]) || null;
+  } catch (e) {
+    Logger.error('vendas', 'CARREGAR_EQUIPE_ATIVA', 'Falha ao carregar equipe ativa', { error_message: e?.message });
+    equipeAtiva = null;
+  }
 }
 
 async function carregarEstoqueProdutos() {
