@@ -1757,64 +1757,47 @@ async function buscarClientePorCPF() {
 
   if (cpf.length < 11) { div.innerHTML = '<div class="cliente-nao-encontrado">Digite o CPF completo (11 dígitos).</div>'; return; }
   if (!validarCPF(cpf)) { div.innerHTML = '<div class="cliente-nao-encontrado">✗ CPF inválido. Verifique e tente novamente.</div>'; return; }
-  const { data } = await sb.from('clientes').select('*').eq('cpf', cpf).maybeSingle();
-  Logger.info('vendas', 'BUSCAR_CLIENTE_CPF', 'Busca por CPF', { encontrado: !!data });
-  if (data) {
-    document.getElementById('venda-cliente-id').value = data.id;
+  const cpfDigits = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g,'');
+  const { data, error } = await sb.rpc('verificar_cliente_por_cpf', { p_cpf: cpfDigits });
+  if (error) { alert(error.message || 'Erro ao verificar CPF.'); return; }
+  const info = Array.isArray(data) ? data[0] : data;
+  // info: { existe, cliente_id, nome, codigo, qtd_atrasadas, valor_atrasado }
+  Logger.info('vendas', 'BUSCAR_CLIENTE_CPF', 'Busca por CPF', { encontrado: !!info?.existe });
+
+  if (info?.existe) {
+    document.getElementById('venda-cliente-id').value = info.cliente_id;
     document.getElementById('form-novo-cliente-venda').style.display = 'none';
 
-    if (perfilAtivo.perfil === 'vendedor') {
-      const hoje = new Date().toISOString().split('T')[0];
-      const { data: atrasadas } = await sb.from('parcelas')
-        .select('id, valor')
-        .eq('cliente_id', data.id)
-        .eq('pago', false)
-        .neq('status', 'devolvida')
-        .lt('data_vencimento', hoje);
-
-      if (atrasadas && atrasadas.length > 0) {
-        const totalAtrasado = atrasadas.reduce((a, p) => a + Number(p.valor), 0);
-        window._dadosInadimplente = { clienteId: data.id, nomeCliente: data.nome, qtdAtrasadas: atrasadas.length, totalAtrasado };
-        div.innerHTML = `
-          <div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>
-          <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:12px 14px;margin-bottom:.75rem;">
-            <div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:6px;">⚠️ Cliente inadimplente</div>
-            <div style="font-size:12px;color:#A32D2D;margin-bottom:8px;">${atrasadas.length} parcela(s) em atraso — Total: R$ ${totalAtrasado.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
-            <button class="btn" style="background:#FCEBEB;color:#A32D2D;border-color:#f5c6c6;font-size:12px;" onclick="solicitarAutorizacaoInadimplente()">
-              Solicitar autorização do gestor
-            </button>
-          </div>`;
-        document.getElementById('form-dados-venda').style.display = 'none';
-        document.getElementById('btn-salvar-venda').style.display = 'none';
-        window._clienteInadimplente = true;
-        window._autorizacaoInadimplenteId = null;
-        return;
-      }
+    if (perfilAtivo.perfil === 'vendedor' && info.qtd_atrasadas > 0) {
+      window._dadosInadimplente = { clienteId: info.cliente_id, nomeCliente: info.nome, qtdAtrasadas: info.qtd_atrasadas, totalAtrasado: info.valor_atrasado };
+      div.innerHTML = `
+        <div class="cliente-encontrado">✓ Cliente encontrado: <strong>${info.nome}</strong> — Código ${info.codigo||'—'}</div>
+        <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:12px 14px;margin-bottom:.75rem;">
+          <div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:6px;">⚠️ Cliente inadimplente</div>
+          <div style="font-size:12px;color:#A32D2D;margin-bottom:8px;">${info.qtd_atrasadas} parcela(s) em atraso — Total: R$ ${Number(info.valor_atrasado).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+          <button class="btn" style="background:#FCEBEB;color:#A32D2D;border-color:#f5c6c6;font-size:12px;" onclick="solicitarAutorizacaoInadimplente()">
+            Solicitar autorização do gestor
+          </button>
+        </div>`;
+      document.getElementById('form-dados-venda').style.display = 'none';
+      document.getElementById('btn-salvar-venda').style.display = 'none';
+      window._clienteInadimplente = true;
+      window._autorizacaoInadimplenteId = null;
+      return;
     }
 
-    if (perfilAtivo.perfil === 'gestor') {
-      const hoje = new Date().toISOString().split('T')[0];
-      const { data: atrasadas } = await sb.from('parcelas')
-        .select('id, valor')
-        .eq('cliente_id', data.id)
-        .eq('pago', false)
-        .neq('status', 'devolvida')
-        .lt('data_vencimento', hoje);
-
-      if (atrasadas && atrasadas.length > 0) {
-        const totalAtrasado = atrasadas.reduce((a, p) => a + Number(p.valor), 0);
-        div.innerHTML = `
-          <div class="cliente-encontrado">✓ Cliente: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>
-          <div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;color:#854F0B;">
-            ⚠️ Atenção: cliente tem ${atrasadas.length} parcela(s) em atraso — R$ ${totalAtrasado.toLocaleString('pt-BR',{minimumFractionDigits:2})}
-          </div>`;
-        window._clienteInadimplente = false;
-        await mostrarFormVenda();
-        return;
-      }
+    if (perfilAtivo.perfil === 'gestor' && info.qtd_atrasadas > 0) {
+      div.innerHTML = `
+        <div class="cliente-encontrado">✓ Cliente: <strong>${info.nome}</strong> — Código ${info.codigo||'—'}</div>
+        <div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;color:#854F0B;">
+          ⚠️ Atenção: cliente tem ${info.qtd_atrasadas} parcela(s) em atraso — R$ ${Number(info.valor_atrasado).toLocaleString('pt-BR',{minimumFractionDigits:2})}
+        </div>`;
+      window._clienteInadimplente = false;
+      await mostrarFormVenda();
+      return;
     }
 
-    div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${data.nome}</strong> — Código ${data.codigo||'—'} — ${data.cidade||''}</div>`;
+    div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${info.nome}</strong> — Código ${info.codigo||'—'}</div>`;
     window._clienteInadimplente = false;
     await mostrarFormVenda();
   } else {
