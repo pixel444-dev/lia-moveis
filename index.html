@@ -878,6 +878,34 @@ const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+async function urlAssinada(bucket, valor, segundos = 3600) {
+  if (!valor) return null;
+  let path = valor;
+  const marcador = `/object/public/${bucket}/`;
+  if (valor.includes(marcador)) path = valor.split(marcador)[1];
+  else if (valor.includes(`/${bucket}/`)) path = valor.split(`/${bucket}/`).pop();
+  try {
+    const { data, error } = await sb.storage.from(bucket)
+      .createSignedUrl(decodeURIComponent(path), segundos);
+    if (error) { Logger?.error?.('storage','URL_ASSINADA','Falha ao assinar',{bucket,erro:error.message}); return null; }
+    return data.signedUrl;
+  } catch(e) { return null; }
+}
+
+async function assinarImagens(container) {
+  const imgs = container.querySelectorAll('img[data-img-bucket]');
+  await Promise.all(Array.from(imgs).map(async el => {
+    const signed = await urlAssinada(el.dataset.imgBucket, el.dataset.imgSrc);
+    if (signed) el.src = signed;
+  }));
+}
+
+async function abrirAssinado(event, bucket, valor) {
+  if (event && event.preventDefault) event.preventDefault();
+  const url = await urlAssinada(bucket, valor);
+  if (url) window.open(url, '_blank');
+}
+
 // ─── LOGGER PROFISSIONAL ──────────────────────────────────────
 const Logger = (() => {
   const CAMPOS_SENSIVEIS = ['senha','password','token','cpf','key','secret','authorization','credit_card','foto','foto_casa'];
@@ -1459,7 +1487,8 @@ async function verDetalhesCliente(clienteId) {
   const atrasadas = emAberto.filter(p => new Date(p.data_vencimento + 'T12:00:00') < hoje);
   const totalAberto = emAberto.reduce((a, p) => a + Number(p.valor), 0);
 
-  document.getElementById('det-foto').src = c.foto_casa || '';
+  const fotoUrl = c.foto_casa ? await urlAssinada('fotos-clientes', c.foto_casa) : null;
+  document.getElementById('det-foto').src = fotoUrl || '';
   document.getElementById('det-foto-wrap').style.display = c.foto_casa ? 'block' : 'none';
   document.getElementById('det-nome').textContent = c.nome;
   const detCodigo = document.getElementById('det-codigo');
@@ -2758,10 +2787,11 @@ async function carregarVisitasHoje() {
 
   var html = '<div style="margin-bottom:1rem;">'
     + '<div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:.75rem;">📅 Visitas agendadas para hoje (' + data.length + ')</div>';
-  data.forEach(function(v) {
+  for (const v of data) {
     var cli = v.clientes || {};
-    var foto = cli.foto_casa
-      ? '<img src="' + cli.foto_casa + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+    var fotoUrl = cli.foto_casa ? await urlAssinada('fotos-clientes', cli.foto_casa) : null;
+    var foto = fotoUrl
+      ? '<img src="' + fotoUrl + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
       : '<div style="width:48px;height:48px;border-radius:8px;background:#f5c6c6;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">📅</div>';
     html += '<div onclick="verDetalhesCliente(\'' + cli.id + '\')" style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
       + foto
@@ -2772,7 +2802,7 @@ async function carregarVisitasHoje() {
       + '</div>'
       + '<span style="font-size:18px;color:#A32D2D;">›</span>'
       + '</div>';
-  });
+  }
   html += '</div>';
   secao.innerHTML = html;
 }
@@ -2930,6 +2960,7 @@ async function renderCicloSelecionado(cicloChave) {
   if (semLoc.length) html += secaoFichasHtml('📋 Sem localidade', semLoc, '#888', '#f0f0f0');
 
   conteudo.innerHTML = html;
+  assinarImagens(conteudo);
 }
 
 function secaoFichasHtml(titulo, fichas, cor, bg) {
@@ -2946,7 +2977,7 @@ function fichaCardHtml(f) {
   const c = f.cliente, p = f.parcela;
   const saldo = Number(p.valor) - Number(p.valor_pago || 0);
   const fotoHtml = c.foto_casa
-    ? '<img src="' + c.foto_casa + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+    ? '<img data-img-bucket="fotos-clientes" data-img-src="' + c.foto_casa + '" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
     : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
   const badgesHtml = (f.novaVenda ? '<span class="badge" style="font-size:10px;background:#E6F1FB;color:#185FA5;font-weight:600;">🆕 Nova venda</span>' : '')
     + (f.remarcada ? '<span class="badge" style="font-size:10px;background:#FAEEDA;color:#854F0B;">📅 Remarcada ' + f.dataEf.toLocaleDateString('pt-BR') + '</span>' : '')
@@ -3019,6 +3050,7 @@ async function carregarClientesPorLocalidade() {
 
   var semLoc = clientes.filter(function(c) { return !c.localidade_id && mapaParcelas[c.id] && mapaParcelas[c.id].total > 0; });
   secaoLoc.innerHTML = htmlLoc || '';
+  assinarImagens(secaoLoc);
   if (secaoGeral) {
     secaoGeral.innerHTML = semLoc.length
       ? '<div style="margin-bottom:1rem;">'
@@ -3029,6 +3061,7 @@ async function carregarClientesPorLocalidade() {
         + renderCardsClientesCobrador(semLoc, mapaParcelas)
         + '</div>'
       : '';
+    assinarImagens(secaoGeral);
   }
 }
 
@@ -3037,7 +3070,7 @@ function renderCardsClientesCobrador(lista, mapaParcelas) {
     var info = mapaParcelas[c.id] || { total: 0, atrasadas: 0 };
     var borda = info.atrasadas > 0 ? '#f5c6c6' : '#e0e0e0';
     var foto = c.foto_casa
-      ? '<img src="' + c.foto_casa + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+      ? '<img data-img-bucket="fotos-clientes" data-img-src="' + c.foto_casa + '" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
       : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
     return '<div onclick="verDetalhesCliente(\'' + c.id + '\')" style="background:#fff;border:1px solid ' + borda + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
       + foto
@@ -3229,8 +3262,9 @@ function renderParcelasEmAbertoMobile(parcelas, showVendaCodigo) {
   }).join('');
 }
 
-function renderParcelasPageasMobile(parcelas) {
-  return parcelas.map(function(p) {
+async function renderParcelasPageasMobile(parcelas) {
+  const partes = [];
+  for (const p of parcelas) {
     const produto = (p.vendas && p.vendas.produto) ? p.vendas.produto : '';
     const produtoSafe = produto.replace(/'/g, "\\'");
     const codigoVenda = (p.vendas && p.vendas.codigo) ? p.vendas.codigo : '';
@@ -3245,15 +3279,19 @@ function renderParcelasPageasMobile(parcelas) {
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">✅ Recebido: ' + (p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">👤 ' + (p.funcionarios && p.funcionarios.nome ? p.funcionarios.nome : '—') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">💳 ' + formaBadge + '</div>';
-    if (p.comprovante_pix) html += '<a href="' + p.comprovante_pix + '" target="_blank" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-bottom:8px;">📎 Ver comprovante PIX</a>';
+    if (p.comprovante_pix) {
+      const comprovanteUrl = await urlAssinada('comprovantes', p.comprovante_pix);
+      html += '<a href="' + (comprovanteUrl||p.comprovante_pix) + '" target="_blank" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-bottom:8px;">📎 Ver comprovante PIX</a>';
+    }
     html += '<div style="font-size:18px;font-weight:700;color:#3B6D11;margin-bottom:10px;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>';
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
     html += '<button class="btn" style="flex:1;padding:10px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa(\'' + p.id + '\',\'' + p.cliente_id + '\',\'' + codigoVenda + '\')">Cancelar baixa</button>';
     html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="verDetalhesParcela(\'' + p.id + '\')">Ver detalhes</button>';
     html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="abrirEditarParcela(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + p.valor + '\',\'' + p.data_vencimento + '\',\'' + produtoSafe + '\',true,\'' + p.cliente_id + '\',\'' + codigoVenda + '\')">Editar</button>';
     html += '</div></div>';
-    return html;
-  }).join('');
+    partes.push(html);
+  }
+  return partes.join('');
 }
 
 async function verDetalhesParcela(parcelaId) {
@@ -3269,12 +3307,13 @@ async function verDetalhesParcela(parcelaId) {
 
   let comprovanteHtml = '';
   if (p.comprovante_pix) {
+    const comprovanteUrl = await urlAssinada('comprovantes', p.comprovante_pix);
     const isPdf = p.comprovante_pix.endsWith('.pdf');
     comprovanteHtml = '<div style="background:#E6F1FB;border-radius:8px;padding:.75rem;">'
       + '<div style="font-size:10px;color:#185FA5;margin-bottom:6px;">COMPROVANTE PIX</div>'
       + (isPdf
-        ? '<a href="' + p.comprovante_pix + '" target="_blank" style="color:#185FA5;font-size:13px;">📄 Abrir comprovante PDF</a>'
-        : '<img src="' + p.comprovante_pix + '" onclick="window.open(\'' + p.comprovante_pix + '\',\'_blank\')" style="width:100%;max-height:250px;object-fit:contain;border-radius:6px;cursor:pointer;border:1px solid #c0dd97;">')
+        ? '<a href="' + (comprovanteUrl||p.comprovante_pix) + '" target="_blank" style="color:#185FA5;font-size:13px;">📄 Abrir comprovante PDF</a>'
+        : '<img src="' + (comprovanteUrl||p.comprovante_pix) + '" onclick="window.open(\'' + (comprovanteUrl||p.comprovante_pix) + '\',\'_blank\')" style="width:100%;max-height:250px;object-fit:contain;border-radius:6px;cursor:pointer;border:1px solid #c0dd97;">')
       + '</div>';
   }
 
@@ -3362,14 +3401,14 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
   }
   let pagasHtml = '';
   if (pagas.length) {
-    const pagasConteudo = mobile ? renderParcelasPageasMobile(pagas) : `
+    const pagasConteudo = mobile ? await renderParcelasPageasMobile(pagas) : `
       <div class="tabela-wrap"><table>
         <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
         <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
           <td>${p.numero}/${p.total_parcelas}</td>
           <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
           <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-          <td><span class="badge verde">Paga</span>${p.comprovante_pix ? `<br><a href="${p.comprovante_pix}" target="_blank" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
+          <td><span class="badge verde">Paga</span>${p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
           <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button></td>
         </tr>`).join('')}</tbody>
       </table></div>`;
@@ -3423,7 +3462,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
   }
   let pagasHtml = '';
   if (pagas.length) {
-    const pagasConteudo = mobile ? renderParcelasPageasMobile(pagas) : `
+    const pagasConteudo = mobile ? await renderParcelasPageasMobile(pagas) : `
       <div class="tabela-wrap"><table>
         <thead><tr><th>Venda</th><th>Parcela</th><th>Vencimento</th><th>Recebido em</th><th>Cobrador</th><th>Forma</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
         <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
@@ -3432,7 +3471,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
           <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
           <td>${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</td>
           <td>${p.funcionarios?.nome||'—'}</td>
-          <td>${p.forma_pagamento ? '<span class="badge '+(p.forma_pagamento==='pix'?'azul':'verde')+'">'+p.forma_pagamento.toUpperCase()+'</span>' : '—'}${p.comprovante_pix ? `<br><a href="${p.comprovante_pix}" target="_blank" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
+          <td>${p.forma_pagamento ? '<span class="badge '+(p.forma_pagamento==='pix'?'azul':'verde')+'">'+p.forma_pagamento.toUpperCase()+'</span>' : '—'}${p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
           <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td><span class="badge verde">Paga</span></td>
           <td>
@@ -3752,7 +3791,7 @@ async function verParcelasDoCliente() {
     html += '<div style="font-size:13px;font-weight:600;color:#888;margin:1rem 0 .5rem;">' + pagas.length + ' parcela(s) paga(s)</div>';
     pagas.forEach(function(p) {
       const comprovante = p.comprovante_pix
-        ? '<a href="' + p.comprovante_pix + '" target="_blank" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:6px;">📎 Ver comprovante PIX</a>'
+        ? '<a href="#" onclick="abrirAssinado(event,\'comprovantes\',\'' + p.comprovante_pix + '\');" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:6px;">📎 Ver comprovante PIX</a>'
         : '';
       html += '<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:12px;padding:1rem;margin-bottom:8px;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
@@ -4624,7 +4663,7 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
         + '<div style="font-size:11px;color:#888;">Venda ' + (b.parcelas?.vendas?.codigo||'—')
         + ' · Parc. ' + (b.parcelas?.numero||'') + '/' + (b.parcelas?.total_parcelas||'')
         + ' · ' + (b.forma_pagamento||'').toUpperCase() + '</div>'
-        + (b.comprovante_pix ? '<a href="' + b.comprovante_pix + '" target="_blank" style="font-size:11px;color:#185FA5;">📎 Comprovante</a>' : '')
+        + (b.comprovante_pix ? '<a href="#" onclick="abrirAssinado(event,\'comprovantes\',\'' + b.comprovante_pix + '\');" style="font-size:11px;color:#185FA5;">📎 Comprovante</a>' : '')
         + '</div>'
         + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">R$ ' + Number(b.valor_recebido).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
         + '</div>'
@@ -4636,7 +4675,7 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
         '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
         + '<div style="flex:1;"><div style="font-size:13px;font-weight:500;">' + (g.descricao||'Gasto') + (g.categoria ? ' · ' + g.categoria : '') + '</div>'
         + '<div style="font-size:11px;color:#888;">' + new Date(g.criado_em).toLocaleDateString('pt-BR') + '</div></div>'
-        + (g.foto_comprovante ? '<img src="' + g.foto_comprovante + '" onclick="window.open(\'' + g.foto_comprovante + '\',\'_blank\')" style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + (g.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + g.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="font-size:14px;font-weight:600;color:#854F0B;">R$ ' + Number(g.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
         + '</div>'
       ).join('')
@@ -4647,7 +4686,7 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
         '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
         + '<div style="flex:1;"><div style="font-size:13px;font-weight:500;">Depósito</div>'
         + '<div style="font-size:11px;color:#888;">' + new Date(d.criado_em).toLocaleDateString('pt-BR') + '</div></div>'
-        + (d.foto_comprovante ? '<img src="' + d.foto_comprovante + '" onclick="window.open(\'' + d.foto_comprovante + '\',\'_blank\')" style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + (d.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + d.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="font-size:14px;font-weight:600;color:#185FA5;">R$ ' + Number(d.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
         + '</div>'
       ).join('')
@@ -4719,6 +4758,7 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
     + '<div>' + depositosHtml + '</div>';
 
   document.getElementById('modal-historico-detalhe').style.display = 'flex';
+  assinarImagens(document.getElementById('hist-detalhe-conteudo'));
 }
 
 async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
@@ -5181,7 +5221,8 @@ async function imprimirCarne() {
   const carneCfg = cfg.carne || {};
   const corRgb = hexToRgb(cfg.cor) || { r: 12, g: 68, b: 124 };
   const nomeLoja = cfg.nome_loja || 'Lia Móveis';
-  const logoData = (carneCfg.mostrar_logo && cfg.logo_url) ? await carregarLogoDataUrl(cfg.logo_url) : null;
+  const logoUrlAssinada = (carneCfg.mostrar_logo && cfg.logo_url) ? await urlAssinada('comprovantes', cfg.logo_url) : null;
+  const logoData = logoUrlAssinada ? await carregarLogoDataUrl(logoUrlAssinada) : null;
 
   const carnes = document.querySelectorAll('.carne-item');
   let col = 0;
