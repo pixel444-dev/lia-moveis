@@ -5660,39 +5660,32 @@ async function carregarEquipeVendedor() {
   listaEl.innerHTML = '<p style="color:#888;font-size:13px;">Carregando...</p>';
   infoEl.innerHTML = '';
 
-  const hoje = new Date().toISOString().split('T')[0];
-  const { data: semana } = await sb.from('semanas_venda')
-    .select('id, numero, data_inicio, data_fim')
-    .lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
-
   const semViagemMsg = '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:1rem 1.25rem;font-size:14px;">Você não está em nenhuma equipe ativa esta semana.<br>Entre em contato com o gestor.</div>';
 
-  if (!semana) { listaEl.innerHTML = semViagemMsg; return; }
+  // Reusar equipeAtiva já carregado — sem re-consultar por semana_id
+  if (!equipeAtiva || equipeAtiva.encerrada === true) {
+    listaEl.innerHTML = semViagemMsg;
+    return;
+  }
 
-  const { data: membros } = await sb.from('equipe_membros')
-    .select('equipe_id, papel')
-    .eq('funcionario_id', funcionarioLogado.id);
+  const equipe = equipeAtiva;
+  const semana = equipe.semanas_venda; // vem do select em carregarEquipeAtivaVendedor
 
-  if (!membros?.length) { listaEl.innerHTML = semViagemMsg; return; }
+  // Só buscar os membros (não incluídos no equipeAtiva global)
+  const { data: membrosRaw } = await sb.from('equipe_membros')
+    .select('funcionario_id, papel, funcionarios(nome)')
+    .eq('equipe_id', equipe.id);
+  const membros = membrosRaw || [];
+  equipe.equipe_membros = membros; // disponibiliza para o render de membros
 
-  const equipeIds = membros.map(m => m.equipe_id);
+  const meuMembro = membros.find(m => m.funcionario_id === funcionarioLogado.id);
+  const papelLabel = meuMembro?.papel === 'chefe' ? 'Chefe de equipe' : 'Ajudante';
 
-  const { data: equipe } = await sb.from('equipes')
-    .select('*, caminhoes(identificacao, placa), equipe_membros(funcionario_id, papel, funcionarios(nome))')
-    .in('id', equipeIds)
-    .eq('semana_id', semana.id)
-    .eq('encerrada', false)
-    .maybeSingle();
-
-  if (!equipe) { listaEl.innerHTML = semViagemMsg; return; }
-
-  const meuMembro = membros.find(m => m.equipe_id === equipe.id);
-  const meuPapel = meuMembro?.papel;
-  const papelLabel = meuPapel === 'chefe' ? 'Chefe de equipe' : 'Ajudante';
-
-  const di = new Date(semana.data_inicio+'T12:00:00').toLocaleDateString('pt-BR');
-  const df = new Date(semana.data_fim+'T12:00:00').toLocaleDateString('pt-BR');
-  infoEl.innerHTML = `Semana ${semana.numero} — <strong>${di}</strong> a <strong>${df}</strong>`;
+  if (semana) {
+    const di = new Date(semana.data_inicio+'T12:00:00').toLocaleDateString('pt-BR');
+    const df = new Date(semana.data_fim+'T12:00:00').toLocaleDateString('pt-BR');
+    infoEl.innerHTML = `Semana ${semana.numero} — <strong>${di}</strong> a <strong>${df}</strong>`;
+  }
 
   const [{ data: estoque }, { data: vendasBruto, error: errV }] = await Promise.all([
     sb.from('equipe_estoque').select('*').eq('equipe_id', equipe.id),
