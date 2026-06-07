@@ -1138,7 +1138,7 @@ function pg(nome, el) {
   el.classList.add('active');
   if (nome === 'clientes') carregarClientes();
   if (nome === 'funcionarios') carregarFuncionarios();
-  if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => carregarVendas());
+  if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarVendas(); });
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'localidades') carregarLocalidades();
   if (nome === 'ciclos') carregarCiclos();
@@ -1146,7 +1146,7 @@ function pg(nome, el) {
   if (nome === 'historico-caixas') carregarHistoricoCaixas();
   if (nome === 'meu-historico') carregarMeuHistorico();
   if (nome === 'config-impressao') carregarConfigImpressao();
-  if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => carregarEquipes());
+  if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarEquipes(); });
   if (nome === 'usuarios') carregarUsuarios();
 }
 
@@ -2138,19 +2138,22 @@ async function carregarVendas() {
   carregarAutorizacoesPendentes();
 }
 
+function atualizarAvisoEquipe() {
+  const semEquipe = !equipeAtiva || equipeAtiva.encerrada === true;
+  const aviso = document.getElementById('aviso-sem-equipe');
+  if (aviso) aviso.style.display = semEquipe ? 'block' : 'none';
+  const btnNova = document.getElementById('btn-nova-venda');
+  if (btnNova) btnNova.style.display = semEquipe ? 'none' : 'block';
+}
+
 async function carregarVendasVendedor() {
   const lista = document.getElementById('lista-vendas');
   await carregarEquipeAtivaVendedor();
-  const btnNovaVenda = document.getElementById('btn-nova-venda');
-  const avisoSemEquipe = document.getElementById('aviso-sem-equipe');
-  if (!equipeAtiva) {
-    if (btnNovaVenda) btnNovaVenda.style.display = 'none';
-    if (avisoSemEquipe) avisoSemEquipe.style.display = 'block';
+  atualizarAvisoEquipe();
+  if (!equipeAtiva || equipeAtiva.encerrada === true) {
     lista.innerHTML = '';
     return;
   }
-  if (btnNovaVenda) btnNovaVenda.style.display = '';
-  if (avisoSemEquipe) avisoSemEquipe.style.display = 'none';
   const { data, error } = await sb.from('vendas')
     .select('*, clientes(nome, codigo), funcionarios(nome)')
     .eq('equipe_id', equipeAtiva.id)
