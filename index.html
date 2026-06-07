@@ -987,6 +987,27 @@ let pollInterval = null;
 let gestorPollInterval = null;
 const isMobile = () => window.innerWidth <= 768;
 
+// === Logout automático por inatividade ===
+const TEMPO_INATIVIDADE_MS = 30 * 60 * 1000; // 30 minutos
+let timerInatividade = null;
+
+function reiniciarTimerInatividade() {
+  if (timerInatividade) clearTimeout(timerInatividade);
+  timerInatividade = setTimeout(async () => {
+    try { await sb.auth.signOut(); } catch(e) {}
+    alert('Sessão encerrada por inatividade. Faça login novamente.');
+    location.reload();
+  }, TEMPO_INATIVIDADE_MS);
+}
+
+function pararTimerInatividade() {
+  if (timerInatividade) { clearTimeout(timerInatividade); timerInatividade = null; }
+}
+
+['click','keydown','mousemove','touchstart','scroll'].forEach(ev =>
+  document.addEventListener(ev, reiniciarTimerInatividade, { passive: true })
+);
+
 async function entrar() {
   const email = document.getElementById('usuario').value.trim();
   const senha = document.getElementById('senha').value;
@@ -999,6 +1020,7 @@ async function entrar() {
 }
 
 async function sair() {
+  pararTimerInatividade();
   await sb.auth.signOut();
   if (gestorPollInterval) { clearInterval(gestorPollInterval); gestorPollInterval = null; }
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
@@ -1047,6 +1069,7 @@ async function iniciarSessao(user) {
   document.getElementById('app').style.display = 'flex';
   document.getElementById('topbar-mobile').style.removeProperty('display');
   document.getElementById('msg-login').innerHTML = '';
+  reiniciarTimerInatividade();
   if (perfilAtivo.perfil === 'cobrador') {
     aplicarPermissoes(perfilAtivo.perfil);
     carregarDashboard();
