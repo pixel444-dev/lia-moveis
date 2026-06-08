@@ -324,6 +324,10 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" data-page="carnes" onclick="pg('carnes',this)"><span class="nav-ico">🖨️</span>Carnês</div>
       <div class="nav-item" data-page="config-impressao" onclick="pg('config-impressao',this)"><span class="nav-ico">⚙️</span>Configurar layout</div>
     </div>
+    <div class="nav-grupo">
+      <div class="nav-sep">Conta</div>
+      <div class="nav-item" data-page="seguranca" onclick="pg('seguranca',this)"><span class="nav-ico">🔒</span>Segurança</div>
+    </div>
     <div id="info-usuario-logado" style="padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;font-size:12px;color:#555;line-height:1.4;"></div>
     <div class="logout">
       <button onclick="sair()">Sair do sistema</button>
@@ -576,6 +580,18 @@ tr:hover td{background:#fafafa;}
         </div>
 
         <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;" onclick="salvarConfigImpressao()">Salvar configurações</button>
+      </div>
+    </div>
+
+    <div class="page" id="page-seguranca">
+      <div class="page-title">Segurança</div>
+      <div style="max-width:480px;">
+        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
+          <div style="font-size:13px;font-weight:700;color:#185FA5;margin-bottom:.5rem;">🔑 Verificação em duas etapas (2FA)</div>
+          <div style="font-size:13px;color:#555;margin-bottom:1rem;">Adicione uma camada extra de segurança. Após o login, você precisará digitar um código gerado pelo seu app autenticador (Google Authenticator, Authy, etc.).</div>
+          <div id="seg-status" style="margin-bottom:1rem;"></div>
+          <div id="seg-configurar"></div>
+        </div>
       </div>
     </div>
 
@@ -1036,6 +1052,82 @@ async function sair() {
   document.getElementById('autorizacoes-wrap').style.display = 'none';
 }
 
+// === SEGURANÇA / 2FA ===
+async function carregarPaginaSeguranca() {
+  const statusEl = document.getElementById('seg-status');
+  const configurarEl = document.getElementById('seg-configurar');
+  if (!statusEl || !configurarEl) return;
+  statusEl.innerHTML = '<span style="color:#888;font-size:13px;">Verificando...</span>';
+  configurarEl.innerHTML = '';
+
+  const { data: fatores } = await sb.auth.mfa.listFactors();
+  const verificado = (fatores?.all || []).find(f => f.status === 'verified' && f.factor_type === 'totp');
+
+  if (verificado) {
+    statusEl.innerHTML = '<span class="badge verde" style="font-size:13px;padding:6px 12px;">✅ 2FA ativo</span>';
+    configurarEl.innerHTML = '<button class="btn" style="margin-top:.5rem;color:#A32D2D;border-color:#f5c6c6;" onclick="desativar2FA(\'' + verificado.id + '\')">Desativar 2FA</button>';
+  } else {
+    statusEl.innerHTML = '<span class="badge cinza" style="font-size:13px;padding:6px 12px;">⚪ 2FA inativo</span>';
+    configurarEl.innerHTML = '<button class="btn primario" style="margin-top:.5rem;" onclick="iniciarCadastro2FA()">Ativar verificação em duas etapas</button>';
+  }
+}
+
+async function iniciarCadastro2FA() {
+  const configurarEl = document.getElementById('seg-configurar');
+  configurarEl.innerHTML = '<span style="color:#888;font-size:13px;">Aguarde...</span>';
+
+  const { data: fatores } = await sb.auth.mfa.listFactors();
+  const pendentes = (fatores?.all || []).filter(f => f.status !== 'verified');
+  for (const f of pendentes) { await sb.auth.mfa.unenroll({ factorId: f.id }); }
+
+  const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Autenticador-' + Date.now() });
+  if (error) { alert('Erro ao iniciar 2FA: ' + error.message); carregarPaginaSeguranca(); return; }
+
+  const factorId = data.id;
+  configurarEl.innerHTML =
+    '<div style="display:flex;flex-direction:column;gap:1rem;">'
+    + '<div>'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:.5rem;">1. Escaneie o QR Code</div>'
+    + '<div style="font-size:12px;color:#555;margin-bottom:.75rem;">Abra o app autenticador e escaneie o código abaixo.</div>'
+    + '<img src="' + data.totp.qr_code + '" style="width:180px;height:180px;border:1px solid #e0e0e0;border-radius:8px;display:block;">'
+    + '</div>'
+    + '<div>'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:.25rem;">Não consegue escanear? Insira manualmente:</div>'
+    + '<code style="display:block;background:#f5f5f5;padding:8px 12px;border-radius:6px;font-size:12px;letter-spacing:.05em;word-break:break-all;color:#1a1a1a;">' + data.totp.secret + '</code>'
+    + '</div>'
+    + '<div>'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:.5rem;">2. Digite o código de 6 dígitos gerado</div>'
+    + '<div style="display:flex;gap:8px;align-items:center;">'
+    + '<input id="seg-codigo-2fa" type="text" inputmode="numeric" maxlength="6" placeholder="000000" style="width:140px;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:22px;letter-spacing:.2em;text-align:center;" onkeydown="if(event.key===\'Enter\')confirmarCadastro2FA(\'' + factorId + '\')">'
+    + '<button class="btn primario" onclick="confirmarCadastro2FA(\'' + factorId + '\')">Confirmar</button>'
+    + '</div>'
+    + '</div>'
+    + '<button class="btn" style="color:#888;align-self:flex-start;" onclick="carregarPaginaSeguranca()">Cancelar</button>'
+    + '</div>';
+
+  setTimeout(() => { const inp = document.getElementById('seg-codigo-2fa'); if (inp) inp.focus(); }, 100);
+}
+
+async function confirmarCadastro2FA(factorId) {
+  const codigo = (document.getElementById('seg-codigo-2fa')?.value || '').replace(/\D/g, '');
+  if (codigo.length !== 6) { alert('Digite os 6 dígitos do código.'); return; }
+
+  const { data: ch, error: e1 } = await sb.auth.mfa.challenge({ factorId });
+  if (e1) { alert('Erro: ' + e1.message); return; }
+  const { error: e2 } = await sb.auth.mfa.verify({ factorId, challengeId: ch.id, code: codigo });
+  if (e2) { alert('Código incorreto. Tente novamente.'); return; }
+
+  alert('2FA ativado com sucesso! No próximo login você precisará confirmar o código do autenticador.');
+  carregarPaginaSeguranca();
+}
+
+async function desativar2FA(factorId) {
+  if (!confirm('Desativar a verificação em duas etapas? Sua conta ficará menos segura.')) return;
+  const { error } = await sb.auth.mfa.unenroll({ factorId });
+  if (error) { alert('Erro ao desativar: ' + error.message); return; }
+  carregarPaginaSeguranca();
+}
+
 async function iniciarSessao(user) {
   const { data: dados, error } = await sb.rpc('meus_dados_login');
   const d = Array.isArray(dados) ? dados[0] : dados;
@@ -1197,6 +1289,7 @@ function pg(nome, el) {
   if (nome === 'historico-caixas') carregarHistoricoCaixas();
   if (nome === 'meu-historico') carregarMeuHistorico();
   if (nome === 'config-impressao') carregarConfigImpressao();
+  if (nome === 'seguranca') carregarPaginaSeguranca();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarEquipes(); });
   if (nome === 'usuarios') carregarUsuarios();
 }
