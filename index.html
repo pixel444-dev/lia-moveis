@@ -246,16 +246,29 @@ tr:hover td{background:#fafafa;}
       <div style="font-size:26px;font-weight:700;color:#0C447C;">Ascend</div>
       <div style="font-size:12px;color:#888;letter-spacing:.08em;">GESTÃO DE VENDAS E COBRANÇAS</div>
     </div>
-    <div class="form-group">
-      <label>Email</label>
-      <input type="email" id="usuario" placeholder="seu@email.com" />
+    <div id="login-form-step">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="usuario" placeholder="seu@email.com" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="senha" placeholder="Digite sua senha" onkeydown="if(event.key==='Enter')entrar()" />
+      </div>
+      <button class="btn-login" onclick="entrar()">Entrar</button>
+      <div id="msg-login"></div>
     </div>
-    <div class="form-group">
-      <label>Senha</label>
-      <input type="password" id="senha" placeholder="Digite sua senha" onkeydown="if(event.key==='Enter')entrar()" />
+    <div id="login-2fa-step" style="display:none;">
+      <div style="font-size:15px;font-weight:700;color:#0C447C;margin-bottom:.5rem;text-align:center;">Verificação em duas etapas</div>
+      <div style="font-size:13px;color:#555;margin-bottom:1.25rem;text-align:center;">Digite o código de 6 dígitos gerado pelo seu app autenticador.</div>
+      <div class="form-group">
+        <label>Código de verificação</label>
+        <input type="text" id="login-codigo-2fa" inputmode="numeric" maxlength="6" placeholder="000000" style="text-align:center;font-size:22px;letter-spacing:.25em;width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;outline:none;" onkeydown="if(event.key==='Enter')submitCodigo2FA()">
+      </div>
+      <div id="msg-2fa" style="margin-bottom:.5rem;"></div>
+      <button class="btn-login" onclick="submitCodigo2FA()">Verificar</button>
+      <button style="width:100%;margin-top:.5rem;background:none;border:1px solid #ddd;padding:10px;border-radius:8px;font-size:13px;color:#666;cursor:pointer;" onclick="cancelarLogin2FA()">Sair e voltar ao login</button>
     </div>
-    <button class="btn-login" onclick="entrar()">Entrar</button>
-    <div id="msg-login"></div>
     <div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #f0f0f0;text-align:center;">
       <div style="font-size:10px;color:#ccc;">Criado por Gabriel Sistemas</div>
       <div style="font-size:10px;color:#ccc;">WhatsApp (88) 9 9936-2227</div>
@@ -1032,7 +1045,60 @@ async function entrar() {
   msg.innerHTML = '<div class="msg" style="color:#666;">Entrando...</div>';
   const { data, error } = await sb.auth.signInWithPassword({ email, password: senha });
   if (error) { msg.innerHTML = '<div class="msg erro">Email ou senha incorretos.</div>'; return; }
+  if (await precisaDesafio2FA()) {
+    window._userPendente2FA = data.user;
+    msg.innerHTML = '';
+    document.getElementById('login-form-step').style.display = 'none';
+    document.getElementById('login-2fa-step').style.display = 'block';
+    setTimeout(() => { const el = document.getElementById('login-codigo-2fa'); if (el) el.focus(); }, 80);
+    return;
+  }
   await iniciarSessao(data.user);
+}
+
+async function precisaDesafio2FA() {
+  const { data, error } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error) return false;
+  return data.currentLevel === 'aal1' && data.nextLevel === 'aal2';
+}
+
+async function verificarCodigo2FA(codigo) {
+  const { data: fatores, error: eF } = await sb.auth.mfa.listFactors();
+  if (eF) return { error: eF };
+  const totp = (fatores?.totp || []).find(f => f.status === 'verified');
+  if (!totp) return { error: { message: 'Nenhum fator 2FA encontrado.' } };
+  const { data: ch, error: e1 } = await sb.auth.mfa.challenge({ factorId: totp.id });
+  if (e1) return { error: e1 };
+  return await sb.auth.mfa.verify({ factorId: totp.id, challengeId: ch.id, code: codigo });
+}
+
+async function submitCodigo2FA() {
+  const codigo = (document.getElementById('login-codigo-2fa')?.value || '').replace(/\D/g, '');
+  const msg = document.getElementById('msg-2fa');
+  if (codigo.length !== 6) { msg.innerHTML = '<div class="msg erro">Digite os 6 dígitos.</div>'; return; }
+  msg.innerHTML = '<div class="msg" style="color:#666;">Verificando...</div>';
+  const result = await verificarCodigo2FA(codigo);
+  if (result?.error) {
+    msg.innerHTML = '<div class="msg erro">Código incorreto. Tente novamente.</div>';
+    const inp = document.getElementById('login-codigo-2fa');
+    inp.value = '';
+    inp.focus();
+    return;
+  }
+  msg.innerHTML = '';
+  const user = window._userPendente2FA;
+  window._userPendente2FA = null;
+  await iniciarSessao(user);
+}
+
+async function cancelarLogin2FA() {
+  await sb.auth.signOut();
+  window._userPendente2FA = null;
+  document.getElementById('login-2fa-step').style.display = 'none';
+  document.getElementById('login-form-step').style.display = 'block';
+  document.getElementById('login-codigo-2fa').value = '';
+  document.getElementById('msg-2fa').innerHTML = '';
+  document.getElementById('msg-login').innerHTML = '';
 }
 
 async function sair() {
