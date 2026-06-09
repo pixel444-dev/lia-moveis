@@ -3779,6 +3779,8 @@ async function carregarLocalidades() {
 function renderLocalidades(lista, mapaContagem) {
   const container = document.getElementById('lista-localidades');
   if (!container) return;
+
+  if (!lista.length) {
     container.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:48px;margin-bottom:.75rem;">🗺️</div><div style="font-size:14px;margin-bottom:.5rem;">Nenhuma localidade criada ainda</div><div style="font-size:12px;">Crie localidades para organizar sua rota de cobranças</div></div>';
     return;
   }
