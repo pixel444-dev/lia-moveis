@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#1a1a1a;}
@@ -229,6 +230,42 @@ tr:hover td{background:#fafafa;}
   .card-linha-row span:first-child{color:#999;font-size:12px;}
   .card-linha-acoes{margin-top:.625rem;display:flex;gap:8px;flex-wrap:wrap;}
 }
+/* Dashboard gestor */
+.dash-pills{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem;}
+.dash-pill{padding:6px 14px;border-radius:20px;border:1px solid #ccc;background:#fff;font-size:13px;cursor:pointer;color:#444;}
+.dash-pill:hover{border-color:#185FA5;color:#185FA5;}
+.dash-pill-ativo{border-color:#185FA5;background:#185FA5;color:#fff;}
+.dash-pill-ativo:hover{background:#0C447C;}
+.dash-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem;margin-bottom:1.25rem;}
+.dash-kpi{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:1rem;}
+.dash-kpi .kpi-label{font-size:11px;color:#888;margin-bottom:.25rem;text-transform:uppercase;letter-spacing:.5px;}
+.dash-kpi .kpi-val{font-size:20px;font-weight:700;color:#1a1a1a;}
+.dash-kpi .kpi-sub{font-size:11px;color:#888;margin-top:.2rem;}
+.dash-kpi.verde .kpi-val{color:#2A7C3E;}
+.dash-kpi.azul .kpi-val{color:#185FA5;}
+.dash-kpi.vermelho .kpi-val{color:#C0392B;}
+.dash-alertas{padding:.75rem 1rem;border-radius:8px;background:#FFF8E1;border:1px solid #FFD600;color:#7A5C00;font-size:13px;margin-bottom:1.25rem;display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;}
+.dash-alertas .alerta-item{display:flex;align-items:center;gap:.35rem;}
+.dash-alertas .alerta-num{font-weight:700;font-size:16px;}
+.dash-secao{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:1rem;margin-bottom:1rem;}
+.dash-secao-titulo{font-size:14px;font-weight:600;color:#333;margin-bottom:.75rem;}
+.dash-tabela{width:100%;border-collapse:collapse;font-size:13px;}
+.dash-tabela th{font-weight:600;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:4px 8px 8px;}
+.dash-tabela td{padding:6px 8px;border-top:1px solid #f0f0f0;vertical-align:middle;}
+.dash-tabela tr:hover td{background:#f7f9ff;}
+.dash-equipes{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem;}
+.dash-equipe-card{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:.875rem;}
+.dash-equipe-card .eq-rota{font-weight:700;font-size:15px;color:#185FA5;margin-bottom:.25rem;}
+.dash-equipe-card .eq-chefe{font-size:12px;color:#888;margin-bottom:.5rem;}
+.dash-equipe-card .eq-linha{display:flex;justify-content:space-between;font-size:13px;padding:2px 0;}
+.dash-equipe-card .eq-meta{margin-top:.5rem;height:6px;background:#eee;border-radius:3px;overflow:hidden;}
+.dash-equipe-card .eq-meta-bar{height:100%;background:#185FA5;border-radius:3px;transition:width .4s;}
+.dash-chart-wrap{position:relative;height:200px;}
+@keyframes dashSkel{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.dash-skel{background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%;animation:dashSkel 1.5s infinite;border-radius:8px;height:80px;}
+@media(max-width:700px){
+  #dash-rankings-wrap{grid-template-columns:1fr!important;}
+}
 </style>
 </head>
 <body>
@@ -356,8 +393,8 @@ tr:hover td{background:#fafafa;}
     <div id="autorizacoes-wrap" style="display:none;margin-bottom:1rem;"></div>
 
     <div class="page active" id="page-dashboard">
-      <div class="page-title">Dashboard — visão geral</div>
-      <div class="cards-grid" id="metricas-dashboard"></div>
+      <div class="page-title">Dashboard</div>
+      <div id="dash-inner"></div>
     </div>
 
     <div class="page" id="page-clientes">
@@ -1299,6 +1336,7 @@ function aplicarPermissoes(perfil) {
 
   // Visibilidade por data-page (robusto contra emojis no textContent)
   const regras = {
+    dashboard:           gestor,
     funcionarios:        gestor,
     usuarios:            gestor,
     importacao:          gestor,
@@ -1345,6 +1383,7 @@ function pg(nome, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + nome).classList.add('active');
   el.classList.add('active');
+  if (nome === 'dashboard') carregarDashboard();
   if (nome === 'clientes') carregarClientes();
   if (nome === 'funcionarios') carregarFuncionarios();
   if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarVendas(); });
@@ -1589,21 +1628,198 @@ async function gerarCodigoVenda() {
   return String(parseInt(data[0].codigo) + 1).padStart(5, '0');
 }
 
+let _dashPeriodo = '30d';
+let _dashChart = null;
+
+function _dashDatas(periodo) {
+  const hoje = new Date();
+  const fim = hoje.toISOString().split('T')[0];
+  let inicio;
+  if (periodo === 'hoje') {
+    inicio = fim;
+  } else if (periodo === '7d') {
+    const d = new Date(hoje); d.setDate(d.getDate() - 6); inicio = d.toISOString().split('T')[0];
+  } else if (periodo === 'mes') {
+    inicio = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-01';
+  } else {
+    const d = new Date(hoje); d.setDate(d.getDate() - 29); inicio = d.toISOString().split('T')[0];
+  }
+  return { inicio, fim };
+}
+
+async function setDashPeriodo(periodo) {
+  _dashPeriodo = periodo;
+  document.querySelectorAll('.dash-pill').forEach(function(p) {
+    p.classList.toggle('dash-pill-ativo', p.dataset.periodo === periodo);
+  });
+  await _carregarDashDados();
+}
+
 async function carregarDashboard() {
-  const { data: clientes } = await sb.from('clientes').select('id', { count: 'exact' });
-  const { data: funcionarios } = await sb.from('funcionarios').select('id', { count: 'exact' });
-  const { data: vendas } = await sb.from('vendas').select('valor');
-  const totalVendas = vendas ? vendas.reduce((a, v) => a + Number(v.valor), 0) : 0;
-  const { data: cobrancas } = await sb.from('movimentacoes_cobranca').select('valor').eq('tipo', 'cobranca');
-  const totalCob = cobrancas ? cobrancas.reduce((a, v) => a + Number(v.valor), 0) : 0;
-  const { data: vendasHoje } = await sb.from('vendas').select('valor').gte('data_venda', new Date().toISOString().split('T')[0]);
-  const totalHoje = vendasHoje ? vendasHoje.reduce((a, v) => a + Number(v.valor), 0) : 0;
-  document.getElementById('metricas-dashboard').innerHTML = `
-    <div class="card-metrica"><div class="label">Clientes cadastrados</div><div class="valor azul">${(clientes||[]).length}</div></div>
-    <div class="card-metrica"><div class="label">Funcionários</div><div class="valor">${(funcionarios||[]).length}</div></div>
-    <div class="card-metrica"><div class="label">Vendas hoje</div><div class="valor verde">R$ ${totalHoje.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
-    <div class="card-metrica"><div class="label">Total vendido</div><div class="valor verde">R$ ${totalVendas.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>
-    <div class="card-metrica"><div class="label">Total cobrado</div><div class="valor azul">R$ ${totalCob.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div></div>`;
+  if (perfilAtivo?.perfil !== 'gestor') {
+    if (perfilAtivo?.perfil === 'cobrador') {
+      const el = document.querySelector('.nav-item[data-page="cobrancas"]');
+      if (el) pg('cobrancas', el);
+    }
+    return;
+  }
+  const inner = document.getElementById('dash-inner');
+  if (!inner) return;
+
+  if (!document.getElementById('dash-kpis')) {
+    inner.innerHTML =
+      '<div class="dash-pills">' +
+        '<button class="dash-pill" data-periodo="hoje" onclick="setDashPeriodo(\'hoje\')">Hoje</button>' +
+        '<button class="dash-pill" data-periodo="7d" onclick="setDashPeriodo(\'7d\')">7 dias</button>' +
+        '<button class="dash-pill dash-pill-ativo" data-periodo="30d" onclick="setDashPeriodo(\'30d\')">30 dias</button>' +
+        '<button class="dash-pill" data-periodo="mes" onclick="setDashPeriodo(\'mes\')">Mês atual</button>' +
+      '</div>' +
+      '<div id="dash-alertas-bar" style="display:none;" class="dash-alertas"></div>' +
+      '<div id="dash-kpis" class="dash-kpis"></div>' +
+      '<div class="dash-secao">' +
+        '<div class="dash-secao-titulo">Recebimentos — últimos 30 dias</div>' +
+        '<div class="dash-chart-wrap"><canvas id="dash-chart"></canvas></div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;" id="dash-rankings-wrap">' +
+        '<div class="dash-secao" id="dash-cobradores-secao"><div class="dash-secao-titulo">Cobradores</div><div id="dash-cobradores"></div></div>' +
+        '<div class="dash-secao" id="dash-vendedores-secao"><div class="dash-secao-titulo">Vendedores</div><div id="dash-vendedores"></div></div>' +
+      '</div>' +
+      '<div class="dash-secao"><div class="dash-secao-titulo">Equipes</div><div id="dash-equipes" class="dash-equipes"></div></div>';
+    _dashPeriodo = '30d';
+  }
+
+  await _carregarDashDados();
+}
+
+async function _carregarDashDados() {
+  const { inicio, fim } = _dashDatas(_dashPeriodo);
+  const kpisEl = document.getElementById('dash-kpis');
+  if (kpisEl) kpisEl.innerHTML = Array(6).fill('<div class="dash-skel"></div>').join('');
+
+  const [rRes, cRes, vRes, eRes, rdRes, alRes] = await Promise.all([
+    sb.rpc('dashboard_resumo', { p_inicio: inicio, p_fim: fim }),
+    sb.rpc('dashboard_cobradores', { p_inicio: inicio, p_fim: fim }),
+    sb.rpc('dashboard_vendedores', { p_inicio: inicio, p_fim: fim }),
+    sb.rpc('dashboard_equipes'),
+    sb.rpc('dashboard_recebimentos_dia'),
+    sb.rpc('dashboard_alertas'),
+  ]);
+
+  const r = (rRes.data && rRes.data[0]) || {};
+  const al = (alRes.data && alRes.data[0]) || {};
+
+  _renderAlertas(al);
+  _renderKpis(r);
+  _renderChart(rdRes.data || []);
+  _renderCobradores(cRes.data || []);
+  _renderVendedores(vRes.data || []);
+  _renderEquipes(eRes.data || []);
+}
+
+function _brl(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function _renderAlertas(al) {
+  const bar = document.getElementById('dash-alertas-bar');
+  if (!bar) return;
+  const aut = Number(al.autorizacoes_pendentes || 0);
+  const bx = Number(al.baixas_pendentes || 0);
+  const cx = Number(al.caixas_abertas || 0);
+  if (!aut && !bx && !cx) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  let html = '<span style="font-weight:600;margin-right:.5rem;">⚠ Atenção:</span>';
+  if (aut) html += '<span class="alerta-item"><span class="alerta-num">' + aut + '</span> autorização' + (aut > 1 ? 'ões' : '') + ' pendente' + (aut > 1 ? 's' : '') + '</span>';
+  if (bx) html += '<span class="alerta-item"><span class="alerta-num">' + bx + '</span> baixa' + (bx > 1 ? 's' : '') + ' pendente' + (bx > 1 ? 's' : '') + '</span>';
+  if (cx) {
+    const mais = al.caixa_mais_antiga ? ' (+ antiga: ' + new Date(al.caixa_mais_antiga).toLocaleDateString('pt-BR') + ')' : '';
+    html += '<span class="alerta-item"><span class="alerta-num">' + cx + '</span> caixa' + (cx > 1 ? 's' : '') + ' aberta' + (cx > 1 ? 's' : '') + mais + '</span>';
+  }
+  bar.innerHTML = html;
+}
+
+function _renderKpis(r) {
+  const el = document.getElementById('dash-kpis');
+  if (!el) return;
+  const atrasadoClientes = Number(r.atrasado_clientes || 0);
+  const atrasadoVal = Number(r.atrasado_valor || 0);
+  el.innerHTML =
+    '<div class="dash-kpi azul"><div class="kpi-label">Recebido no período</div><div class="kpi-val">R$ ' + _brl(r.recebido_periodo) + '</div></div>' +
+    '<div class="dash-kpi verde"><div class="kpi-label">Recebido hoje</div><div class="kpi-val">R$ ' + _brl(r.recebido_hoje) + '</div></div>' +
+    '<div class="dash-kpi"><div class="kpi-label">Em mãos (cobradores)</div><div class="kpi-val">R$ ' + _brl(r.em_maos) + '</div></div>' +
+    '<div class="dash-kpi azul"><div class="kpi-label">A receber</div><div class="kpi-val">R$ ' + _brl(r.a_receber) + '</div></div>' +
+    '<div class="dash-kpi' + (atrasadoVal > 0 ? ' vermelho' : '') + '"><div class="kpi-label">Atrasado</div><div class="kpi-val">R$ ' + _brl(r.atrasado_valor) + '</div><div class="kpi-sub">' + atrasadoClientes + ' cliente' + (atrasadoClientes !== 1 ? 's' : '') + '</div></div>' +
+    '<div class="dash-kpi verde"><div class="kpi-label">Vendas no período</div><div class="kpi-val">R$ ' + _brl(r.vendas_valor) + '</div><div class="kpi-sub">' + Number(r.vendas_qtd || 0) + ' venda' + (Number(r.vendas_qtd || 0) !== 1 ? 's' : '') + '</div></div>';
+}
+
+function _renderChart(dados) {
+  const canvas = document.getElementById('dash-chart');
+  if (!canvas || !window.Chart) return;
+  if (_dashChart) { _dashChart.destroy(); _dashChart = null; }
+  const labels = dados.map(function(d) {
+    const dt = new Date(d.dia + 'T00:00:00');
+    return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  });
+  const valores = dados.map(function(d) { return Number(d.total || 0); });
+  _dashChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{ label: 'Recebido', data: valores, backgroundColor: '#185FA5', borderRadius: 4, borderSkipped: false }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(ctx) { return 'R$ ' + ctx.parsed.y.toLocaleString('pt-BR', { minimumFractionDigits: 2 }); } } },
+      },
+      scales: {
+        y: { ticks: { callback: function(v) { return 'R$ ' + v.toLocaleString('pt-BR'); } }, grid: { color: '#f0f0f0' } },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+}
+
+function _renderCobradores(lista) {
+  const el = document.getElementById('dash-cobradores');
+  if (!el) return;
+  if (!lista.length) { el.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado.</p>'; return; }
+  el.innerHTML = '<table class="dash-tabela"><thead><tr><th>Cobrador</th><th>Recebido</th><th>Em mãos</th></tr></thead><tbody>' +
+    lista.map(function(c) { return '<tr><td>' + c.nome + '</td><td>R$ ' + _brl(c.recebido) + '</td><td>R$ ' + _brl(c.em_maos) + '</td></tr>'; }).join('') +
+    '</tbody></table>';
+}
+
+function _renderVendedores(lista) {
+  const el = document.getElementById('dash-vendedores');
+  if (!el) return;
+  if (!lista.length) { el.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado.</p>'; return; }
+  el.innerHTML = '<table class="dash-tabela"><thead><tr><th>Vendedor</th><th>Qtd</th><th>Total</th></tr></thead><tbody>' +
+    lista.map(function(v) { return '<tr><td>' + v.nome + '</td><td>' + v.qtd + '</td><td>R$ ' + _brl(v.total) + '</td></tr>'; }).join('') +
+    '</tbody></table>';
+}
+
+function _renderEquipes(lista) {
+  const el = document.getElementById('dash-equipes');
+  if (!el) return;
+  if (!lista.length) { el.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado.</p>'; return; }
+  el.innerHTML = lista.map(function(e) {
+    const meta = Number(e.meta || 0);
+    const valor = Number(e.vendas_valor || 0);
+    const pct = meta > 0 ? Math.min(100, Math.round(valor / meta * 100)) : 0;
+    return '<div class="dash-equipe-card">' +
+      '<div class="eq-rota">' + (e.rota || '—') + '</div>' +
+      '<div class="eq-chefe">' + (e.chefe || '—') + '</div>' +
+      '<div class="eq-linha"><span>Vendas</span><span>' + Number(e.vendas_qtd || 0) + '</span></div>' +
+      '<div class="eq-linha"><span>Valor</span><span>R$ ' + _brl(e.vendas_valor) + '</span></div>' +
+      (meta > 0 ?
+        '<div class="eq-linha"><span>Meta</span><span>R$ ' + _brl(e.meta) + '</span></div>' +
+        '<div class="eq-meta"><div class="eq-meta-bar" style="width:' + pct + '%"></div></div>' +
+        '<div style="font-size:11px;color:#888;text-align:right;margin-top:2px;">' + pct + '%</div>'
+      : '') +
+    '</div>';
+  }).join('');
 }
 
 async function carregarClientes() {
