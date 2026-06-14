@@ -271,6 +271,16 @@ tr:hover td{background:#fafafa;}
 .ac-item:last-child{border-bottom:none;}
 .ac-item:hover{background:#f0f5ff;color:#185FA5;}
 .ac-loading{color:#888;cursor:default;font-style:italic;}
+.chips-wrap{display:flex;flex-wrap:wrap;gap:6px;min-height:36px;align-items:flex-start;}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:#E8F0FE;color:#185FA5;border-radius:20px;font-size:12px;line-height:1.3;}
+.chip-x{cursor:pointer;font-size:15px;color:#185FA5;line-height:1;padding:0 1px;}
+.chip-x:hover{color:#C0392B;}
+.sw{position:relative;display:inline-block;width:36px;height:20px;vertical-align:middle;flex-shrink:0;}
+.sw input{opacity:0;width:0;height:0;}
+.sw-s{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#ccc;border-radius:20px;transition:.2s;}
+.sw-s:before{content:"";position:absolute;height:14px;width:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;}
+.sw input:checked+.sw-s{background:#185FA5;}
+.sw input:checked+.sw-s:before{transform:translateX(16px);}
 </style>
 </head>
 <body>
@@ -351,6 +361,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" id="nav-funcionarios" data-page="funcionarios" onclick="pg('funcionarios',this)"><span class="nav-ico">🧑‍💼</span>Funcionários</div>
       <div class="nav-item" id="nav-usuarios" data-page="usuarios" onclick="pg('usuarios',this)"><span class="nav-ico">🔐</span>Usuários</div>
       <div class="nav-item" id="nav-importacao" data-page="importacao" onclick="pg('importacao',this)"><span class="nav-ico">📥</span>Importar dados</div>
+      <div class="nav-item" id="nav-rotas" data-page="rotas" onclick="pg('rotas',this)"><span class="nav-ico">🛣️</span>Rotas</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-vendas">
       <div class="nav-sep">Vendas</div>
@@ -636,6 +647,15 @@ tr:hover td{background:#fafafa;}
 
         <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;" onclick="salvarConfigImpressao()">Salvar configurações</button>
       </div>
+    </div>
+
+    <div class="page" id="page-rotas">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">Gestão de Rotas</div>
+        <button class="btn primario" onclick="abrirModalRota()">+ Nova rota</button>
+      </div>
+      <div id="rotas-limbo-bar" style="display:none;padding:.75rem 1rem;background:#FFF8E1;border:1px solid #FFD600;border-radius:8px;color:#7A5C00;font-size:13px;margin-bottom:1rem;"></div>
+      <div id="lista-rotas"></div>
     </div>
 
     <div class="page" id="page-seguranca">
@@ -1358,6 +1378,7 @@ function aplicarPermissoes(perfil) {
   // Visibilidade por data-page (robusto contra emojis no textContent)
   const regras = {
     dashboard:           gestor,
+    rotas:               gestor,
     funcionarios:        gestor,
     usuarios:            gestor,
     importacao:          gestor,
@@ -1405,6 +1426,7 @@ function pg(nome, el) {
   document.getElementById('page-' + nome).classList.add('active');
   el.classList.add('active');
   if (nome === 'dashboard') carregarDashboard();
+  if (nome === 'rotas') carregarRotas();
   if (nome === 'clientes') carregarClientes();
   if (nome === 'funcionarios') carregarFuncionarios();
   if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarVendas(); });
@@ -6754,6 +6776,239 @@ async function toggleUsuarioAtivo(id, ativo) {
   await sb.from('perfis').update({ ativo: !ativo }).eq('id', id);
   carregarUsuarios();
 }
+
+// ===== MÓDULO ROTAS =====
+
+window._rotaMunicipios = [];
+var _rotaMunTimer = null;
+
+async function carregarRotas() {
+  const el = document.getElementById('lista-rotas');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+
+  // Bônus: clientes em limbo
+  try {
+    const { data: limbo } = await sb.rpc('clientes_em_limbo');
+    const bar = document.getElementById('rotas-limbo-bar');
+    if (bar) {
+      const n = limbo ? (limbo[0] && limbo[0].count !== undefined ? Number(limbo[0].count) : limbo.length) : 0;
+      if (n > 0) {
+        bar.style.display = 'block';
+        bar.innerHTML = '⚠ <strong>' + n + ' cliente' + (n > 1 ? 's' : '') + ' em limbo</strong> — sem cobrador e sem cidade válida nas rotas ativas. Verifique as rotas.';
+      } else {
+        bar.style.display = 'none';
+      }
+    }
+  } catch(e) {}
+
+  const { data, error } = await sb.from('rotas')
+    .select('id, nome, ativa, cobrador_id, funcionarios(nome), rotas_municipios(municipio_id)')
+    .order('nome');
+
+  if (error) {
+    el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar rotas.</p>';
+    return;
+  }
+  renderRotas(data || []);
+}
+
+function renderRotas(lista) {
+  const el = document.getElementById('lista-rotas');
+  if (!el) return;
+
+  if (!lista.length) {
+    el.innerHTML = '<div style="text-align:center;padding:3rem;color:#888;">' +
+      '<div style="font-size:40px;margin-bottom:.75rem;">🛣️</div>' +
+      '<div style="font-size:15px;font-weight:500;">Nenhuma rota cadastrada.</div>' +
+      '<div style="margin-top:.5rem;font-size:13px;">Clique em "+ Nova rota" para começar.</div></div>';
+    return;
+  }
+
+  const tableRows = lista.map(function(r) {
+    var qtd = (r.rotas_municipios || []).length;
+    var cobrador = r.funcionarios ? r.funcionarios.nome : '—';
+    var nomeEsc = r.nome.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return '<tr>' +
+      '<td><strong>' + r.nome + '</strong></td>' +
+      '<td>' + cobrador + '</td>' +
+      '<td>' + qtd + ' município' + (qtd !== 1 ? 's' : '') + '</td>' +
+      '<td><label class="sw" title="' + (r.ativa ? 'Desativar' : 'Ativar') + '">' +
+        '<input type="checkbox" ' + (r.ativa ? 'checked' : '') + ' onchange="toggleRotaAtiva(\'' + r.id + '\',this.checked)">' +
+        '<span class="sw-s"></span></label></td>' +
+      '<td style="white-space:nowrap;">' +
+        '<button class="btn" style="font-size:11px;padding:3px 8px;margin-right:4px;" onclick="abrirModalRota(\'' + r.id + '\')">Editar</button>' +
+        '<button class="btn" style="font-size:11px;padding:3px 8px;color:#C0392B;border-color:#C0392B;" onclick="excluirRota(\'' + r.id + '\',\'' + nomeEsc + '\')">Excluir</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  const cards = lista.map(function(r) {
+    var qtd = (r.rotas_municipios || []).length;
+    var cobrador = r.funcionarios ? r.funcionarios.nome : '—';
+    var nomeEsc = r.nome.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return '<div class="card-linha">' +
+      '<div class="card-linha-header">' +
+        '<span class="card-linha-nome">' + r.nome + '</span>' +
+        '<span class="badge ' + (r.ativa ? 'verde' : '') + '">' + (r.ativa ? 'Ativa' : 'Inativa') + '</span>' +
+      '</div>' +
+      '<div class="card-linha-row"><span>Cobrador</span><span>' + cobrador + '</span></div>' +
+      '<div class="card-linha-row"><span>Municípios</span><span>' + qtd + '</span></div>' +
+      '<div class="card-linha-acoes">' +
+        '<label class="sw"><input type="checkbox" ' + (r.ativa ? 'checked' : '') + ' onchange="toggleRotaAtiva(\'' + r.id + '\',this.checked)"><span class="sw-s"></span></label>' +
+        '<button class="btn" style="font-size:12px;" onclick="abrirModalRota(\'' + r.id + '\')">Editar</button>' +
+        '<button class="btn" style="font-size:12px;color:#C0392B;border-color:#C0392B;" onclick="excluirRota(\'' + r.id + '\',\'' + nomeEsc + '\')">Excluir</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  el.innerHTML =
+    '<div class="tabela-wrap tabela-desktop"><table>' +
+      '<thead><tr><th>Rota</th><th>Cobrador</th><th>Municípios</th><th>Status</th><th>Ações</th></tr></thead>' +
+      '<tbody>' + tableRows + '</tbody>' +
+    '</table></div>' +
+    '<div class="mobile-cards">' + cards + '</div>';
+}
+
+async function abrirModalRota(rotaId) {
+  window._rotaMunicipios = [];
+  document.getElementById('rota-id').value = rotaId || '';
+  document.getElementById('rota-nome').value = '';
+  document.getElementById('rota-mun-busca').value = '';
+  var ddR = document.getElementById('rota-mun-dropdown'); if (ddR) ddR.style.display = 'none';
+  _renderChipsRota();
+
+  const { data: cobs } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+  document.getElementById('rota-cobrador').innerHTML = '<option value="">Selecione o cobrador...</option>' +
+    (cobs || []).map(function(c) { return '<option value="' + c.id + '">' + c.nome + '</option>'; }).join('');
+
+  if (rotaId) {
+    document.getElementById('modal-rota-titulo').textContent = 'Editar rota';
+    const { data: rota } = await sb.from('rotas').select('*').eq('id', rotaId).single();
+    if (rota) {
+      document.getElementById('rota-nome').value = rota.nome || '';
+      document.getElementById('rota-cobrador').value = rota.cobrador_id || '';
+    }
+    const { data: muns } = await sb.from('rotas_municipios')
+      .select('municipio_id, municipios(nome, estados(uf))')
+      .eq('rota_id', rotaId);
+    window._rotaMunicipios = (muns || []).map(function(m) {
+      return {
+        codigo_ibge: m.municipio_id,
+        nome: m.municipios ? m.municipios.nome : String(m.municipio_id),
+        uf: m.municipios && m.municipios.estados ? m.municipios.estados.uf : '',
+      };
+    });
+    _renderChipsRota();
+  } else {
+    document.getElementById('modal-rota-titulo').textContent = 'Nova rota';
+  }
+
+  document.getElementById('modal-rota').style.display = 'flex';
+  setTimeout(function() { document.getElementById('rota-nome').focus(); }, 80);
+}
+
+function _renderChipsRota() {
+  const wrap = document.getElementById('rota-chips');
+  if (!wrap) return;
+  if (!window._rotaMunicipios.length) {
+    wrap.innerHTML = '<span style="font-size:12px;color:#aaa;">Nenhum município adicionado.</span>';
+    return;
+  }
+  wrap.innerHTML = window._rotaMunicipios.map(function(m, i) {
+    return '<span class="chip">' + m.nome + ' - ' + m.uf +
+      ' <span class="chip-x" onclick="removerMunicipioRota(' + i + ')">×</span></span>';
+  }).join('');
+}
+
+function removerMunicipioRota(idx) {
+  window._rotaMunicipios.splice(idx, 1);
+  _renderChipsRota();
+}
+
+function rotaMunInput() {
+  clearTimeout(_rotaMunTimer);
+  var termo = document.getElementById('rota-mun-busca').value.trim();
+  var dd = document.getElementById('rota-mun-dropdown');
+  if (termo.length < 2) { if (dd) dd.style.display = 'none'; return; }
+  _rotaMunTimer = setTimeout(async function() {
+    var ddI = document.getElementById('rota-mun-dropdown');
+    if (!ddI) return;
+    ddI.innerHTML = '<div class="ac-item ac-loading">Buscando...</div>';
+    ddI.style.display = 'block';
+    var itens = await _buscarMunicipios(termo);
+    if (!itens.length) {
+      ddI.innerHTML = '<div class="ac-item ac-loading">Nenhuma cidade encontrada.</div>';
+      return;
+    }
+    ddI.innerHTML = itens.map(function(m) {
+      var uf = m.estados && m.estados.uf ? m.estados.uf : '';
+      return '<div class="ac-item">' + m.nome + ' - ' + uf + '</div>';
+    }).join('');
+    Array.from(ddI.querySelectorAll('.ac-item')).forEach(function(el, i) {
+      el.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        var item = itens[i];
+        var uf = item.estados && item.estados.uf ? item.estados.uf : '';
+        if (window._rotaMunicipios.some(function(m) { return m.codigo_ibge === item.codigo_ibge; })) {
+          document.getElementById('rota-mun-busca').value = '';
+          ddI.style.display = 'none';
+          return;
+        }
+        window._rotaMunicipios.push({ codigo_ibge: item.codigo_ibge, nome: item.nome, uf: uf });
+        _renderChipsRota();
+        document.getElementById('rota-mun-busca').value = '';
+        ddI.style.display = 'none';
+      });
+    });
+  }, 300);
+}
+
+async function salvarRota() {
+  const btn = document.querySelector('#modal-rota .modal-footer .btn.primario');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+  try {
+    const rotaId = document.getElementById('rota-id').value;
+    const nome = document.getElementById('rota-nome').value.trim();
+    const cobradorId = document.getElementById('rota-cobrador').value || null;
+    if (!nome) { alert('Digite o nome da rota!'); return; }
+
+    var id = rotaId;
+    if (rotaId) {
+      const { error } = await sb.from('rotas').update({ nome, cobrador_id: cobradorId }).eq('id', rotaId);
+      if (error) { alert('Erro ao salvar rota!'); return; }
+    } else {
+      const { data: nova, error } = await sb.from('rotas').insert({ nome, cobrador_id: cobradorId, ativa: true }).select().single();
+      if (error) { alert('Erro ao criar rota!'); return; }
+      id = nova.id;
+    }
+
+    // Sync municípios: apaga todos e re-insere o estado atual
+    await sb.from('rotas_municipios').delete().eq('rota_id', id);
+    if (window._rotaMunicipios.length) {
+      await sb.from('rotas_municipios').insert(
+        window._rotaMunicipios.map(function(m) { return { rota_id: id, municipio_id: m.codigo_ibge }; })
+      );
+    }
+
+    fecharModal('modal-rota');
+    carregarRotas();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar rota'; }
+  }
+}
+
+async function toggleRotaAtiva(rotaId, ativa) {
+  await sb.from('rotas').update({ ativa: ativa }).eq('id', rotaId);
+}
+
+async function excluirRota(rotaId, nome) {
+  if (!confirm('Excluir a rota "' + nome + '"?\nOs clientes atribuídos por ela voltarão a ficar sem cobrador automático.')) return;
+  const { error } = await sb.from('rotas').delete().eq('id', rotaId);
+  if (error) { alert('Erro ao excluir rota!'); return; }
+  carregarRotas();
+}
 </script>
 <!-- MODAL BAIXA PARCELA -->
 <div class="modal-bg" id="modal-baixa">
@@ -7516,6 +7771,43 @@ async function toggleUsuarioAtivo(id, ativo) {
     </div>
     <div id="hist-detalhe-conteudo"></div>
     <div class="modal-footer"><button class="btn" onclick="fecharModal('modal-historico-detalhe')">Fechar</button></div>
+  </div>
+</div>
+<!-- MODAL ROTA -->
+<div class="modal-bg" id="modal-rota">
+  <div class="modal-box" style="max-width:520px;">
+    <div class="modal-header">
+      <strong id="modal-rota-titulo">Nova rota</strong>
+      <button onclick="fecharModal('modal-rota')">×</button>
+    </div>
+    <input type="hidden" id="rota-id">
+    <div class="campo">
+      <label>Nome da rota *</label>
+      <input id="rota-nome" type="text" placeholder="Ex.: Rota Centro">
+    </div>
+    <div class="campo">
+      <label>Cobrador responsável</label>
+      <select id="rota-cobrador">
+        <option value="">Selecione o cobrador...</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label>Adicionar município</label>
+      <div style="position:relative;">
+        <input id="rota-mun-busca" type="text" placeholder="Digite para buscar..." autocomplete="off"
+          oninput="rotaMunInput()"
+          onblur="setTimeout(function(){var d=document.getElementById('rota-mun-dropdown');if(d)d.style.display='none';},150)">
+        <div id="rota-mun-dropdown" class="ac-dropdown" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="campo">
+      <label>Municípios da rota</label>
+      <div id="rota-chips" class="chips-wrap" style="padding:.625rem .75rem;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;min-height:44px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-rota')">Cancelar</button>
+      <button class="btn primario" onclick="salvarRota()">Salvar rota</button>
+    </div>
   </div>
 </div>
 </body>
