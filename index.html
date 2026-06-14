@@ -266,6 +266,11 @@ tr:hover td{background:#fafafa;}
 @media(max-width:700px){
   #dash-rankings-wrap{grid-template-columns:1fr!important;}
 }
+.ac-dropdown{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 8px 8px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:200;max-height:200px;overflow-y:auto;}
+.ac-item{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f0f0;}
+.ac-item:last-child{border-bottom:none;}
+.ac-item:hover{background:#f0f5ff;color:#185FA5;}
+.ac-loading{color:#888;cursor:default;font-style:italic;}
 </style>
 </head>
 <body>
@@ -692,14 +697,22 @@ tr:hover td{background:#fafafa;}
         <label>Endereço *</label>
         <input id="vnc-endereco" type="text" placeholder="Rua e número">
       </div>
-      <div class="grid2">
+      <div style="display:grid;grid-template-columns:1fr 1fr 70px;gap:.75rem;">
         <div class="campo">
           <label>Bairro</label>
           <input id="vnc-bairro" type="text" placeholder="Bairro">
         </div>
-        <div class="campo">
+        <div class="campo" style="position:relative;">
           <label>Cidade *</label>
-          <input id="vnc-cidade" type="text" placeholder="Cidade">
+          <input id="vnc-cidade" type="text" placeholder="Digite para buscar..." autocomplete="off"
+            oninput="vncCidadeInput()"
+            onblur="setTimeout(function(){var d=document.getElementById('vnc-cidade-dropdown');if(d)d.style.display='none';},150)">
+          <div id="vnc-cidade-dropdown" class="ac-dropdown" style="display:none;"></div>
+          <input type="hidden" id="vnc-municipio-id">
+        </div>
+        <div class="campo">
+          <label>UF</label>
+          <input id="vnc-uf" type="text" readonly style="background:#f5f5f5;color:#666;cursor:default;text-align:center;font-weight:600;">
         </div>
       </div>
       <div class="campo">
@@ -850,14 +863,22 @@ tr:hover td{background:#fafafa;}
       <label>Endereço</label>
       <input id="cli-endereco" type="text" placeholder="Rua e número">
     </div>
-    <div class="grid2">
+    <div style="display:grid;grid-template-columns:1fr 1fr 70px;gap:.75rem;">
       <div class="campo">
         <label>Bairro</label>
         <input id="cli-bairro" type="text" placeholder="Bairro">
       </div>
-      <div class="campo">
+      <div class="campo" style="position:relative;">
         <label>Cidade</label>
-        <input id="cli-cidade" type="text" placeholder="Cidade">
+        <input id="cli-cidade" type="text" placeholder="Digite para buscar..." autocomplete="off"
+          oninput="cliCidadeInput()"
+          onblur="setTimeout(function(){var d=document.getElementById('cli-cidade-dropdown');if(d)d.style.display='none';},150)">
+        <div id="cli-cidade-dropdown" class="ac-dropdown" style="display:none;"></div>
+        <input type="hidden" id="cli-municipio-id">
+      </div>
+      <div class="campo">
+        <label>UF</label>
+        <input id="cli-uf" type="text" readonly style="background:#f5f5f5;color:#666;cursor:default;text-align:center;font-weight:600;">
       </div>
     </div>
     <div class="campo">
@@ -1949,6 +1970,92 @@ function filtrarClientes() {
   renderClientes(filtrado);
 }
 
+// ===== AUTOCOMPLETE CIDADES =====
+window._cliMunicipioId = null;
+window._vncMunicipioId = null;
+var _cliCidadeTimer = null;
+var _vncCidadeTimer = null;
+
+async function _buscarMunicipios(termo) {
+  var res = await sb.from('municipios')
+    .select('codigo_ibge, nome, estados(uf)')
+    .ilike('nome', termo + '%')
+    .order('nome')
+    .limit(10);
+  return res.data || [];
+}
+
+function _mostrarDropdownCidade(inputId, dropdownId, ufId, municipioIdProp, itens) {
+  var dd = document.getElementById(dropdownId);
+  if (!dd) return;
+  if (!itens.length) {
+    dd.innerHTML = '<div class="ac-item ac-loading">Nenhuma cidade encontrada.</div>';
+    dd.style.display = 'block';
+    return;
+  }
+  dd.innerHTML = itens.map(function(m) {
+    var uf = m.estados && m.estados.uf ? m.estados.uf : '';
+    return '<div class="ac-item">' + m.nome + ' - ' + uf + '</div>';
+  }).join('');
+  Array.from(dd.querySelectorAll('.ac-item')).forEach(function(el, i) {
+    el.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      var item = itens[i];
+      var uf = item.estados && item.estados.uf ? item.estados.uf : '';
+      window[municipioIdProp] = item.codigo_ibge;
+      document.getElementById(inputId).value = item.nome + ' - ' + uf;
+      var ufEl = document.getElementById(ufId);
+      if (ufEl) ufEl.value = uf;
+      dd.style.display = 'none';
+    });
+  });
+  dd.style.display = 'block';
+}
+
+function _resetCliCidade() {
+  window._cliMunicipioId = null;
+  var dd = document.getElementById('cli-cidade-dropdown'); if (dd) dd.style.display = 'none';
+  var uf = document.getElementById('cli-uf'); if (uf) uf.value = '';
+}
+
+function _resetVncCidade() {
+  window._vncMunicipioId = null;
+  var dd = document.getElementById('vnc-cidade-dropdown'); if (dd) dd.style.display = 'none';
+  var uf = document.getElementById('vnc-uf'); if (uf) uf.value = '';
+}
+
+function cliCidadeInput() {
+  window._cliMunicipioId = null;
+  var ufEl = document.getElementById('cli-uf'); if (ufEl) ufEl.value = '';
+  clearTimeout(_cliCidadeTimer);
+  var termo = document.getElementById('cli-cidade').value.trim();
+  var dd = document.getElementById('cli-cidade-dropdown');
+  if (termo.length < 2) { if (dd) dd.style.display = 'none'; return; }
+  _cliCidadeTimer = setTimeout(async function() {
+    var ddI = document.getElementById('cli-cidade-dropdown'); if (!ddI) return;
+    ddI.innerHTML = '<div class="ac-item ac-loading">Buscando...</div>';
+    ddI.style.display = 'block';
+    var itens = await _buscarMunicipios(termo);
+    _mostrarDropdownCidade('cli-cidade', 'cli-cidade-dropdown', 'cli-uf', '_cliMunicipioId', itens);
+  }, 300);
+}
+
+function vncCidadeInput() {
+  window._vncMunicipioId = null;
+  var ufEl = document.getElementById('vnc-uf'); if (ufEl) ufEl.value = '';
+  clearTimeout(_vncCidadeTimer);
+  var termo = document.getElementById('vnc-cidade').value.trim();
+  var dd = document.getElementById('vnc-cidade-dropdown');
+  if (termo.length < 2) { if (dd) dd.style.display = 'none'; return; }
+  _vncCidadeTimer = setTimeout(async function() {
+    var ddI = document.getElementById('vnc-cidade-dropdown'); if (!ddI) return;
+    ddI.innerHTML = '<div class="ac-item ac-loading">Buscando...</div>';
+    ddI.style.display = 'block';
+    var itens = await _buscarMunicipios(termo);
+    _mostrarDropdownCidade('vnc-cidade', 'vnc-cidade-dropdown', 'vnc-uf', '_vncMunicipioId', itens);
+  }, 300);
+}
+
 async function abrirCadastroCliente() {
   const codigo = await gerarCodigoCliente();
   document.getElementById('cli-id').value = '';
@@ -1960,6 +2067,7 @@ async function abrirCadastroCliente() {
   document.getElementById('cli-endereco').value = '';
   document.getElementById('cli-bairro').value = '';
   document.getElementById('cli-cidade').value = '';
+  _resetCliCidade();
   document.getElementById('cli-referencia').value = '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Novo cliente';
@@ -2007,11 +2115,13 @@ async function salvarCliente() {
   const nascimento = document.getElementById('cli-nascimento').value;
   const endereco = document.getElementById('cli-endereco').value.trim();
   const cidade = document.getElementById('cli-cidade').value.trim();
+  const municipioId = window._cliMunicipioId || null;
   const cobradorId = document.getElementById('cli-cobrador').value || null;
   const cpf = document.getElementById('cli-cpf').value.trim();
 
   if (!nome) { alert('Digite o nome!'); return; }
   if (cpf && !validarCPF(cpf)) { alert('CPF inválido!'); return; }
+  if (cidade && !municipioId) { alert('Selecione uma cidade válida da lista.'); return; }
 
   const dados = {
     codigo: document.getElementById('cli-codigo').value,
@@ -2021,6 +2131,7 @@ async function salvarCliente() {
     endereco,
     bairro: document.getElementById('cli-bairro').value.trim(),
     cidade,
+    municipio_id: municipioId,
     referencia: document.getElementById('cli-referencia').value.trim(),
     cobrador_id: cobradorId,
   };
@@ -2062,6 +2173,10 @@ async function editarCliente(id) {
   document.getElementById('cli-endereco').value = data.endereco || '';
   document.getElementById('cli-bairro').value = data.bairro || '';
   document.getElementById('cli-cidade').value = data.cidade || '';
+  window._cliMunicipioId = data.municipio_id || null;
+  var _cliUfMatch = (data.cidade || '').match(/ - ([A-Z]{2})$/);
+  document.getElementById('cli-uf').value = _cliUfMatch ? _cliUfMatch[1] : '';
+  var _ddCli = document.getElementById('cli-cidade-dropdown'); if (_ddCli) _ddCli.style.display = 'none';
   document.getElementById('cli-referencia').value = data.referencia || '';
   document.getElementById('msg-cpf').innerHTML = '';
   document.getElementById('modal-cli-titulo').textContent = 'Editar cliente';
@@ -2175,6 +2290,7 @@ async function buscarClientePorCPF() {
     document.getElementById('form-dados-venda').style.display = 'none';
     document.getElementById('btn-salvar-venda').style.display = 'none';
     ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+    _resetVncCidade();
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
     removerFotoVnc();
@@ -2234,6 +2350,7 @@ async function buscarClientePorCPF() {
     await carregarCobradoresSelect('vnc-cobrador');
     document.getElementById('form-novo-cliente-venda').style.display = 'block';
     ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+    _resetVncCidade();
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
     removerFotoVnc();
@@ -2247,10 +2364,12 @@ async function salvarNovoClienteVenda() {
   const nascimento = document.getElementById('vnc-nascimento').value;
   const endereco = document.getElementById('vnc-endereco').value.trim();
   const cidade = document.getElementById('vnc-cidade').value.trim();
+  const municipioIdVnc = window._vncMunicipioId || null;
   const cobradorId = document.getElementById('vnc-cobrador').value || null;
 
   const editId = document.getElementById('vnc-edit-id').value;
   if (!nome) { alert('Preencha o nome completo!'); return; }
+  if (cidade && !municipioIdVnc) { alert('Selecione uma cidade válida da lista.'); return; }
   if (perfilAtivo.perfil === 'vendedor') {
     if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
     if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
@@ -2273,6 +2392,7 @@ async function salvarNovoClienteVenda() {
     endereco,
     bairro: document.getElementById('vnc-bairro').value.trim(),
     cidade,
+    municipio_id: municipioIdVnc,
     referencia: document.getElementById('vnc-referencia').value.trim(),
     cobrador_id: cobradorId,
     latitude: document.getElementById('vnc-latitude').value || null,
@@ -2398,6 +2518,10 @@ async function editarClienteNoModal(clienteId) {
   document.getElementById('vnc-endereco').value = data.endereco || '';
   document.getElementById('vnc-bairro').value = data.bairro || '';
   document.getElementById('vnc-cidade').value = data.cidade || '';
+  window._vncMunicipioId = data.municipio_id || null;
+  var _vncUfMatch = (data.cidade || '').match(/ - ([A-Z]{2})$/);
+  var _vncUfEl = document.getElementById('vnc-uf'); if (_vncUfEl) _vncUfEl.value = _vncUfMatch ? _vncUfMatch[1] : '';
+  var _ddVnc = document.getElementById('vnc-cidade-dropdown'); if (_ddVnc) _ddVnc.style.display = 'none';
   document.getElementById('vnc-referencia').value = data.referencia || '';
   window._vncFotoBlob = null;
   window._vncFotoUrl = data.foto_casa || null;
@@ -2673,6 +2797,7 @@ async function solicitarAutorizacaoSemCPF() {
       await carregarCobradoresSelect('vnc-cobrador');
       document.getElementById('form-novo-cliente-venda').style.display = 'block';
       ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      _resetVncCidade();
       document.getElementById('vnc-edit-id').value = '';
       window._vncFotoUrl = null;
       removerFotoVnc();
