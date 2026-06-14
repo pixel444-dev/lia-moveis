@@ -3921,43 +3921,54 @@ function atualizarSaldoBaixa() {
 }
 
 async function confirmarBaixa() {
-  const parcelaId = document.getElementById('baixa-parcela-id').value;
-  const tipo = document.getElementById('baixa-tipo').value;
-  const valorTotal = parseFloat(document.getElementById('baixa-valor-total').value) || 0;
-  const valorPago = tipo === 'completa' ? valorTotal : parseFloat(document.getElementById('baixa-valor').value) || 0;
-  const forma = document.getElementById('baixa-forma').value;
-  const data = document.getElementById('baixa-data').value;
-  const cobradorId = document.getElementById('baixa-cobrador').value || null;
-  if (tipo === 'parcial' && valorPago <= 0) { alert('Digite o valor recebido!'); return; }
-  if (tipo === 'parcial' && valorPago >= valorTotal) { alert('Para pagamento total use baixa completa!'); return; }
-  const pago = tipo === 'completa';
-  const atualizacao = {
-    pago,
-    data_pagamento: pago ? new Date(data).toISOString() : null,
-    cobrador_id: cobradorId,
-    valor_pago: valorPago,
-    forma_pagamento: forma,
-  };
-  const { error } = await sb.from('parcelas').update(atualizacao).eq('id', parcelaId);
-  if (error) {
-    Logger.error('cobrancas', 'CONFIRMAR_BAIXA', 'Falha ao dar baixa na parcela', { supabase_code: error.code, tipo_baixa: tipo });
-    alert('Erro ao dar baixa!'); return;
+  const btn = document.querySelector('#modal-baixa .modal-footer .btn.primario');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Processando...'; }
+  try {
+    const parcelaId = document.getElementById('baixa-parcela-id').value;
+    const tipo = document.getElementById('baixa-tipo').value;
+    const valorTotal = parseFloat(document.getElementById('baixa-valor-total').value) || 0;
+    const valorPago = tipo === 'completa' ? valorTotal : parseFloat(document.getElementById('baixa-valor').value) || 0;
+    const forma = document.getElementById('baixa-forma').value;
+    const data = document.getElementById('baixa-data').value;
+    const cobradorId = document.getElementById('baixa-cobrador').value || null;
+    if (tipo === 'parcial' && valorPago <= 0) { alert('Digite o valor recebido!'); return; }
+    if (tipo === 'parcial' && valorPago >= valorTotal) { alert('Para pagamento total use baixa completa!'); return; }
+    const pago = tipo === 'completa';
+    const atualizacao = {
+      pago,
+      data_pagamento: pago ? new Date(data).toISOString() : null,
+      cobrador_id: cobradorId,
+      valor_pago: valorPago,
+      forma_pagamento: forma,
+    };
+    const { data: updated, error } = await sb.from('parcelas').update(atualizacao).eq('id', parcelaId).eq('pago', false).select();
+    if (error) {
+      Logger.error('cobrancas', 'CONFIRMAR_BAIXA', 'Falha ao dar baixa na parcela', { supabase_code: error.code, tipo_baixa: tipo });
+      alert('Erro ao dar baixa!'); return;
+    }
+    if (!updated || updated.length === 0) {
+      alert('Esta parcela já foi baixada.');
+      return;
+    }
+    Logger.info('cobrancas', 'CONFIRMAR_BAIXA', 'Baixa confirmada', { tipo_baixa: tipo });
+    const { data: parcela } = await sb.from('parcelas').select('cliente_id, valor, vendas(codigo)').eq('id', parcelaId).single();
+    await sb.from('movimentacoes_cobranca').insert({
+      cobrador_id: cobradorId,
+      cliente_id: parcela?.cliente_id,
+      tipo: 'cobranca',
+      descricao: `Parcela venda ${parcela?.vendas?.codigo||''} — ${tipo === 'parcial' ? 'parcial' : 'completa'}`,
+      valor: valorPago,
+      forma_pagamento: forma,
+    });
+    fecharModal('modal-baixa');
+    const nomeCliente = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
+    const clienteId = parcela?.cliente_id;
+    if (clienteId) verParcelasCliente(clienteId, nomeCliente);
+    carregarDashboard();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirmar baixa'; }
   }
-  Logger.info('cobrancas', 'CONFIRMAR_BAIXA', 'Baixa confirmada', { tipo_baixa: tipo });
-  const { data: parcela } = await sb.from('parcelas').select('cliente_id, valor, vendas(codigo)').eq('id', parcelaId).single();
-  await sb.from('movimentacoes_cobranca').insert({
-    cobrador_id: cobradorId,
-    cliente_id: parcela?.cliente_id,
-    tipo: 'cobranca',
-    descricao: `Parcela venda ${parcela?.vendas?.codigo||''} — ${tipo === 'parcial' ? 'parcial' : 'completa'}`,
-    valor: valorPago,
-    forma_pagamento: forma,
-  });
-  fecharModal('modal-baixa');
-  const nomeCliente = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
-  const clienteId = parcela?.cliente_id;
-  if (clienteId) verParcelasCliente(clienteId, nomeCliente);
-  carregarDashboard();
 }
 
 // ===== MÓDULO LOCALIDADES =====
@@ -4369,6 +4380,10 @@ async function uploadComprovante(baixaId) {
 }
 
 async function confirmarRecebimento() {
+  const btn = document.querySelector('#modal-recebimento .btn.primario');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Processando...'; }
+  try {
   const parcelaId = document.getElementById('receb-parcela-id').value;
   const clienteId = document.getElementById('receb-cliente-id').value;
   const tipo = document.getElementById('receb-tipo').value;
@@ -4434,7 +4449,7 @@ async function confirmarRecebimento() {
     data_pagamento: isCompleto ? new Date().toISOString() : null,
     status: isCompleto ? 'paga' : 'aberta',
     comprovante_pix: comprovanteUrl
-  }).eq('id', parcelaId);
+  }).eq('id', parcelaId).eq('pago', false);
 
   // Se foi dinheiro, somar no saldo da caixa
   if (forma === 'dinheiro') {
@@ -4450,6 +4465,9 @@ async function confirmarRecebimento() {
   await carregarSaldoCobrador();
   await carregarCaixaECiclos();
   alert('Recebimento registrado!');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Confirmar recebimento'; }
+  }
 }
 
 // ─── UTILITÁRIOS DE CICLO ───
