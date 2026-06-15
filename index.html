@@ -2712,12 +2712,16 @@ async function carregarVendas() {
 }
 
 function atualizarAvisoEquipe() {
-  const precisaEquipe = perfilAtivo?.perfil === 'vendedor';
-  const semEquipe = precisaEquipe && (!equipeAtiva || equipeAtiva.encerrada === true);
   const aviso = document.getElementById('aviso-sem-equipe');
-  if (aviso) aviso.style.display = semEquipe ? 'block' : 'none';
   const btnNova = document.getElementById('btn-nova-venda');
-  if (btnNova) btnNova.style.display = semEquipe ? 'none' : 'block';
+  if (perfilAtivo?.perfil !== 'vendedor') {
+    if (aviso) aviso.style.display = 'none';
+    if (btnNova) btnNova.style.display = '';
+    return;
+  }
+  const semEquipe = !equipeAtiva || equipeAtiva.encerrada === true;
+  if (aviso) aviso.style.display = semEquipe ? 'block' : 'none';
+  if (btnNova) btnNova.style.display = semEquipe ? 'none' : '';
 }
 
 async function carregarVendasVendedor() {
