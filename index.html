@@ -2618,7 +2618,7 @@ async function salvarVenda() {
   const produto = document.getElementById('venda-produto').value.trim();
   if (!produto) { alert('Selecione ou informe o produto!'); return; }
   const vendedorId = document.getElementById('venda-vendedor').value || null;
-  if (!vendedorId) { alert('Selecione o vendedor responsável pela venda!'); return; }
+  if (!vendedorId && perfilAtivo.perfil !== 'gestor') { alert('Selecione o vendedor responsável pela venda!'); return; }
   if (tipo === 'entrada') {
     const parcelas = parseInt(document.getElementById('venda-parcelas').value);
     const dataPrimeira = document.getElementById('venda-data-primeira').value;
@@ -2712,6 +2712,14 @@ async function carregarVendas() {
 }
 
 function atualizarAvisoEquipe() {
+  if (perfilAtivo?.perfil === 'gestor') {
+    // Gestor não pertence a equipes — aviso nunca se aplica
+    const aviso = document.getElementById('aviso-sem-equipe');
+    if (aviso) aviso.style.display = 'none';
+    const btnNova = document.getElementById('btn-nova-venda');
+    if (btnNova) btnNova.style.display = 'block';
+    return;
+  }
   const semEquipe = !equipeAtiva || equipeAtiva.encerrada === true;
   const aviso = document.getElementById('aviso-sem-equipe');
   if (aviso) aviso.style.display = semEquipe ? 'block' : 'none';
