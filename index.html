@@ -367,6 +367,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-sep">Vendas</div>
       <div class="nav-item" id="nav-vendas" data-page="vendas" onclick="pg('vendas',this)"><span class="nav-ico">🛒</span>Vendas</div>
       <div class="nav-item" id="nav-equipes" data-page="equipes" onclick="pg('equipes',this)"><span class="nav-ico">🚚</span>Equipes / Semanas</div>
+      <div class="nav-item" id="nav-meses" data-page="meses" onclick="pg('meses',this)"><span class="nav-ico">📅</span>Meses / Ciclos</div>
       <div class="nav-item" id="nav-caixa-vendedores" data-page="caixa-vendedores" onclick="pg('caixa-vendedores',this)"><span class="nav-ico">💵</span>Caixa em campo</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-cobrancas">
@@ -464,6 +465,14 @@ tr:hover td{background:#fafafa;}
       </div>
       <div id="info-mes-equipes" style="margin-bottom:1rem;font-size:13px;color:#666;"></div>
       <div id="lista-equipes"></div>
+    </div>
+
+    <div class="page" id="page-meses">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">Meses / Ciclos</div>
+        <button class="btn primario" onclick="gerarProximoMes()">+ Gerar próximo mês</button>
+      </div>
+      <div id="lista-meses"></div>
     </div>
 
     <div class="page" id="page-caixa-vendedores">
@@ -1382,6 +1391,7 @@ function aplicarPermissoes(perfil) {
   const regras = {
     dashboard:           gestor,
     rotas:               gestor,
+    meses:               gestor,
     funcionarios:        gestor,
     usuarios:            gestor,
     importacao:          gestor,
@@ -1430,6 +1440,7 @@ function pg(nome, el) {
   el.classList.add('active');
   if (nome === 'dashboard') carregarDashboard();
   if (nome === 'rotas') carregarRotas();
+  if (nome === 'meses') carregarMeses();
   if (nome === 'clientes') carregarClientes();
   if (nome === 'funcionarios') carregarFuncionarios();
   if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarVendas(); });
