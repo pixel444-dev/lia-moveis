@@ -1315,6 +1315,9 @@ async function iniciarSessao(user) {
   if (perfilAtivo.perfil === 'gestor') {
     carregarAutorizacoesPendentes();
     gestorPollInterval = setInterval(carregarAutorizacoesPendentes, 10000);
+    sb.rpc('garantir_mes_atual').then(({ error }) => {
+      if (error) Logger.warn('meses', 'garantir_mes_atual', 'Falha ao garantir mês atual no login', { error_message: error.message });
+    });
   }
   if (perfilAtivo.perfil === 'vendedor') {
     carregarEquipeAtivaVendedor();
@@ -6195,6 +6198,7 @@ sb.auth.getSession().then(({ data: { session } }) => {
 
 async function carregarEquipes() {
   if (perfilAtivo.perfil === 'vendedor') { await carregarEquipeVendedor(); return; }
+  try { await sb.rpc('garantir_mes_atual'); } catch (e) { Logger.warn('meses', 'garantir_mes_atual', 'Falha ao garantir mês ao abrir equipes', { error_message: e.message }); }
   const hoje = new Date().toISOString().split('T')[0];
   const { data: mes } = await sb.from('meses_referencia').select('*').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
   mesAtual = mes;
@@ -7016,6 +7020,86 @@ async function excluirRota(rotaId, nome) {
   const { error } = await sb.from('rotas').delete().eq('id', rotaId);
   if (error) { alert('Erro ao excluir rota!'); return; }
   carregarRotas();
+}
+
+const _NOMES_MES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+function _fmtBR(iso) { const p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+
+function toggleMesAcc(el) {
+  const body = el.nextElementSibling;
+  const open = body.style.display === 'block';
+  body.style.display = open ? 'none' : 'block';
+  el.querySelector('.acc-arrow').textContent = open ? '▸' : '▾';
+}
+
+async function carregarMeses() {
+  const lista = document.getElementById('lista-meses');
+  lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando…</p>';
+  const { data: meses, error } = await sb.from('meses_referencia').select('*, semanas_venda(id, numero, data_inicio, data_fim, encerrada)').order('ano', { ascending: false }).order('mes', { ascending: false });
+  if (error) { lista.innerHTML = '<p style="color:#c00;padding:1rem;">Erro ao carregar meses.</p>'; Logger.error('meses', 'carregarMeses', 'Falha ao listar meses', { error_message: error.message }); return; }
+  if (!meses || !meses.length) { lista.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum mês cadastrado. Clique em "+ Gerar próximo mês" para começar.</p>'; return; }
+  let html = '';
+  meses.forEach(m => {
+    const semanas = (m.semanas_venda || []).sort((a, b) => a.numero - b.numero);
+    const statusBadge = m.encerrado
+      ? '<span style="background:#E5E7EB;color:#555;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Encerrado</span>'
+      : '<span style="background:#D1FAE5;color:#065F46;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Ativo</span>';
+    html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;margin-bottom:10px;overflow:hidden;">';
+    html += '<div onclick="toggleMesAcc(this)" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;user-select:none;">';
+    html += '<div style="display:flex;align-items:center;gap:8px;"><span class="acc-arrow" style="color:#888;font-size:13px;">▸</span>';
+    html += '<strong style="font-size:15px;">' + _NOMES_MES[m.mes - 1] + '/' + m.ano + '</strong>' + statusBadge + '</div>';
+    html += '<div style="font-size:13px;color:#666;">' + _fmtBR(m.data_inicio) + ' a ' + _fmtBR(m.data_fim) + ' · ' + semanas.length + ' semana' + (semanas.length !== 1 ? 's' : '') + '</div>';
+    html += '</div>';
+    html += '<div style="display:none;border-top:1px solid #E5E7EB;padding:12px 16px;">';
+    if (!semanas.length) {
+      html += '<p style="color:#888;font-size:13px;">Nenhuma semana cadastrada.</p>';
+    } else {
+      html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+      html += '<thead><tr style="text-align:left;color:#888;border-bottom:1px solid #E5E7EB;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Período</th><th style="padding:6px 8px;">Status</th></tr></thead><tbody>';
+      semanas.forEach(s => {
+        const sBadge = s.encerrada
+          ? '<span style="background:#E5E7EB;color:#555;font-size:11px;padding:2px 8px;border-radius:10px;">Encerrada</span>'
+          : '<span style="background:#DBEAFE;color:#1E40AF;font-size:11px;padding:2px 8px;border-radius:10px;">Aberta</span>';
+        html += '<tr style="border-bottom:1px solid #F3F4F6;"><td style="padding:6px 8px;">Semana ' + s.numero + '</td><td style="padding:6px 8px;">' + _fmtBR(s.data_inicio) + ' a ' + _fmtBR(s.data_fim) + '</td><td style="padding:6px 8px;">' + sBadge + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '</div></div>';
+  });
+  lista.innerHTML = html;
+}
+
+async function gerarProximoMes() {
+  const btn = event ? event.target : null;
+  if (btn && btn.disabled) return;
+  const { data: ultimo, error: errUlt } = await sb.from('meses_referencia').select('ano, mes').order('ano', { ascending: false }).order('mes', { ascending: false }).limit(1).maybeSingle();
+  if (errUlt) { alert('Erro ao consultar meses existentes.'); return; }
+  let novoAno, novoMes;
+  if (ultimo) {
+    novoMes = ultimo.mes + 1;
+    novoAno = ultimo.ano;
+    if (novoMes > 12) { novoMes = 1; novoAno++; }
+  } else {
+    const hoje = new Date();
+    novoMes = hoje.getMonth() + 1;
+    novoAno = hoje.getFullYear();
+  }
+  const cicloInicio = new Date(novoAno, novoMes - 1, 10);
+  let fimAno = novoMes === 12 ? novoAno + 1 : novoAno;
+  let fimMes = novoMes === 12 ? 1 : novoMes + 1;
+  const cicloFim = new Date(fimAno, fimMes - 1, 9);
+  const fmtPrev = function(d) { return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear(); };
+  if (!confirm('Gerar ciclo de ' + _NOMES_MES[novoMes - 1] + '/' + novoAno + '?\n\nPeríodo: ' + fmtPrev(cicloInicio) + ' a ' + fmtPrev(cicloFim) + '\n(As semanas seg–sex serão criadas automaticamente)')) return;
+  if (btn) btn.disabled = true;
+  try {
+    const { data, error } = await sb.rpc('gerar_mes_referencia', { p_ano: novoAno, p_mes: novoMes });
+    if (error) {
+      if (error.message && error.message.includes('já existe')) { alert('Esse mês já está cadastrado.'); }
+      else { alert('Erro ao gerar mês: ' + error.message); Logger.error('meses', 'gerarProximoMes', 'Falha ao gerar mês', { error_message: error.message }); }
+      return;
+    }
+    await carregarMeses();
+  } finally { if (btn) btn.disabled = false; }
 }
 </script>
 <!-- MODAL BAIXA PARCELA -->
