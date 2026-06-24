@@ -3011,6 +3011,24 @@ async function carregarCobrancas() {
 
 // ===== INTERFACE COBRADOR =====
 
+async function _clientesDoCobrador(campos) {
+  const sel = campos || 'id, codigo, nome, telefone, foto_casa, localidade_id';
+  const [diretosRes, rotaRes] = await Promise.all([
+    sb.from('clientes').select(sel).eq('cobrador_id', funcionarioLogado.id),
+    sb.rpc('clientes_por_rota'),
+  ]);
+  const diretos = diretosRes.data || [];
+  const idsPorRota = (rotaRes.data || []).map(x => x.id ?? x);
+  let porRota = [];
+  if (idsPorRota.length) {
+    const { data } = await sb.from('clientes').select(sel).in('id', idsPorRota);
+    porRota = data || [];
+  }
+  const mapa = new Map();
+  [...diretos, ...porRota].forEach(c => mapa.set(c.id, c));
+  return [...mapa.values()];
+}
+
 async function renderInterfaceCobrador() {
   document.getElementById('page-cobrancas').innerHTML = ''
     + '<div style="padding-bottom:1rem;">'
@@ -3424,11 +3442,8 @@ async function renderCicloSelecionado(cicloChave) {
   const { data: localidades } = await sb.from('localidades')
     .select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome');
 
-  const { data: clientes } = await sb.from('clientes')
-    .select('id, codigo, nome, telefone, foto_casa, localidade_id')
-    .eq('cobrador_id', funcionarioLogado.id);
-
-  const clienteIds = (clientes||[]).map(c => c.id);
+  const clientes = await _clientesDoCobrador();
+  const clienteIds = clientes.map(c => c.id);
   if (!clienteIds.length) {
     conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Nenhum cliente na sua rota.</p>';
     return;
@@ -3569,13 +3584,12 @@ async function carregarClientesPorLocalidade() {
 
   secaoLoc.innerHTML = '<p style="color:#888;font-size:13px;padding:1rem;">Carregando rota...</p>';
 
-  var [locRes, cliRes] = await Promise.all([
+  var [locRes, clientes] = await Promise.all([
     sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome'),
-    sb.from('clientes').select('id, codigo, nome, telefone, foto_casa, localidade_id').eq('cobrador_id', funcionarioLogado.id).order('nome'),
+    _clientesDoCobrador('id, codigo, nome, telefone, foto_casa, localidade_id'),
   ]);
 
   var localidades = locRes.data || [];
-  var clientes = cliRes.data || [];
   var clienteIds = clientes.map(function(c) { return c.id; });
 
   if (!clienteIds.length) {
