@@ -7067,9 +7067,11 @@ async function carregarMeses() {
   let html = '';
   meses.forEach(m => {
     const semanas = (m.semanas_venda || []).sort((a, b) => a.numero - b.numero);
-    const statusBadge = m.encerrado
-      ? '<span style="background:#E5E7EB;color:#555;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Encerrado</span>'
-      : '<span style="background:#D1FAE5;color:#065F46;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Ativo</span>';
+    const _hoje = new Date().toISOString().split('T')[0];
+    let statusBadge;
+    if (m.data_fim < _hoje) statusBadge = '<span style="background:#E5E7EB;color:#555;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Encerrado</span>';
+    else if (m.data_inicio <= _hoje) statusBadge = '<span style="background:#D1FAE5;color:#065F46;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Aberto</span>';
+    else statusBadge = '<span style="background:#DBEAFE;color:#1E40AF;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Ativo</span>';
     const semZeroBadge = !semanas.length
       ? '<span style="background:#FAEEDA;color:#854F0B;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px;">⚠ Sem semanas — regenerar</span>'
       : '';
