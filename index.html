@@ -7070,15 +7070,26 @@ async function carregarMeses() {
     const statusBadge = m.encerrado
       ? '<span style="background:#E5E7EB;color:#555;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Encerrado</span>'
       : '<span style="background:#D1FAE5;color:#065F46;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Ativo</span>';
-    html += '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;margin-bottom:10px;overflow:hidden;">';
+    const semZeroBadge = !semanas.length
+      ? '<span style="background:#FAEEDA;color:#854F0B;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px;">⚠ Sem semanas — regenerar</span>'
+      : '';
+    html += '<div style="background:#fff;border:1px solid ' + (!semanas.length ? '#FAC775' : '#E5E7EB') + ';border-radius:10px;margin-bottom:10px;overflow:hidden;">';
     html += '<div onclick="toggleMesAcc(this)" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;user-select:none;">';
-    html += '<div style="display:flex;align-items:center;gap:8px;"><span class="acc-arrow" style="color:#888;font-size:13px;">▸</span>';
-    html += '<strong style="font-size:15px;">' + _NOMES_MES[m.mes - 1] + '/' + m.ano + '</strong>' + statusBadge + '</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span class="acc-arrow" style="color:#888;font-size:13px;">▸</span>';
+    html += '<strong style="font-size:15px;">' + _NOMES_MES[m.mes - 1] + '/' + m.ano + '</strong>' + statusBadge + semZeroBadge + '</div>';
     html += '<div style="font-size:13px;color:#666;">' + _fmtBR(m.data_inicio) + ' a ' + _fmtBR(m.data_fim) + ' · ' + semanas.length + ' semana' + (semanas.length !== 1 ? 's' : '') + '</div>';
     html += '</div>';
     html += '<div style="display:none;border-top:1px solid #E5E7EB;padding:12px 16px;">';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;padding:10px 12px;background:#F9FAFB;border-radius:8px;">';
+    html += '<div style="flex:1;min-width:120px;"><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Início</label>';
+    html += '<input type="date" id="mes-inicio-' + m.id + '" value="' + m.data_inicio + '" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>';
+    html += '<div style="flex:1;min-width:120px;"><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Fim</label>';
+    html += '<input type="date" id="mes-fim-' + m.id + '" value="' + m.data_fim + '" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>';
+    html += '<button onclick="salvarDatasERegenerar(\'' + m.id + '\')" style="padding:7px 14px;border:none;border-radius:6px;background:#185FA5;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">Salvar datas e regenerar</button>';
+    html += '<button onclick="regenerarSemanas(\'' + m.id + '\', \'' + _NOMES_MES[m.mes - 1] + '/' + m.ano + '\')" style="padding:7px 14px;border:none;border-radius:6px;background:#854F0B;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">Regenerar semanas</button>';
+    html += '</div>';
     if (!semanas.length) {
-      html += '<p style="color:#888;font-size:13px;">Nenhuma semana cadastrada.</p>';
+      html += '<p style="color:#854F0B;font-size:13px;background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:8px 12px;">Nenhuma semana cadastrada. Use "Regenerar semanas" para criar.</p>';
     } else {
       html += '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
       html += '<thead><tr style="text-align:left;color:#888;border-bottom:1px solid #E5E7EB;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">Período</th><th style="padding:6px 8px;">Status</th></tr></thead><tbody>';
@@ -7093,6 +7104,37 @@ async function carregarMeses() {
     html += '</div></div>';
   });
   lista.innerHTML = html;
+}
+
+async function regenerarSemanas(mesId, nomeMes) {
+  if (!confirm('Regenerar semanas de ' + nomeMes + '?\n\nIsso vai apagar e recriar todas as semanas deste mês. As semanas atuais serão substituídas.')) return;
+  const btn = event ? event.target : null;
+  if (btn) btn.disabled = true;
+  try {
+    const { error } = await sb.rpc('gerar_semanas_do_mes', { p_mes_id: mesId });
+    if (error) { alert('Erro ao regenerar semanas: ' + error.message); Logger.error('meses', 'regenerarSemanas', 'Falha ao regenerar', { error_message: error.message }); return; }
+    await carregarMeses();
+  } finally { if (btn) btn.disabled = false; }
+}
+
+async function salvarDatasERegenerar(mesId) {
+  const inicioEl = document.getElementById('mes-inicio-' + mesId);
+  const fimEl = document.getElementById('mes-fim-' + mesId);
+  if (!inicioEl || !fimEl) return;
+  const novoInicio = inicioEl.value;
+  const novoFim = fimEl.value;
+  if (!novoInicio || !novoFim) { alert('Preencha as duas datas.'); return; }
+  if (novoFim < novoInicio) { alert('A data final deve ser depois da inicial.'); return; }
+  if (!confirm('Salvar novas datas (' + _fmtBR(novoInicio) + ' a ' + _fmtBR(novoFim) + ') e regenerar as semanas?')) return;
+  const btn = event ? event.target : null;
+  if (btn) btn.disabled = true;
+  try {
+    const { error: errUpd } = await sb.from('meses_referencia').update({ data_inicio: novoInicio, data_fim: novoFim }).eq('id', mesId);
+    if (errUpd) { alert('Erro ao salvar datas: ' + errUpd.message); Logger.error('meses', 'salvarDatasERegenerar', 'Falha ao atualizar datas', { error_message: errUpd.message }); return; }
+    const { error: errReg } = await sb.rpc('gerar_semanas_do_mes', { p_mes_id: mesId });
+    if (errReg) { alert('Datas salvas, mas erro ao regenerar semanas: ' + errReg.message); Logger.error('meses', 'salvarDatasERegenerar', 'Falha ao regenerar após salvar datas', { error_message: errReg.message }); }
+    await carregarMeses();
+  } finally { if (btn) btn.disabled = false; }
 }
 
 async function gerarProximoMes() {
