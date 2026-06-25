@@ -3066,11 +3066,12 @@ async function renderInterfaceCobrador() {
     + '<div id="secao-ciclo-conteudo"></div>'
     + '</div>';
 
+  const _caixaId = await obterCaixaAtiva();
   await Promise.all([
-    carregarSaldoCobrador(),
+    carregarSaldoCobrador(_caixaId),
     carregarDesempenhoCiclo(),
     carregarVisitasHoje(),
-    carregarCaixaECiclos(),
+    carregarCaixaECiclos(_caixaId),
   ]);
 }
 
@@ -3316,8 +3317,8 @@ async function carregarDesempenhoCiclo() {
     + metaHtml;
 }
 
-async function carregarSaldoCobrador() {
-  const caixaId = await obterCaixaAtiva();
+async function carregarSaldoCobrador(caixaIdParam) {
+  const caixaId = caixaIdParam !== undefined ? caixaIdParam : await obterCaixaAtiva();
   const saldoEl = document.getElementById('saldo-em-maos');
   const infoEl = document.getElementById('saldo-ciclo-info');
   if (!caixaId) {
@@ -3396,8 +3397,8 @@ async function carregarVisitasHoje() {
   secao.innerHTML = html;
 }
 
-async function carregarCaixaECiclos() {
-  const caixaId = await obterCaixaAtiva();
+async function carregarCaixaECiclos(caixaIdParam) {
+  const caixaId = caixaIdParam !== undefined ? caixaIdParam : await obterCaixaAtiva();
   const tabsEl = document.getElementById('secao-ciclo-tabs');
   const conteudo = document.getElementById('secao-ciclo-conteudo');
 
