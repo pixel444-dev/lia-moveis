@@ -3013,19 +3013,23 @@ async function carregarCobrancas() {
 
 async function _clientesDoCobrador(campos) {
   const sel = campos || 'id, codigo, nome, telefone, foto_casa, localidade_id';
-  const [diretosRes, rotaRes] = await Promise.all([
-    sb.from('clientes').select(sel).eq('cobrador_id', funcionarioLogado.id),
-    sb.rpc('clientes_por_rota'),
-  ]);
-  const diretos = diretosRes.data || [];
-  const idsPorRota = (rotaRes.data || []).map(x => x.id ?? x);
+  const { data: diretos, error: errDir } = await sb.from('clientes').select(sel).eq('cobrador_id', funcionarioLogado.id);
+  if (errDir) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes diretos', { error_message: errDir.message });
+
   let porRota = [];
-  if (idsPorRota.length) {
-    const { data } = await sb.from('clientes').select(sel).in('id', idsPorRota);
-    porRota = data || [];
+  const { data: rotas } = await sb.from('rotas').select('id').eq('cobrador_id', funcionarioLogado.id).eq('ativa', true);
+  if (rotas && rotas.length) {
+    const { data: muns } = await sb.from('rotas_municipios').select('municipio_id').in('rota_id', rotas.map(r => r.id));
+    if (muns && muns.length) {
+      const munIds = [...new Set(muns.map(m => m.municipio_id))];
+      const { data, error: errRota } = await sb.from('clientes').select(sel).in('municipio_id', munIds).is('cobrador_id', null);
+      if (errRota) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes por rota', { error_message: errRota.message });
+      porRota = data || [];
+    }
   }
+
   const mapa = new Map();
-  [...diretos, ...porRota].forEach(c => mapa.set(c.id, c));
+  [...(diretos || []), ...porRota].forEach(c => mapa.set(c.id, c));
   return [...mapa.values()];
 }
 
