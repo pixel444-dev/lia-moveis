@@ -2822,14 +2822,21 @@ function fecharModalVenda() {
 
 async function solicitarAutorizacaoSemCPF() {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-  const nomeVendedor = funcionarioLogado?.nome || 'Vendedor';
+  const codigo = Math.floor(100000 + Math.random() * 900000).toString();
   const painel = document.getElementById('painel-autorizacao');
   painel.style.display = 'block';
   painel.innerHTML = `<div style="background:#E6F1FB;border:1px solid #9fc6e8;border-radius:8px;padding:1rem;margin-bottom:.5rem;text-align:center;">
     <div style="font-size:13px;color:#185FA5;font-weight:500;">Solicitação enviada ao gestor</div>
     <div style="font-size:12px;color:#888;margin-top:6px;">Aguardando autorização...</div>
   </div>`;
-  const { data, error } = await sb.from('autorizacoes_venda').insert({ codigo: nomeVendedor, status: 'pendente', tipo: 'sem_cpf' }).select().single();
+  const { data, error } = await sb.from('autorizacoes_venda').insert({
+    codigo,
+    vendedor_id: funcionarioLogado?.id || null,
+    equipe_id: equipeAtiva?.id || null,
+    status: 'pendente',
+    tipo: 'sem_cpf',
+    descricao: (funcionarioLogado?.nome || 'Vendedor') + ' — venda sem CPF',
+  }).select().single();
   if (error) { painel.innerHTML = '<div class="msg erro">Erro ao enviar solicitação.</div>'; return; }
   autorizacaoAtualId = data.id;
   pollInterval = setInterval(async () => {
