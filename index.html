@@ -684,173 +684,180 @@ tr:hover td{background:#fafafa;}
 
 <!-- MODAL NOVA VENDA -->
 <div class="modal-bg" id="modal-venda">
-  <div class="modal-box" style="max-width:560px;">
+  <div class="modal-box" style="max-width:580px;">
     <div class="modal-header">
-      <strong>Nova venda</strong>
+      <strong style="font-size:18px;">🛒 Nova venda</strong>
       <button onclick="fecharModalVenda()">×</button>
     </div>
 
-    <div class="secao">1. Identificar o cliente pelo CPF</div>
-    <div class="campo">
-      <label>CPF do cliente *</label>
-      <div style="display:flex;gap:8px;">
-        <input id="venda-cpf-busca" type="text" placeholder="000.000.000-00" style="flex:1;">
-        <button class="btn primario" onclick="buscarClientePorCPF()">Buscar</button>
-      </div>
-      <div id="btn-sem-cpf-wrap" style="display:none;margin-top:8px;">
-        <button class="btn" style="width:100%;border-color:#FAC775;color:#854F0B;" onclick="solicitarAutorizacaoSemCPF()">Solicitar autorização sem CPF</button>
+    <div style="background:#E6F1FB;border:1px solid #B8D4F0;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;color:#185FA5;margin-bottom:12px;">👤 Passo 1 — Identificar o cliente</div>
+      <div class="campo" style="margin-bottom:0;">
+        <label style="font-size:13px;">CPF do cliente *</label>
+        <div style="display:flex;gap:8px;">
+          <input id="venda-cpf-busca" type="text" placeholder="000.000.000-00" style="flex:1;padding:14px 14px;font-size:16px;border-radius:10px;">
+          <button class="btn primario" onclick="buscarClientePorCPF()" style="padding:14px 20px;font-size:15px;border-radius:10px;white-space:nowrap;">🔍 Buscar</button>
+        </div>
+        <div id="btn-sem-cpf-wrap" style="display:none;margin-top:10px;">
+          <button class="btn" style="width:100%;border-color:#FAC775;color:#854F0B;padding:14px;font-size:14px;border-radius:10px;" onclick="solicitarAutorizacaoSemCPF()">🔓 Solicitar autorização sem CPF</button>
+        </div>
       </div>
     </div>
-    <div id="painel-autorizacao" style="display:none;margin-bottom:.5rem;"></div>
+    <div id="painel-autorizacao" style="display:none;margin-bottom:12px;"></div>
     <div id="resultado-busca-cliente"></div>
     <input type="hidden" id="venda-cliente-id">
 
     <div id="form-novo-cliente-venda" style="display:none;">
       <input type="hidden" id="vnc-edit-id">
-      <div class="secao">Cadastrar novo cliente</div>
-      <div class="campo">
-        <label>Nome completo *</label>
-        <input id="vnc-nome" type="text" placeholder="Nome do cliente">
-      </div>
-      <div class="grid2">
+      <div style="background:#F0FBE6;border:1px solid #C0DD97;border-radius:12px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:14px;font-weight:700;color:#3B6D11;margin-bottom:14px;">👤 Cadastrar novo cliente</div>
         <div class="campo">
-          <label>Celular</label>
-          <input id="vnc-telefone" type="text" placeholder="(88) 99999-9999">
+          <label style="font-size:13px;">👤 Nome completo *</label>
+          <input id="vnc-nome" type="text" placeholder="Nome do cliente" style="padding:14px;font-size:16px;border-radius:10px;">
         </div>
-        <div class="campo">
-          <label>Data de nascimento *</label>
-          <input id="vnc-nascimento" type="date">
-        </div>
-      </div>
-      <div class="campo">
-        <label>Endereço *</label>
-        <input id="vnc-endereco" type="text" placeholder="Rua e número">
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 70px;gap:.75rem;">
-        <div class="campo">
-          <label>Bairro</label>
-          <input id="vnc-bairro" type="text" placeholder="Bairro">
-        </div>
-        <div class="campo" style="position:relative;">
-          <label>Cidade *</label>
-          <input id="vnc-cidade" type="text" placeholder="Digite para buscar..." autocomplete="off"
-            oninput="vncCidadeInput()"
-            onblur="setTimeout(function(){var d=document.getElementById('vnc-cidade-dropdown');if(d)d.style.display='none';},150)">
-          <div id="vnc-cidade-dropdown" class="ac-dropdown" style="display:none;"></div>
-          <input type="hidden" id="vnc-municipio-id">
+        <div class="grid2">
+          <div class="campo">
+            <label style="font-size:13px;">📱 Celular</label>
+            <input id="vnc-telefone" type="text" placeholder="(88) 99999-9999" style="padding:14px;font-size:16px;border-radius:10px;">
+          </div>
+          <div class="campo">
+            <label style="font-size:13px;">📅 Nascimento *</label>
+            <input id="vnc-nascimento" type="date" style="padding:14px;font-size:16px;border-radius:10px;">
+          </div>
         </div>
         <div class="campo">
-          <label>UF</label>
-          <input id="vnc-uf" type="text" readonly style="background:#f5f5f5;color:#666;cursor:default;text-align:center;font-weight:600;">
+          <label style="font-size:13px;">🏠 Endereço *</label>
+          <input id="vnc-endereco" type="text" placeholder="Rua e número" style="padding:14px;font-size:16px;border-radius:10px;">
         </div>
-      </div>
-      <div class="campo">
-        <label>Foto da casa *</label>
-        <div id="vnc-foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
-          <img id="vnc-foto-preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid #ddd;display:block;">
-          <button type="button" onclick="removerFotoVnc()" style="margin-top:.4rem;font-size:.8rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr 70px;gap:.75rem;">
+          <div class="campo">
+            <label style="font-size:13px;">Bairro</label>
+            <input id="vnc-bairro" type="text" placeholder="Bairro" style="padding:14px;font-size:16px;border-radius:10px;">
+          </div>
+          <div class="campo" style="position:relative;">
+            <label style="font-size:13px;">🏙️ Cidade *</label>
+            <input id="vnc-cidade" type="text" placeholder="Digite para buscar..." autocomplete="off"
+              oninput="vncCidadeInput()"
+              onblur="setTimeout(function(){var d=document.getElementById('vnc-cidade-dropdown');if(d)d.style.display='none';},150)"
+              style="padding:14px;font-size:16px;border-radius:10px;">
+            <div id="vnc-cidade-dropdown" class="ac-dropdown" style="display:none;"></div>
+            <input type="hidden" id="vnc-municipio-id">
+          </div>
+          <div class="campo">
+            <label style="font-size:13px;">UF</label>
+            <input id="vnc-uf" type="text" readonly style="background:#f5f5f5;color:#666;cursor:default;text-align:center;font-weight:600;padding:14px;font-size:16px;border-radius:10px;">
+          </div>
         </div>
-        <input type="file" id="vnc-foto" accept="image/*" capture="environment" onchange="processarFotoVnc(this)" style="display:none;">
-        <button type="button" class="btn" onclick="document.getElementById('vnc-foto').click()" style="width:100%;">📷 Tirar / escolher foto</button>
-        <div id="msg-foto-vnc" style="margin-top:4px;font-size:12px;"></div>
-      </div>
-      <div class="campo">
-        <label>Ponto de referência</label>
-        <input id="vnc-referencia" type="text" placeholder="Próximo ao mercado X...">
-      </div>
-      <div class="campo">
-        <label>Localização do cliente *</label>
-        <div id="loc-status" style="background:#f9f9f9;border:1px solid #ddd;border-radius:8px;padding:10px 12px;font-size:13px;color:#888;margin-bottom:6px;">
-          📍 Localização não capturada ainda
+        <div class="campo">
+          <label style="font-size:13px;">📷 Foto da casa *</label>
+          <div id="vnc-foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
+            <img id="vnc-foto-preview" style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid #ddd;display:block;">
+            <button type="button" onclick="removerFotoVnc()" style="margin-top:.4rem;font-size:.85rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
+          </div>
+          <input type="file" id="vnc-foto" accept="image/*" capture="environment" onchange="processarFotoVnc(this)" style="display:none;">
+          <button type="button" class="btn" onclick="document.getElementById('vnc-foto').click()" style="width:100%;padding:14px;font-size:15px;border-radius:10px;">📷 Tirar / escolher foto</button>
+          <div id="msg-foto-vnc" style="margin-top:4px;font-size:12px;"></div>
         </div>
-        <input type="hidden" id="vnc-latitude">
-        <input type="hidden" id="vnc-longitude">
-        <input type="hidden" id="vnc-localizacao-endereco">
-        <button type="button" class="btn primario" style="width:100%;padding:12px;font-size:14px;" onclick="capturarLocalizacao()">
-          📍 Salvar localização atual
-        </button>
-        <div style="font-size:11px;color:#888;margin-top:6px;">O vendedor deve estar na frente da casa do cliente ao capturar.</div>
+        <div class="campo">
+          <label style="font-size:13px;">📌 Ponto de referência</label>
+          <input id="vnc-referencia" type="text" placeholder="Próximo ao mercado X..." style="padding:14px;font-size:16px;border-radius:10px;">
+        </div>
+        <div class="campo">
+          <label style="font-size:13px;">📍 Localização do cliente *</label>
+          <div id="loc-status" style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px 14px;font-size:14px;color:#888;margin-bottom:8px;">
+            📍 Localização não capturada ainda
+          </div>
+          <input type="hidden" id="vnc-latitude">
+          <input type="hidden" id="vnc-longitude">
+          <input type="hidden" id="vnc-localizacao-endereco">
+          <button type="button" class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;" onclick="capturarLocalizacao()">
+            📍 Salvar localização atual
+          </button>
+          <div style="font-size:12px;color:#888;margin-top:6px;">O vendedor deve estar na frente da casa do cliente ao capturar.</div>
+        </div>
+        <div class="campo" style="margin-bottom:12px;">
+          <label style="font-size:13px;">👷 Cobrador responsável *</label>
+          <select id="vnc-cobrador" style="padding:14px;font-size:16px;border-radius:10px;">
+            <option value="">Selecione...</option>
+          </select>
+        </div>
+        <button class="btn verde" onclick="salvarNovoClienteVenda()" style="width:100%;padding:16px;font-size:16px;font-weight:700;border-radius:12px;">✅ Salvar cliente e continuar</button>
       </div>
-      <div class="campo">
-        <label>Cobrador responsável *</label>
-        <select id="vnc-cobrador">
-          <option value="">Selecione...</option>
-        </select>
-      </div>
-      <button class="btn verde" onclick="salvarNovoClienteVenda()" style="margin-bottom:.75rem;">✓ Salvar cliente e continuar</button>
     </div>
 
     <div id="form-dados-venda" style="display:none;">
-      <button type="button" onclick="voltarParaCadastroCliente()" style="font-size:12px;color:#185FA5;background:none;border:none;cursor:pointer;margin-bottom:.75rem;padding:0;">← Editar dados do cliente</button>
-      <div class="secao">2. Dados da venda</div>
-      <div class="grid2">
-        <div class="campo">
-          <label>Código da venda</label>
-          <input id="venda-codigo" type="text" readonly style="background:#f9f9f9;color:#888;">
+      <button type="button" onclick="voltarParaCadastroCliente()" style="font-size:13px;color:#185FA5;background:none;border:none;cursor:pointer;margin-bottom:10px;padding:0;">← Editar dados do cliente</button>
+      <div style="background:#F5F3FF;border:1px solid #D4CCEF;border-radius:12px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:14px;font-weight:700;color:#5B21B6;margin-bottom:14px;">🛒 Passo 2 — Dados da venda</div>
+        <div class="grid2">
+          <div class="campo">
+            <label style="font-size:13px;">🏷️ Código</label>
+            <input id="venda-codigo" type="text" readonly style="background:#f0f0f0;color:#888;padding:14px;font-size:16px;border-radius:10px;">
+          </div>
+          <div class="campo" id="campo-vendedor-wrap">
+            <label style="font-size:13px;">👨‍💼 Quem vendeu *</label>
+            <select id="venda-vendedor" style="padding:14px;font-size:16px;border-radius:10px;">
+              <option value="">Selecione o vendedor *</option>
+            </select>
+          </div>
         </div>
-        <div class="campo" id="campo-vendedor-wrap">
-          <label>Quem realizou a venda *</label>
-          <select id="venda-vendedor">
-            <option value="">Selecione o vendedor *</option>
+        <div class="campo" id="campo-produto-texto">
+          <label style="font-size:13px;">📦 Produto(s)</label>
+          <input id="venda-produto" type="text" placeholder="Ex: Sofá 3 lugares, guarda-roupa..." style="padding:14px;font-size:16px;border-radius:10px;">
+        </div>
+        <div class="campo" id="campo-produto-select" style="display:none;">
+          <label style="font-size:13px;">📦 Produto *</label>
+          <select id="venda-produto-select" onchange="selecionarProdutoEstoque(this)" style="padding:14px;font-size:16px;border-radius:10px;">
+            <option value="">Selecione o produto...</option>
+          </select>
+          <div id="msg-estoque-produto" style="font-size:12px;color:#888;margin-top:4px;"></div>
+        </div>
+        <div class="grid2">
+          <div class="campo">
+            <label style="font-size:13px;">💳 Tipo de venda</label>
+            <select id="venda-tipo" onchange="atualizarFormVenda()" style="padding:14px;font-size:16px;border-radius:10px;">
+              <option value="">Selecione o tipo...</option>
+              <option value="avista">À vista</option>
+              <option value="entrada">A prazo</option>
+            </select>
+          </div>
+          <div class="campo">
+            <label style="font-size:13px;">💰 Valor (R$) *</label>
+            <input id="venda-valor" type="number" placeholder="0,00" oninput="atualizarPreviewParcelas()" style="padding:14px;font-size:18px;font-weight:700;border-radius:10px;">
+          </div>
+        </div>
+        <div id="campo-parcelas" style="display:none;">
+          <div class="campo">
+            <label style="font-size:13px;">📅 Número de parcelas *</label>
+            <div id="seletor-parcelas" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px;"></div>
+            <input type="hidden" id="venda-parcelas">
+          </div>
+          <div class="campo">
+            <label style="font-size:13px;">💵 Entrada (opcional)</label>
+            <input id="venda-entrada" type="number" placeholder="R$ 0,00" min="0" oninput="atualizarPreviewParcelas()" style="padding:14px;font-size:16px;border-radius:10px;">
+          </div>
+          <div class="campo">
+            <label style="font-size:13px;">📅 Data da primeira parcela *</label>
+            <input id="venda-data-primeira" type="date" oninput="atualizarPreviewParcelas()" style="padding:14px;font-size:16px;border-radius:10px;">
+          </div>
+          <div id="preview-parcelas"></div>
+        </div>
+        <div class="campo">
+          <label style="font-size:13px;">📝 Observação</label>
+          <input id="venda-obs" type="text" placeholder="Opcional" style="padding:14px;font-size:16px;border-radius:10px;">
+        </div>
+        <div class="campo" id="campo-equipe-wrap">
+          <label style="font-size:13px;">🚚 Equipe (semana atual)</label>
+          <select id="venda-equipe" style="padding:14px;font-size:16px;border-radius:10px;">
+            <option value="">Sem equipe / venda direta</option>
           </select>
         </div>
-      </div>
-      <div class="campo" id="campo-produto-texto">
-        <label>Produto(s)</label>
-        <input id="venda-produto" type="text" placeholder="Ex: Sofá 3 lugares, guarda-roupa...">
-      </div>
-      <div class="campo" id="campo-produto-select" style="display:none;">
-        <label>Produto *</label>
-        <select id="venda-produto-select" onchange="selecionarProdutoEstoque(this)">
-          <option value="">Selecione o produto...</option>
-        </select>
-        <div id="msg-estoque-produto" style="font-size:12px;color:#888;margin-top:4px;"></div>
-      </div>
-      <div class="grid2">
-        <div class="campo">
-          <label>Tipo de venda</label>
-          <select id="venda-tipo" onchange="atualizarFormVenda()">
-            <option value="">Selecione o tipo...</option>
-            <option value="avista">À vista</option>
-            <option value="entrada">A prazo</option>
-          </select>
-        </div>
-        <div class="campo">
-          <label>Valor (R$) *</label>
-          <input id="venda-valor" type="number" placeholder="0,00" oninput="atualizarPreviewParcelas()">
-        </div>
-      </div>
-     <div id="campo-parcelas" style="display:none;">
-  <div class="campo">
-    <label>Número de parcelas *</label>
-    <div id="seletor-parcelas" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;"></div>
-    <input type="hidden" id="venda-parcelas">
-  </div>
-  <div class="campo">
-    <label>Entrada (opcional)</label>
-    <input id="venda-entrada" type="number" placeholder="R$ 0,00" min="0" oninput="atualizarPreviewParcelas()">
-  </div>
-  <div class="campo">
-    <label>Data da primeira parcela *</label>
-    <input id="venda-data-primeira" type="date" oninput="atualizarPreviewParcelas()">
-  </div>
-  <div id="preview-parcelas"></div>
-</div>
-      <div class="campo">
-        <label>Observação</label>
-        <input id="venda-obs" type="text" placeholder="Opcional">
-      </div>
-      <div class="campo" id="campo-equipe-wrap">
-        <label>Equipe (semana atual)</label>
-        <select id="venda-equipe">
-          <option value="">Sem equipe / venda direta</option>
-        </select>
       </div>
     </div>
 
-    <div class="modal-footer">
-      <button class="btn" onclick="fecharModalVenda()">Cancelar</button>
-      <button class="btn primario" id="btn-salvar-venda" style="display:none;" onclick="salvarVenda()">Registrar venda</button>
+    <div class="modal-footer" style="flex-direction:column;gap:10px;">
+      <button class="btn primario" id="btn-salvar-venda" style="display:none;width:100%;padding:18px;font-size:17px;font-weight:700;border-radius:12px;" onclick="salvarVenda()">💾 Finalizar venda</button>
+      <button class="btn" onclick="fecharModalVenda()" style="width:100%;padding:14px;font-size:14px;border-radius:10px;">Cancelar</button>
     </div>
   </div>
 </div>
@@ -2526,12 +2533,12 @@ function renderSeletorParcelas() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = i + 'x';
-    btn.style.cssText = 'padding:6px 12px;border-radius:8px;border:1.5px solid #ddd;background:#fff;color:#1a1a1a;font-size:13px;cursor:pointer;font-family:system-ui,sans-serif;transition:all .15s;';
+    btn.style.cssText = 'padding:14px 8px;border-radius:10px;border:2px solid #D4CCEF;background:#fff;color:#5B21B6;font-size:16px;font-weight:700;cursor:pointer;font-family:system-ui,sans-serif;transition:all .15s;min-height:48px;';
     btn.onclick = () => {
       document.querySelectorAll('#seletor-parcelas button').forEach(b => {
-        b.style.background = '#fff'; b.style.color = '#1a1a1a'; b.style.borderColor = '#ddd';
+        b.style.background = '#fff'; b.style.color = '#5B21B6'; b.style.borderColor = '#D4CCEF';
       });
-      btn.style.background = '#185FA5'; btn.style.color = '#fff'; btn.style.borderColor = '#185FA5';
+      btn.style.background = '#5B21B6'; btn.style.color = '#fff'; btn.style.borderColor = '#5B21B6';
       document.getElementById('venda-parcelas').value = i;
       atualizarPreviewParcelas();
     };
