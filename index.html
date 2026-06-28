@@ -1674,15 +1674,15 @@ async function uploadFoto(clienteId) {
 }
 
 async function gerarCodigoCliente() {
-  const { data } = await sb.from('clientes').select('codigo').not('codigo', 'is', null).order('codigo', { ascending: false }).limit(1);
-  if (!data || !data.length || !data[0].codigo) return '00001';
-  return String(parseInt(data[0].codigo) + 1).padStart(5, '0');
+  const { data, error } = await sb.rpc('proximo_codigo_cliente');
+  if (error || !data) { Logger.error('clientes', 'gerarCodigoCliente', 'Falha na RPC', { error_message: error?.message }); throw new Error('Falha ao gerar código do cliente'); }
+  return data;
 }
 
 async function gerarCodigoVenda() {
-  const { data } = await sb.from('vendas').select('codigo').not('codigo', 'is', null).order('codigo', { ascending: false }).limit(1);
-  if (!data || !data.length || !data[0].codigo) return '00001';
-  return String(parseInt(data[0].codigo) + 1).padStart(5, '0');
+  const { data, error } = await sb.rpc('proximo_codigo_venda');
+  if (error || !data) { Logger.error('vendas', 'gerarCodigoVenda', 'Falha na RPC', { error_message: error?.message }); throw new Error('Falha ao gerar código da venda'); }
+  return data;
 }
 
 let _dashPeriodo = '30d';
@@ -2180,7 +2180,12 @@ async function salvarCliente() {
       alert('Erro ao salvar cliente! Tente novamente.'); return;
     }
   } else {
-    const { data: novo, error } = await sb.from('clientes').insert(dados).select().single();
+    let { data: novo, error } = await sb.from('clientes').insert(dados).select().single();
+    if (error && error.code === '23505') {
+      dados.codigo = await gerarCodigoCliente();
+      const retry = await sb.from('clientes').insert(dados).select().single();
+      novo = retry.data; error = retry.error;
+    }
     if (error) {
       Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao inserir cliente', { supabase_code: error.code, tem_foto: !!window._fotoCasaBlob });
       alert('Erro ao cadastrar cliente! Tente novamente.'); return;
@@ -2658,7 +2663,12 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
     observacao: document.getElementById('venda-obs').value.trim(),
     equipe_id: equipeId,
   };
-  const { data: venda, error } = await sb.from('vendas').insert(dados).select().single();
+  let { data: venda, error } = await sb.from('vendas').insert(dados).select().single();
+  if (error && error.code === '23505') {
+    dados.codigo = await gerarCodigoVenda();
+    const retry = await sb.from('vendas').insert(dados).select().single();
+    venda = retry.data; error = retry.error;
+  }
   if (error) {
     Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao inserir venda no banco', { supabase_code: error.code, supabase_msg: error.message, tipo: dados.tipo, equipe_id: dados.equipe_id });
     alert('Erro ao registrar venda! Contate o suporte.'); return;
