@@ -1682,13 +1682,29 @@ async function uploadFoto(clienteId) {
 
 async function gerarCodigoCliente() {
   const { data, error } = await sb.rpc('proximo_codigo_cliente');
-  if (error || !data) { Logger.error('clientes', 'gerarCodigoCliente', 'Falha na RPC', { error_message: error?.message }); throw new Error('Falha ao gerar código do cliente'); }
+  if (error || !data) {
+    Logger.error('clientes', 'gerarCodigoCliente', 'Falha na RPC proximo_codigo_cliente', { error_message: error?.message });
+    const { data: fb } = await sb.from('clientes').select('codigo').order('created_at', { ascending: false }).limit(200);
+    let max = 0;
+    (fb || []).forEach(c => { const n = parseInt(c.codigo); if (!isNaN(n) && n > max) max = n; });
+    const fallback = String(max + 1);
+    Logger.warn('clientes', 'gerarCodigoCliente', 'Fallback local usado', { codigo_gerado: fallback });
+    return fallback;
+  }
   return data;
 }
 
 async function gerarCodigoVenda() {
   const { data, error } = await sb.rpc('proximo_codigo_venda');
-  if (error || !data) { Logger.error('vendas', 'gerarCodigoVenda', 'Falha na RPC', { error_message: error?.message }); throw new Error('Falha ao gerar código da venda'); }
+  if (error || !data) {
+    Logger.error('vendas', 'gerarCodigoVenda', 'Falha na RPC proximo_codigo_venda', { error_message: error?.message });
+    const { data: fb } = await sb.from('vendas').select('codigo').order('created_at', { ascending: false }).limit(200);
+    let max = 0;
+    (fb || []).forEach(v => { const n = parseInt(v.codigo); if (!isNaN(n) && n > max) max = n; });
+    const fallback = String(max + 1);
+    Logger.warn('vendas', 'gerarCodigoVenda', 'Fallback local usado', { codigo_gerado: fallback });
+    return fallback;
+  }
   return data;
 }
 
@@ -2187,14 +2203,17 @@ async function salvarCliente() {
       alert('Erro ao salvar cliente! Tente novamente.'); return;
     }
   } else {
-    let { data: novo, error } = await sb.from('clientes').insert(dados).select().single();
-    if (error && error.code === '23505') {
+    let novo = null, error = null;
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      const res = await sb.from('clientes').insert(dados).select().single();
+      novo = res.data; error = res.error;
+      if (!error) break;
+      if (error.code !== '23505') break;
+      Logger.warn('clientes', 'SALVAR_CLIENTE', 'Colisão 23505 na tentativa ' + (tentativa + 1), { codigo_colidido: dados.codigo });
       dados.codigo = await gerarCodigoCliente();
-      const retry = await sb.from('clientes').insert(dados).select().single();
-      novo = retry.data; error = retry.error;
     }
     if (error) {
-      Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao inserir cliente', { supabase_code: error.code, tem_foto: !!window._fotoCasaBlob });
+      Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao inserir cliente', { supabase_code: error.code, tem_foto: !!window._fotoCasaBlob, ultimo_codigo: dados.codigo });
       alert('Erro ao cadastrar cliente! Tente novamente.'); return;
     }
     clienteId = novo?.id;
@@ -2670,14 +2689,17 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
     observacao: document.getElementById('venda-obs').value.trim(),
     equipe_id: equipeId,
   };
-  let { data: venda, error } = await sb.from('vendas').insert(dados).select().single();
-  if (error && error.code === '23505') {
+  let venda = null, error = null;
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const res = await sb.from('vendas').insert(dados).select().single();
+    venda = res.data; error = res.error;
+    if (!error) break;
+    if (error.code !== '23505') break;
+    Logger.warn('vendas', 'SALVAR_VENDA', 'Colisão 23505 na tentativa ' + (tentativa + 1), { codigo_colidido: dados.codigo });
     dados.codigo = await gerarCodigoVenda();
-    const retry = await sb.from('vendas').insert(dados).select().single();
-    venda = retry.data; error = retry.error;
   }
   if (error) {
-    Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao inserir venda no banco', { supabase_code: error.code, supabase_msg: error.message, tipo: dados.tipo, equipe_id: dados.equipe_id });
+    Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao inserir venda no banco', { supabase_code: error.code, supabase_msg: error.message, tipo: dados.tipo, equipe_id: dados.equipe_id, ultimo_codigo: dados.codigo });
     alert('Erro ao registrar venda! Contate o suporte.'); return;
   }
   Logger.info('vendas', 'SALVAR_VENDA', 'Venda registrada com sucesso', { codigo: dados.codigo, tipo: dados.tipo, num_parcelas: dados.num_parcelas });
