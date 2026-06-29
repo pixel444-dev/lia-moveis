@@ -1911,22 +1911,56 @@ function _renderEquipes(lista) {
 }
 
 async function carregarClientes() {
-  const [{ data, error }, { data: cobradores }] = await Promise.all([
-    sb.from('clientes').select('id, codigo, nome, cpf, telefone, endereco, bairro, cidade, cobrador_id').order('nome'),
-    sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome'),
-  ]);
-  if (error) { document.getElementById('lista-clientes').innerHTML = 'Erro ao carregar.'; return; }
-  todosClientes = data || [];
+  const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
   const sel = document.getElementById('filtro-cobrador-clientes');
   const valorAtual = sel.value;
   sel.innerHTML = '<option value="">Todos os cobradores</option>' +
     (cobradores || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
   sel.value = valorAtual;
+  await _executarBuscaClientes();
+}
+
+let _buscaClientesTimer = null;
+
+function filtrarClientes() {
+  clearTimeout(_buscaClientesTimer);
+  _buscaClientesTimer = setTimeout(_executarBuscaClientes, 300);
+}
+
+async function _executarBuscaClientes() {
+  const termo = (document.getElementById('busca-clientes').value || '').trim();
+  const cobradorId = document.getElementById('filtro-cobrador-clientes').value || null;
+  const lista = document.getElementById('lista-clientes');
+  lista.innerHTML = '<p style="color:#888;padding:1rem;">🔍 Buscando...</p>';
+  const { data, error } = await sb.rpc('buscar_clientes', {
+    p_termo: termo || null,
+    p_cobrador: cobradorId,
+    p_limite: 50,
+  });
+  if (error) {
+    Logger.error('clientes', 'BUSCAR_CLIENTES', 'Falha na RPC buscar_clientes', { error_message: error.message });
+    lista.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao buscar clientes.</p>';
+    return;
+  }
+  todosClientes = data || [];
+  const total = todosClientes.length;
   renderClientes(todosClientes);
+  if (total === 50) {
+    const aviso = document.createElement('p');
+    aviso.style.cssText = 'color:#888;font-size:12px;padding:.5rem 1rem;';
+    aviso.textContent = 'Mostrando os primeiros 50 resultados. Refine a busca para ver mais.';
+    document.getElementById('lista-clientes').appendChild(aviso);
+  }
 }
 
 function renderClientes(lista) {
-  if (!lista.length) { document.getElementById('lista-clientes').innerHTML = '<p style="color:#888;padding:1rem;">Nenhum cliente encontrado.</p>'; return; }
+  const termo = (document.getElementById('busca-clientes').value || '').trim();
+  if (!lista.length) {
+    document.getElementById('lista-clientes').innerHTML = termo
+      ? '<p style="color:#888;padding:1rem;">Nenhum cliente encontrado para "' + termo + '".</p>'
+      : '<p style="color:#888;padding:1rem;">Nenhum cliente cadastrado ainda.</p>';
+    return;
+  }
   const cardsHtml = lista.map(c => `
     <div class="card-linha">
       <div class="card-linha-header">
@@ -2019,23 +2053,6 @@ async function verDetalhesCliente(clienteId) {
   document.getElementById('modal-detalhes-cliente').style.display = 'flex';
 }
 
-function filtrarClientes() {
-  const t = document.getElementById('busca-clientes').value.toLowerCase().trim();
-  const cobradorId = document.getElementById('filtro-cobrador-clientes').value;
-  const filtrado = todosClientes.filter(c => {
-    const matchTexto = !t ||
-      c.nome.toLowerCase().includes(t) ||
-      (c.cpf && c.cpf.includes(t)) ||
-      (c.codigo && c.codigo.includes(t)) ||
-      (c.telefone && c.telefone.includes(t)) ||
-      (c.endereco && c.endereco.toLowerCase().includes(t)) ||
-      (c.bairro && c.bairro.toLowerCase().includes(t)) ||
-      (c.cidade && c.cidade.toLowerCase().includes(t));
-    const matchCobrador = !cobradorId || c.cobrador_id === cobradorId;
-    return matchTexto && matchCobrador;
-  });
-  renderClientes(filtrado);
-}
 
 // ===== AUTOCOMPLETE CIDADES =====
 window._cliMunicipioId = null;
