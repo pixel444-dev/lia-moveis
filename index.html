@@ -4172,6 +4172,7 @@ async function confirmarBaixa() {
     const pago = tipo === 'completa';
     const atualizacao = {
       pago,
+      status: pago ? 'paga' : 'aberta',
       data_pagamento: pago ? new Date(data).toISOString() : null,
       cobrador_id: cobradorId,
       valor_pago: valorPago,
