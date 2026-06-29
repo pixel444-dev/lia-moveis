@@ -404,8 +404,6 @@ tr:hover td{background:#fafafa;}
     </div>
   </div>
 
-  <button id="btn-sair-vendedor" onclick="sair()" style="display:none;position:fixed;top:12px;right:12px;z-index:9999;background:#fff;border:1px solid #ddd;border-radius:8px;padding:7px 14px;font-size:13px;color:#A32D2D;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.12);">Sair</button>
-
   <div class="main">
     <div id="autorizacoes-wrap" style="display:none;margin-bottom:1rem;"></div>
 
@@ -446,14 +444,14 @@ tr:hover td{background:#fafafa;}
 
     <div class="page" id="page-vendas">
       <div class="topbar-pg">
-        <div class="page-title" style="margin:0">Vendas</div>
-        <button id="btn-nova-venda" class="btn primario" onclick="abrirNovaVenda()">+ Nova venda</button>
+        <div class="page-title" style="margin:0">🛒 Vendas</div>
+        <button id="btn-nova-venda" class="btn primario" style="padding:12px 20px;font-size:15px;border-radius:10px;font-weight:700;" onclick="abrirNovaVenda()">🛒 + Nova venda</button>
       </div>
-      <div id="aviso-sem-equipe" style="display:none;background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1rem;font-size:13px;color:#854F0B;">
+      <div id="aviso-sem-equipe" style="display:none;background:#FAEEDA;border:1px solid #FAC775;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem;font-size:14px;color:#854F0B;line-height:1.5;">
         ⚠️ Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor para ser adicionado a uma equipe.
       </div>
       <div class="busca-wrap" id="busca-vendas-wrap">
-        <input class="busca" type="text" placeholder="Buscar por código da venda ou cliente..." oninput="buscarVenda(this.value)">
+        <input class="busca" type="text" placeholder="🔍 Buscar por código ou nome do cliente..." oninput="buscarVenda(this.value)" style="padding:14px 16px;font-size:15px;border-radius:10px;border:1.5px solid #ddd;">
       </div>
       <div id="lista-vendas">Carregando...</div>
     </div>
@@ -1436,8 +1434,6 @@ function aplicarPermissoes(perfil) {
   if (btnNovaEquipe) btnNovaEquipe.style.display = gestor ? '' : 'none';
   const buscaVendas = document.getElementById('busca-vendas-wrap');
   if (buscaVendas) buscaVendas.style.display = gestor ? '' : 'none';
-  const btnSairVendedor = document.getElementById('btn-sair-vendedor');
-  if (btnSairVendedor) btnSairVendedor.style.display = perfil === 'vendedor' ? 'block' : 'none';
 }
 
 function pg(nome, el) {
@@ -2795,7 +2791,7 @@ async function carregarVendasVendedor() {
   if (error) { lista.innerHTML = 'Erro ao carregar.'; return; }
   const vendas = data || [];
   if (!vendas.length) {
-    lista.innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma venda registrada nesta semana.</p>';
+    lista.innerHTML = '<div style="text-align:center;padding:3rem 1rem;color:#999;"><div style="font-size:48px;margin-bottom:12px;">🛒</div><div style="font-size:16px;font-weight:600;color:#888;">Nenhuma venda ainda</div><div style="font-size:13px;margin-top:6px;">Toque em <strong>+ Nova venda</strong> para registrar a primeira!</div></div>';
     return;
   }
   renderVendas(vendas);
@@ -2990,25 +2986,34 @@ async function negarVenda(id) {
 }
 
 function renderVendas(lista) {
-  if (!lista.length) { document.getElementById('lista-vendas').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma venda registrada ainda.</p>'; return; }
-  const tipoBadge = v => `<span class="badge ${v.status==='devolvida'?'vermelho':v.tipo==='avista'?'verde':v.tipo==='entrada'?'azul':v.tipo==='parcela'?'roxo':'vermelho'}">${v.status==='devolvida'?'Devolvida':v.tipo==='avista'?'À vista':v.tipo==='entrada'?'Crediário':v.tipo==='parcela'?'Parcela avulsa':'Devolução'}</span>`;
+  if (!lista.length) { document.getElementById('lista-vendas').innerHTML = '<div style="text-align:center;padding:3rem 1rem;color:#999;"><div style="font-size:48px;margin-bottom:12px;">🛒</div><div style="font-size:16px;font-weight:600;color:#888;">Nenhuma venda encontrada</div></div>'; return; }
+  const tipoBadge = v => {
+    if (v.status === 'devolvida') return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#FCEBEB;color:#A32D2D;">Devolvida</span>';
+    if (v.tipo === 'avista') return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#EAF3DE;color:#3B6D11;">À vista</span>';
+    if (v.tipo === 'entrada') return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#E6F1FB;color:#185FA5;">Crediário' + (v.num_parcelas ? ' ' + v.num_parcelas + 'x' : '') + '</span>';
+    if (v.tipo === 'parcela') return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#EEEDFE;color:#3C3489;">Parcela avulsa</span>';
+    return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#FCEBEB;color:#A32D2D;">Devolução</span>';
+  };
   if (isMobile()) {
     document.getElementById('lista-vendas').innerHTML = lista.map(v => `
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span class="codigo-badge">${v.codigo||'—'}</span>
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.05);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span style="background:#f0f0f0;color:#555;padding:3px 10px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:600;">#${v.codigo||'—'}</span>
           ${tipoBadge(v)}
         </div>
-        <div style="font-size:15px;font-weight:600;margin-bottom:2px;">${v.clientes?.nome||'—'}</div>
-        <div style="font-size:13px;color:#888;margin-bottom:6px;">📦 ${v.produto||'—'} · ${v.funcionarios?.nome||'—'}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div style="font-size:18px;font-weight:700;color:#3B6D11;">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
-          <div style="font-size:12px;color:#aaa;">${new Date(v.data_venda).toLocaleDateString('pt-BR')}</div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:6px;color:#1a1a1a;">👤 ${v.clientes?.nome||'—'}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:#666;margin-bottom:10px;">
+          <span>📦 ${v.produto||'—'}</span>
+          <span>👨‍💼 ${v.funcionarios?.nome||'—'}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+          <div style="font-size:22px;font-weight:800;color:#3B6D11;">💰 R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+          <div style="font-size:12px;color:#aaa;">📅 ${new Date(v.data_venda).toLocaleDateString('pt-BR')}</div>
         </div>
         ${v.status!=='devolvida' && perfilAtivo.perfil==='gestor' ? `
-          <div style="display:flex;gap:8px;margin-top:10px;">
-            <button class="btn" style="flex:1;padding:8px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
-            <button class="btn" style="flex:1;padding:8px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">
+            <button class="btn" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">↩️ Devolver</button>
+            <button class="btn" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${v.codigo}')">❌ Cancelar</button>
           </div>` : ''}
       </div>`).join('');
     return;
@@ -3024,13 +3029,13 @@ function renderVendas(lista) {
           <td>${v.produto||'—'}</td>
           <td>${v.funcionarios?.nome||'—'}</td>
           <td>${tipoBadge(v)}</td>
-          <td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+          <td style="font-weight:700;color:#3B6D11;">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td>${v.num_parcelas ? v.num_parcelas+'x' : '—'}</td>
           <td>
             ${v.status!=='devolvida' ? (perfilAtivo.perfil==='gestor' ? `
-              <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">Devolver</button>
-              <button class="btn" style="font-size:11px;padding:3px 8px;color:#A32D2D;border-color:#f5c6c6;margin-left:4px;" onclick="cancelarVenda('${v.id}','${v.codigo}')">Cancelar</button>
-            ` : '') : `<span style="font-size:11px;color:#A32D2D;">Devolvida</span>`}
+              <button class="btn" style="font-size:11px;padding:5px 10px;color:#854F0B;border-color:#FAC775;border-radius:8px;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">↩️ Devolver</button>
+              <button class="btn" style="font-size:11px;padding:5px 10px;color:#A32D2D;border-color:#f5c6c6;border-radius:8px;margin-left:4px;" onclick="cancelarVenda('${v.id}','${v.codigo}')">❌ Cancelar</button>
+            ` : '') : `<span style="font-size:11px;color:#A32D2D;font-weight:600;">Devolvida</span>`}
           </td>
         </tr>`).join('')}
       </tbody>
