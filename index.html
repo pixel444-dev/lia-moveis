@@ -548,29 +548,39 @@ tr:hover td{background:#fafafa;}
   <div id="preview-carne"></div>
 </div>
     <div class="page" id="page-importacao">
-  <div class="page-title">Importar dados do sistema antigo</div>
-  <div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem;font-size:13px;">
-    ⚠️ <strong>Atenção:</strong> A importação vai cadastrar todos os clientes e parcelas do sistema antigo. Execute apenas uma vez. Se executar novamente, pode duplicar os dados.
+  <div class="page-title">📥 Importar dados do sistema antigo</div>
+  <div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.25rem;font-size:13px;line-height:1.5;">
+    ⚠️ <strong>Atenção:</strong> A importação vai cadastrar todos os clientes e vendas/parcelas do sistema antigo. Se o código já existir no Ascend, a linha será pulada (não duplica). Mesmo assim, execute com cuidado.
   </div>
 
-  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
-    <div style="font-size:14px;font-weight:600;margin-bottom:1rem;">Passo 1 — Importar clientes</div>
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
+    <div style="font-size:15px;font-weight:700;margin-bottom:1rem;">👤 Passo 1 — Importar clientes</div>
+    <div style="font-size:12px;color:#888;margin-bottom:12px;">Colunas esperadas: Cliente, CPF, Nome Fantasia, Data de Nascimento, Telefone, E-mail, CEP, Rua, Número, Bairro, Cidade, UF, Complemento, Código</div>
     <div class="campo">
-      <label>Selecione a planilha de clientes (.xlsx)</label>
-      <input type="file" id="arquivo-clientes" accept=".xlsx,.xls,.csv" style="padding:6px;">
+      <label style="font-size:13px;">Selecione a planilha de clientes (.xlsx)</label>
+      <input type="file" id="arquivo-clientes" accept=".xlsx,.xls,.csv" style="padding:10px;font-size:14px;">
     </div>
-    <button class="btn primario" onclick="importarClientes()">Importar clientes</button>
-    <div id="log-clientes" style="margin-top:.75rem;font-size:12px;color:#555;"></div>
+    <button class="btn primario" id="btn-importar-clientes" onclick="importarClientes()" style="padding:12px 24px;font-size:14px;border-radius:10px;">📥 Importar clientes</button>
+    <div id="progresso-clientes" style="display:none;margin-top:12px;">
+      <div style="background:#eee;border-radius:8px;height:24px;overflow:hidden;"><div id="barra-clientes" style="background:linear-gradient(90deg,#185FA5,#3B8DD6);height:100%;width:0%;transition:width .3s;border-radius:8px;"></div></div>
+      <div id="progresso-clientes-texto" style="font-size:12px;color:#555;margin-top:4px;text-align:center;"></div>
+    </div>
+    <div id="log-clientes" style="margin-top:.75rem;font-size:12px;color:#555;max-height:300px;overflow-y:auto;"></div>
   </div>
 
-  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
-    <div style="font-size:14px;font-weight:600;margin-bottom:1rem;">Passo 2 — Importar parcelas</div>
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
+    <div style="font-size:15px;font-weight:700;margin-bottom:1rem;">🛒 Passo 2 — Importar vendas e parcelas</div>
+    <div style="font-size:12px;color:#888;margin-bottom:12px;">Colunas esperadas: Cód. Pessoa, Pessoa, Nº da Saída, Parcela, Data Cadastro, Data Vencimento, Data da Baixa, Dias em Atraso, Valor, Valor Baixado, Valor em Aberto, Status, Nº do Documento</div>
     <div class="campo">
-      <label>Selecione a planilha de parcelas (.xlsx)</label>
-      <input type="file" id="arquivo-parcelas" accept=".xlsx,.xls,.csv" style="padding:6px;">
+      <label style="font-size:13px;">Selecione a planilha de parcelas/vendas (.xlsx)</label>
+      <input type="file" id="arquivo-parcelas" accept=".xlsx,.xls,.csv" style="padding:10px;font-size:14px;">
     </div>
-    <button class="btn primario" onclick="importarParcelas()">Importar parcelas</button>
-    <div id="log-parcelas" style="margin-top:.75rem;font-size:12px;color:#555;"></div>
+    <button class="btn primario" id="btn-importar-parcelas" onclick="importarParcelas()" style="padding:12px 24px;font-size:14px;border-radius:10px;">📥 Importar vendas e parcelas</button>
+    <div id="progresso-parcelas" style="display:none;margin-top:12px;">
+      <div style="background:#eee;border-radius:8px;height:24px;overflow:hidden;"><div id="barra-parcelas" style="background:linear-gradient(90deg,#3B6D11,#5EA22D);height:100%;width:0%;transition:width .3s;border-radius:8px;"></div></div>
+      <div id="progresso-parcelas-texto" style="font-size:12px;color:#555;margin-top:4px;text-align:center;"></div>
+    </div>
+    <div id="log-parcelas" style="margin-top:.75rem;font-size:12px;color:#555;max-height:400px;overflow-y:auto;"></div>
   </div>
 </div>
     <div class="page" id="page-relatorios">
@@ -6047,157 +6057,339 @@ doc.text(nomeLoja, xNome2, y + 8);
 
   doc.save('carnes-lia-moveis.pdf');
 }
+function _importNorm(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+function _importParseData(valor) {
+  if (!valor) return null;
+  if (typeof valor === 'number') {
+    const d = new Date(Math.round((valor - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+  }
+  if (valor instanceof Date) return isNaN(valor.getTime()) ? null : valor.toISOString().split('T')[0];
+  const s = String(valor).trim();
+  const brMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (brMatch) {
+    const iso = `${brMatch[3]}-${brMatch[2].padStart(2,'0')}-${brMatch[1].padStart(2,'0')}`;
+    const d = new Date(iso + 'T12:00:00');
+    return isNaN(d.getTime()) ? null : iso;
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+}
+
+async function _importCarregarMunicipios() {
+  const todos = [];
+  let offset = 0;
+  const limite = 1000;
+  while (true) {
+    const { data } = await sb.from('municipios').select('codigo_ibge, nome, estados(uf)').range(offset, offset + limite - 1);
+    if (!data || !data.length) break;
+    todos.push(...data);
+    if (data.length < limite) break;
+    offset += limite;
+  }
+  const mapa = {};
+  todos.forEach(m => {
+    const uf = m.estados?.uf || '';
+    const chave = _importNorm(m.nome) + '|' + _importNorm(uf);
+    mapa[chave] = m.codigo_ibge;
+  });
+  return mapa;
+}
+
 async function importarClientes() {
   const arquivo = document.getElementById('arquivo-clientes').files[0];
   if (!arquivo) { alert('Selecione o arquivo de clientes!'); return; }
+  const btn = document.getElementById('btn-importar-clientes');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Importando...'; }
   const log = document.getElementById('log-clientes');
-  log.innerHTML = '⏳ Lendo arquivo...';
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-      log.innerHTML = `⏳ ${rows.length} linhas encontradas. Importando...`;
-      let ok = 0, erros = 0, pulados = 0;
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row[0] || !row[2]) { pulados++; continue; }
-       // filtra colunas removendo vazias
-const cols = row.filter(c => c !== null && c !== undefined && String(c).trim() !== '');
-const codigo = cols[0] ? String(cols[0]).trim().padStart(5, '0') : null;
-const nome = cols[1] ? String(cols[1]).trim() : null;
-const cpf = cols[2] ? String(cols[2]).trim().replace(/[^\d]/g, '') : null;
-const endereco = cols[3] ? String(cols[3]).trim() : null;
-const cidade = cols[4] ? String(cols[4]).trim() : null;
-const uf = cols[5] ? String(cols[5]).trim() : null;
-        const { error } = await sb.from('clientes').upsert({
-          codigo, nome, cpf,
-          endereco,
-          cidade: cidade ? `${cidade}${uf ? ' - ' + uf : ''}` : null,
-        }, { onConflict: 'codigo' });
-        if (error) erros++;
-        else ok++;
-        if (i % 50 === 0) log.innerHTML = `⏳ Importando... ${i}/${rows.length} (${ok} ok, ${erros} erros)`;
+  const progWrap = document.getElementById('progresso-clientes');
+  const barra = document.getElementById('barra-clientes');
+  const progTexto = document.getElementById('progresso-clientes-texto');
+  log.innerHTML = ''; progWrap.style.display = 'block'; barra.style.width = '0%';
+  try {
+    progTexto.textContent = '⏳ Lendo arquivo...';
+    const buf = await arquivo.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    if (!rows.length) { log.innerHTML = '⚠️ Planilha vazia.'; return; }
+
+    progTexto.textContent = '⏳ Carregando municípios do banco...';
+    const mapaMun = await _importCarregarMunicipios();
+
+    const { data: existentes } = await sb.from('clientes').select('codigo');
+    const codigosExistentes = new Set((existentes || []).map(c => c.codigo));
+
+    const total = rows.length;
+    let ok = 0, pulados = 0, erros = 0, duplicados = 0;
+    const avisos = [];
+    const LOTE = 50;
+
+    for (let i = 0; i < total; i += LOTE) {
+      const lote = rows.slice(i, i + LOTE);
+      const inserts = [];
+      for (const row of lote) {
+        const codigo = row['Código'] != null ? String(row['Código']).trim() : '';
+        const nome = row['Cliente'] ? String(row['Cliente']).trim() : '';
+        if (!codigo || !nome) { pulados++; continue; }
+        if (codigosExistentes.has(codigo)) { duplicados++; continue; }
+
+        const cpfRaw = row['CPF'] ? String(row['CPF']).replace(/[^\d]/g, '') : null;
+        const telefone = row['Telefone'] ? String(row['Telefone']).trim() : null;
+        const nascimento = _importParseData(row['Data de Nascimento']);
+        const rua = row['Rua'] ? String(row['Rua']).trim() : '';
+        const numero = row['Número'] != null ? String(row['Número']).trim() : '';
+        const complemento = row['Complemento'] ? String(row['Complemento']).trim() : '';
+        const endereco = [rua, numero, complemento].filter(Boolean).join(', ') || null;
+        const bairro = row['Bairro'] ? String(row['Bairro']).trim() : null;
+        const cidadeNome = row['Cidade'] ? String(row['Cidade']).trim() : '';
+        const uf = row['UF'] ? String(row['UF']).trim() : '';
+
+        let municipioId = null;
+        if (cidadeNome && uf) {
+          const chave = _importNorm(cidadeNome) + '|' + _importNorm(uf);
+          municipioId = mapaMun[chave] || null;
+          if (!municipioId) avisos.push('👤 ' + nome + ' (cód. ' + codigo + '): cidade "' + cidadeNome + ' - ' + uf + '" não encontrada');
+        }
+
+        inserts.push({
+          codigo, nome,
+          cpf: cpfRaw || null,
+          telefone, endereco, bairro,
+          data_nascimento: nascimento,
+          municipio_id: municipioId,
+          cidade: cidadeNome ? (cidadeNome + (uf ? ' - ' + uf : '')) : null,
+          cobrador_id: null,
+        });
+        codigosExistentes.add(codigo);
       }
-      log.innerHTML = `✅ Concluído! ${ok} clientes importados, ${erros} erros, ${pulados} linhas puladas.`;
-      Logger.info('importacao', 'IMPORTAR_CLIENTES', 'Importação de clientes concluída', { total: rows.length, ok, erros, pulados });
-      if (erros > 0) Logger.warn('importacao', 'IMPORTAR_CLIENTES', 'Importação concluída com erros', { erros, pulados });
-    } catch (err) {
-      Logger.error('importacao', 'IMPORTAR_CLIENTES', 'Exceção ao importar clientes', { msg: err.message });
-      log.innerHTML = `❌ Erro ao ler arquivo: ${err.message}`;
+
+      if (inserts.length) {
+        const { data: inserted, error } = await sb.from('clientes').insert(inserts).select('id');
+        if (error) {
+          for (const ins of inserts) {
+            const { error: e2 } = await sb.from('clientes').insert(ins);
+            if (e2) { erros++; avisos.push('❌ Cliente cód. ' + ins.codigo + ': ' + e2.message); }
+            else ok++;
+          }
+        } else {
+          ok += (inserted || inserts).length;
+        }
+      }
+
+      const pct = Math.min(100, Math.round(((i + lote.length) / total) * 100));
+      barra.style.width = pct + '%';
+      progTexto.textContent = '⏳ ' + Math.min(i + LOTE, total) + '/' + total + ' (' + ok + ' ok, ' + erros + ' erros)';
     }
-  };
-  reader.readAsArrayBuffer(arquivo);
-}
-function excelParaData(valor) {
-  if (!valor) return null;
-  if (valor instanceof Date) return valor;
-  if (typeof valor === 'number') {
-    const data = new Date(Math.round((valor - 25569) * 86400 * 1000));
-    return isNaN(data.getTime()) ? null : data;
+
+    let html = '<div style="background:#EAF3DE;border:1px solid #C0DD97;border-radius:10px;padding:12px 16px;margin-bottom:8px;">';
+    html += '<strong>✅ Importação concluída!</strong><br>';
+    html += '👤 ' + ok + ' clientes importados<br>';
+    if (duplicados) html += '⏭️ ' + duplicados + ' já existiam (pulados)<br>';
+    if (pulados) html += '⚠️ ' + pulados + ' linhas sem código/nome (puladas)<br>';
+    if (erros) html += '❌ ' + erros + ' erros<br>';
+    html += '</div>';
+    if (avisos.length) {
+      html += '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:12px 16px;margin-top:8px;font-size:12px;line-height:1.6;">';
+      html += '<strong>⚠️ Avisos (' + avisos.length + '):</strong><br>' + avisos.join('<br>');
+      html += '</div>';
+    }
+    log.innerHTML = html;
+    barra.style.width = '100%';
+    progTexto.textContent = '✅ Concluído';
+    Logger.info('importacao', 'IMPORTAR_CLIENTES', 'Importação concluída', { total, ok, erros, pulados, duplicados, avisos: avisos.length });
+  } catch (err) {
+    Logger.error('importacao', 'IMPORTAR_CLIENTES', 'Exceção ao importar clientes', { msg: err.message });
+    log.innerHTML = '❌ Erro ao ler arquivo: ' + err.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📥 Importar clientes'; }
   }
-  if (typeof valor === 'string') {
-    const d = new Date(valor);
-    return isNaN(d.getTime()) ? null : d;
-  }
-  return null;
 }
 
 async function importarParcelas() {
   const arquivo = document.getElementById('arquivo-parcelas').files[0];
-  if (!arquivo) { alert('Selecione o arquivo de parcelas!'); return; }
+  if (!arquivo) { alert('Selecione o arquivo de vendas/parcelas!'); return; }
+  const btn = document.getElementById('btn-importar-parcelas');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Importando...'; }
   const log = document.getElementById('log-parcelas');
-  log.innerHTML = '⏳ Lendo arquivo...';
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-      log.innerHTML = `⏳ ${rows.length} linhas encontradas. Buscando clientes...`;
+  const progWrap = document.getElementById('progresso-parcelas');
+  const barra = document.getElementById('barra-parcelas');
+  const progTexto = document.getElementById('progresso-parcelas-texto');
+  log.innerHTML = ''; progWrap.style.display = 'block'; barra.style.width = '0%';
+  try {
+    progTexto.textContent = '⏳ Lendo arquivo...';
+    const buf = await arquivo.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    if (!rows.length) { log.innerHTML = '⚠️ Planilha vazia.'; return; }
 
-      // Busca todos os clientes pelo código
-      const { data: clientes } = await sb.from('clientes').select('id, codigo');
-      const mapaClientes = {};
-      (clientes || []).forEach(c => { mapaClientes[c.codigo] = c.id; });
+    progTexto.textContent = '⏳ Carregando clientes e vendas existentes...';
+    const { data: clientes } = await sb.from('clientes').select('id, codigo');
+    const mapaClientes = {};
+    (clientes || []).forEach(c => { mapaClientes[c.codigo] = c.id; });
 
-      // Mapeia vendas únicas
-      const vendasMap = {};
-      let ok = 0, erros = 0, pulados = 0;
+    const { data: vendasExist } = await sb.from('vendas').select('id, codigo');
+    const mapaVendasExist = {};
+    (vendasExist || []).forEach(v => { mapaVendasExist[v.codigo] = v.id; });
 
-      for (let i = 1; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row[0] || !row[1]) { pulados++; continue; }
-
-        const codCliente = String(row[0]).trim().padStart(5, '0');
-        const codVenda = String(row[1]).trim();
-        const nomeCliente = row[3] ? String(row[3]).trim() : '';
-       const parcelaStr = row[4] ? String(row[4]).trim() : '1/1';
-        const partes = parcelaStr.split('/');
-        const numeroParcela = parseInt(partes[0]) || 1;
-        const totalParcelas = parseInt(partes[1]) || 1;
-        const dataVenc = excelParaData(row[6]);
-        const dataBaixa = excelParaData(row[7]);
-        const valor = parseFloat(row[8]) || 0;
-        const valorBaixado = parseFloat(row[9]) || 0;
-        const valorAberto = parseFloat(row[10]) || 0;
-        const status = row[11] ? String(row[11]).trim().toLowerCase() : 'em aberto';
-
-        const clienteId = mapaClientes[codCliente];
-        if (!clienteId) { pulados++; continue; }
-
-        // Cria a venda se ainda não foi criada
-        if (!vendasMap[codVenda]) {
-          const { data: vendaExistente } = await sb.from('vendas').select('id').eq('codigo', codVenda).single();
-          if (vendaExistente) {
-            vendasMap[codVenda] = vendaExistente.id;
-          } else {
-            const { data: novaVenda, error: errVenda } = await sb.from('vendas').insert({
-              codigo: codVenda,
-              cliente_id: clienteId,
-              tipo: 'entrada',
-              produto: 'Importado do sistema anterior',
-              valor: valor * totalParcelas,
-              num_parcelas: totalParcelas,
-              status: status === 'cancelado' ? 'devolvida' : 'ativa',
-            }).select().single();
-            if (errVenda || !novaVenda) { erros++; continue; }
-            vendasMap[codVenda] = novaVenda.id;
-          }
-        }
-
-        const vendaId = vendasMap[codVenda];
-        const pago = status === 'baixado';
-        const cancelado = status === 'cancelado';
-
-        const { error } = await sb.from('parcelas').upsert({
-          venda_id: vendaId,
-          cliente_id: clienteId,
-          numero: numeroParcela,
-          total_parcelas: totalParcelas,
-          valor: valor,
-          valor_pago: valorBaixado,
-          data_vencimento: dataVenc ? dataVenc.toISOString().split('T')[0] : null,
-          data_pagamento: dataBaixa && pago ? dataBaixa.toISOString() : null,
-          pago,
-          status: cancelado ? 'devolvida' : pago ? 'paga' : 'aberta',
-        }, { onConflict: 'venda_id,numero' });
-
-        if (error) erros++;
-        else ok++;
-
-        if (i % 100 === 0) log.innerHTML = `⏳ Importando... ${i}/${rows.length} (${ok} ok, ${erros} erros)`;
-      }
-      log.innerHTML = `✅ Concluído! ${ok} parcelas importadas, ${erros} erros, ${pulados} linhas puladas.`;
-      Logger.info('importacao', 'IMPORTAR_PARCELAS', 'Importação de parcelas concluída', { total: rows.length, ok, erros, pulados });
-      if (erros > 0) Logger.warn('importacao', 'IMPORTAR_PARCELAS', 'Importação concluída com erros', { erros, pulados });
-    } catch (err) {
-      Logger.error('importacao', 'IMPORTAR_PARCELAS', 'Exceção ao importar parcelas', { msg: err.message });
-      log.innerHTML = `❌ Erro ao ler arquivo: ${err.message}`;
+    progTexto.textContent = '⏳ Agrupando por venda...';
+    const grupos = {};
+    const avisos = [];
+    let linhasPuladas = 0;
+    for (const row of rows) {
+      const codPessoa = row['Cód. Pessoa'] != null ? String(row['Cód. Pessoa']).trim() : '';
+      const nSaida = row['Nº da Saída'] != null ? String(row['Nº da Saída']).trim() : '';
+      if (!codPessoa || !nSaida) { linhasPuladas++; continue; }
+      if (!grupos[nSaida]) grupos[nSaida] = [];
+      grupos[nSaida].push(row);
     }
-  };
-  reader.readAsArrayBuffer(arquivo);
+
+    const codVendas = Object.keys(grupos);
+    const totalGrupos = codVendas.length;
+    let vendasCriadas = 0, vendasIgnoradas = 0, vendasCanceladas = 0, vendasDuplicadas = 0;
+    let parcelasOk = 0, parcelasErros = 0;
+
+    for (let gi = 0; gi < totalGrupos; gi++) {
+      const codVenda = codVendas[gi];
+      const linhas = grupos[codVenda];
+
+      const temCancelado = linhas.some(r => _importNorm(String(r['Status'])) === 'cancelado');
+      if (temCancelado) { vendasCanceladas++; continue; }
+
+      if (mapaVendasExist[codVenda]) { vendasDuplicadas++; continue; }
+
+      const codPessoa = String(linhas[0]['Cód. Pessoa']).trim();
+      const clienteId = mapaClientes[codPessoa];
+      if (!clienteId) {
+        avisos.push('🛒 Venda ' + codVenda + ': cliente cód. ' + codPessoa + ' não encontrado');
+        vendasIgnoradas++;
+        continue;
+      }
+
+      const linhasComParcela = [];
+      let linhaEntrada = null;
+      for (const r of linhas) {
+        const parcStr = r['Parcela'] != null ? String(r['Parcela']).trim() : '';
+        if (parcStr && parcStr.includes('/')) {
+          linhasComParcela.push(r);
+        } else {
+          linhaEntrada = r;
+        }
+      }
+
+      const soAvista = linhasComParcela.length === 0 && linhaEntrada;
+      const temEntrada = linhaEntrada && linhasComParcela.length > 0;
+
+      let valorEntrada = 0;
+      if (linhaEntrada) valorEntrada = parseFloat(linhaEntrada['Valor']) || 0;
+      let somaTotal = valorEntrada;
+      linhasComParcela.forEach(r => { somaTotal += parseFloat(r['Valor']) || 0; });
+
+      const dataCadastro = _importParseData(linhas[0]['Data Cadastro']);
+      const tipo = soAvista ? 'avista' : 'entrada';
+      const numParcelas = linhasComParcela.length || null;
+
+      const dadosVenda = {
+        codigo: codVenda,
+        cliente_id: clienteId,
+        vendedor_id: null,
+        equipe_id: null,
+        tipo,
+        produto: 'Importado do sistema anterior',
+        valor: somaTotal,
+        entrada: temEntrada ? valorEntrada : 0,
+        num_parcelas: tipo === 'avista' ? null : numParcelas,
+        data_venda: dataCadastro || new Date().toISOString().split('T')[0],
+        status: 'ativa',
+      };
+
+      const { data: novaVenda, error: errV } = await sb.from('vendas').insert(dadosVenda).select('id').single();
+      if (errV) {
+        avisos.push('❌ Venda ' + codVenda + ': ' + errV.message);
+        vendasIgnoradas++;
+        continue;
+      }
+      vendasCriadas++;
+      const vendaId = novaVenda.id;
+      mapaVendasExist[codVenda] = vendaId;
+
+      if (linhasComParcela.length) {
+        const parcelasInsert = [];
+        for (const r of linhasComParcela) {
+          const parcStr = String(r['Parcela']).trim();
+          const partes = parcStr.split('/');
+          const numero = parseInt(partes[0]) || 1;
+          const totalP = parseInt(partes[1]) || linhasComParcela.length;
+          const valor = parseFloat(r['Valor']) || 0;
+          const valorBaixado = parseFloat(r['Valor Baixado']) || 0;
+          const dataVenc = _importParseData(r['Data Vencimento']);
+          const dataBaixa = _importParseData(r['Data da Baixa']);
+          const statusRaw = _importNorm(String(r['Status']));
+
+          let pago = false, statusP = 'aberta', valorPago = 0, dataPagamento = null;
+          if (statusRaw === 'baixado') {
+            pago = true; statusP = 'paga'; valorPago = valorBaixado || valor; dataPagamento = dataBaixa ? dataBaixa + 'T12:00:00' : null;
+          } else if (valorBaixado > 0 && valorBaixado < valor) {
+            valorPago = valorBaixado;
+          }
+
+          parcelasInsert.push({
+            venda_id: vendaId, cliente_id: clienteId,
+            numero, total_parcelas: totalP, valor,
+            valor_pago: valorPago,
+            data_vencimento: dataVenc, data_pagamento: dataPagamento,
+            pago, status: statusP, cobrador_id: null,
+          });
+        }
+        const { error: errP } = await sb.from('parcelas').insert(parcelasInsert);
+        if (errP) {
+          for (const p of parcelasInsert) {
+            const { error: e2 } = await sb.from('parcelas').insert(p);
+            if (e2) { parcelasErros++; avisos.push('❌ Parcela ' + p.numero + '/' + p.total_parcelas + ' venda ' + codVenda + ': ' + e2.message); }
+            else parcelasOk++;
+          }
+        } else {
+          parcelasOk += parcelasInsert.length;
+        }
+      }
+
+      if (gi % 20 === 0 || gi === totalGrupos - 1) {
+        const pct = Math.min(100, Math.round(((gi + 1) / totalGrupos) * 100));
+        barra.style.width = pct + '%';
+        progTexto.textContent = '⏳ ' + (gi + 1) + '/' + totalGrupos + ' vendas (' + vendasCriadas + ' criadas, ' + parcelasOk + ' parcelas)';
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+
+    let html = '<div style="background:#EAF3DE;border:1px solid #C0DD97;border-radius:10px;padding:12px 16px;margin-bottom:8px;">';
+    html += '<strong>✅ Importação concluída!</strong><br>';
+    html += '🛒 ' + vendasCriadas + ' vendas criadas<br>';
+    html += '📄 ' + parcelasOk + ' parcelas importadas<br>';
+    if (vendasCanceladas) html += '🚫 ' + vendasCanceladas + ' vendas canceladas (ignoradas)<br>';
+    if (vendasDuplicadas) html += '⏭️ ' + vendasDuplicadas + ' vendas já existiam (puladas)<br>';
+    if (vendasIgnoradas) html += '⚠️ ' + vendasIgnoradas + ' vendas com erro/cliente não encontrado<br>';
+    if (parcelasErros) html += '❌ ' + parcelasErros + ' parcelas com erro<br>';
+    if (linhasPuladas) html += '⚠️ ' + linhasPuladas + ' linhas sem código (puladas)<br>';
+    html += '</div>';
+    if (avisos.length) {
+      html += '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:12px 16px;margin-top:8px;font-size:12px;line-height:1.6;">';
+      html += '<strong>⚠️ Avisos (' + avisos.length + '):</strong><br>' + avisos.join('<br>');
+      html += '</div>';
+    }
+    log.innerHTML = html;
+    barra.style.width = '100%';
+    progTexto.textContent = '✅ Concluído';
+    Logger.info('importacao', 'IMPORTAR_PARCELAS', 'Importação concluída', { totalGrupos, vendasCriadas, vendasCanceladas, vendasDuplicadas, vendasIgnoradas, parcelasOk, parcelasErros, avisos: avisos.length });
+  } catch (err) {
+    Logger.error('importacao', 'IMPORTAR_PARCELAS', 'Exceção ao importar parcelas', { msg: err.message });
+    log.innerHTML = '❌ Erro ao ler arquivo: ' + err.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📥 Importar vendas e parcelas'; }
+  }
 }
 async function cancelarBaixa(parcelaId, clienteId, codigoVenda) {
   if (!confirm('Cancelar esta baixa? A parcela voltará para em aberto.')) return;
