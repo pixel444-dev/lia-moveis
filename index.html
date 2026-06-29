@@ -63,7 +63,9 @@ tr:hover td{background:#fafafa;}
 .btn.primario:hover{background:#0C447C;}
 .btn.verde{background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;}
 .btn.verde:hover{background:#c0dd97;}
-.topbar-pg{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;}
+.topbar-pg{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;gap:12px;flex-wrap:wrap;}
+.topbar-pg .page-title{flex:1;min-width:0;}
+.topbar-pg .btn{flex-shrink:0;white-space:nowrap;}
 .logout{padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;}
 .logout button{width:100%;padding:8px;background:none;border:1px solid #ddd;border-radius:8px;font-size:12px;color:#888;cursor:pointer;}
 .logout button:hover{background:#f5f5f5;}
@@ -451,7 +453,7 @@ tr:hover td{background:#fafafa;}
         ⚠️ Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor para ser adicionado a uma equipe.
       </div>
       <div class="busca-wrap" id="busca-vendas-wrap">
-        <input class="busca" type="text" placeholder="🔍 Buscar por código ou nome do cliente..." oninput="buscarVenda(this.value)" style="padding:14px 16px;font-size:15px;border-radius:10px;border:1.5px solid #ddd;">
+        <input class="busca" type="text" placeholder="🔍 Buscar por código ou nome do cliente..." oninput="buscarVenda(this.value)" style="padding:14px 16px;font-size:15px;border-radius:10px;border:1.5px solid #ddd;width:100%;max-width:500px;">
       </div>
       <div id="lista-vendas">Carregando...</div>
     </div>
@@ -2801,7 +2803,7 @@ async function carregarVendasVendedor() {
   if (error) { lista.innerHTML = 'Erro ao carregar.'; return; }
   const vendas = data || [];
   if (!vendas.length) {
-    lista.innerHTML = '<div style="text-align:center;padding:3rem 1rem;color:#999;"><div style="font-size:48px;margin-bottom:12px;">🛒</div><div style="font-size:16px;font-weight:600;color:#888;">Nenhuma venda ainda</div><div style="font-size:13px;margin-top:6px;">Toque em <strong>+ Nova venda</strong> para registrar a primeira!</div></div>';
+    lista.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 1rem;color:#999;"><div style="font-size:64px;margin-bottom:16px;">🛒</div><div style="font-size:18px;font-weight:600;color:#888;">Nenhuma venda ainda</div><div style="font-size:14px;margin-top:8px;color:#aaa;">Clique em <strong style="color:#185FA5;">+ Nova venda</strong> para registrar a primeira!</div></div>';
     return;
   }
   renderVendas(vendas);
@@ -2996,7 +2998,7 @@ async function negarVenda(id) {
 }
 
 function renderVendas(lista) {
-  if (!lista.length) { document.getElementById('lista-vendas').innerHTML = '<div style="text-align:center;padding:3rem 1rem;color:#999;"><div style="font-size:48px;margin-bottom:12px;">🛒</div><div style="font-size:16px;font-weight:600;color:#888;">Nenhuma venda encontrada</div></div>'; return; }
+  if (!lista.length) { document.getElementById('lista-vendas').innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 1rem;color:#999;"><div style="font-size:64px;margin-bottom:16px;">🛒</div><div style="font-size:18px;font-weight:600;color:#888;">Nenhuma venda encontrada</div><div style="font-size:14px;margin-top:8px;color:#aaa;">Tente outra busca ou clique em <strong style="color:#185FA5;">+ Nova venda</strong></div></div>'; return; }
   const tipoBadge = v => {
     if (v.status === 'devolvida') return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#FCEBEB;color:#A32D2D;">Devolvida</span>';
     if (v.tipo === 'avista') return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#EAF3DE;color:#3B6D11;">À vista</span>';
