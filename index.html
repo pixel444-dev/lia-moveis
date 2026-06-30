@@ -1009,6 +1009,7 @@ tr:hover td{background:#fafafa;}
         <select id="func-tipo">
           <option value="vendedor">Vendedor</option>
           <option value="cobrador">Cobrador</option>
+          <option value="gestor">Gestor</option>
         </select>
       </div>
       <div class="campo">
@@ -2411,7 +2412,7 @@ async function carregarFuncionarios() {
       <tbody>${data.map(f => `
         <tr>
           <td>${f.nome}</td>
-          <td><span class="badge ${f.tipo==='cobrador'?'azul':'verde'}">${f.tipo}</span></td>
+          <td><span class="badge ${f.tipo==='cobrador'?'azul':f.tipo==='gestor'?'roxo':'verde'}">${f.tipo}</span></td>
           <td>${f.rota||'—'}</td>
           <td>${f.telefone||'—'}</td>
           <td><span class="badge ${f.ativo?'verde':'cinza'}">${f.ativo?'Ativo':'Inativo'}</span></td>
@@ -7294,20 +7295,47 @@ async function carregarUsuarios() {
           <td>${u.funcionarios?.nome||'—'}</td>
           <td><span class="badge ${u.perfil==='gestor'?'azul':u.perfil==='vendedor'?'verde':'amarelo'}">${u.perfil}</span></td>
           <td><span class="badge ${u.ativo?'verde':'cinza'}">${u.ativo?'Ativo':'Inativo'}</span></td>
-          <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="toggleUsuarioAtivo('${u.id}',${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button></td>
+          <td>
+            <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="abrirEditarUsuario('${u.id}')">Editar</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="toggleUsuarioAtivo('${u.id}',${u.ativo})">${u.ativo?'Desativar':'Ativar'}</button>
+          </td>
         </tr>`).join('')}
       </tbody>
     </table></div>`;
 }
 
-async function abrirNovoUsuario() {
-  document.getElementById('usuario-uuid').value = '';
-  document.getElementById('usuario-perfil-id').value = '';
-  document.getElementById('msg-usuario').innerHTML = '';
-  document.getElementById('usuario-perfil-tipo').value = 'vendedor';
+async function carregarFuncionariosSelectUsuario(funcionarioSelecionadoId) {
   const { data: funcs } = await sb.from('funcionarios').select('id, nome').eq('ativo', true).order('nome');
   document.getElementById('usuario-funcionario').innerHTML = '<option value="">Nenhum</option>' +
     (funcs||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+  document.getElementById('usuario-funcionario').value = funcionarioSelecionadoId || '';
+}
+
+async function abrirNovoUsuario() {
+  document.getElementById('modal-usuario-titulo').textContent = 'Vincular usuário ao sistema';
+  document.getElementById('usuario-dica-uuid').style.display = '';
+  document.getElementById('usuario-uuid').value = '';
+  document.getElementById('usuario-uuid').readOnly = false;
+  document.getElementById('usuario-perfil-id').value = '';
+  document.getElementById('usuario-ativo').value = 'true';
+  document.getElementById('msg-usuario').innerHTML = '';
+  document.getElementById('usuario-perfil-tipo').value = 'vendedor';
+  await carregarFuncionariosSelectUsuario(null);
+  document.getElementById('modal-usuario').style.display = 'flex';
+}
+
+async function abrirEditarUsuario(id) {
+  const { data, error } = await sb.from('perfis').select('id, perfil, funcionario_id, ativo').eq('id', id).single();
+  if (error) { alert('Erro ao carregar usuário: ' + error.message); return; }
+  document.getElementById('modal-usuario-titulo').textContent = 'Editar usuário';
+  document.getElementById('usuario-dica-uuid').style.display = 'none';
+  document.getElementById('usuario-perfil-id').value = data.id;
+  document.getElementById('usuario-uuid').value = data.id;
+  document.getElementById('usuario-uuid').readOnly = true;
+  document.getElementById('usuario-ativo').value = String(data.ativo);
+  document.getElementById('msg-usuario').innerHTML = '';
+  document.getElementById('usuario-perfil-tipo').value = data.perfil;
+  await carregarFuncionariosSelectUsuario(data.funcionario_id);
   document.getElementById('modal-usuario').style.display = 'flex';
 }
 
@@ -7315,10 +7343,11 @@ async function salvarUsuario() {
   const uuid = document.getElementById('usuario-uuid').value.trim();
   const perfil = document.getElementById('usuario-perfil-tipo').value;
   const funcionarioId = document.getElementById('usuario-funcionario').value || null;
+  const ativo = document.getElementById('usuario-ativo').value === 'true';
   const msg = document.getElementById('msg-usuario');
   if (!uuid || uuid.length < 30) { msg.innerHTML = '<div class="msg erro">Cole o UUID completo do usuário!</div>'; return; }
   const { error } = await sb.from('perfis').upsert(
-    { id: uuid, perfil, funcionario_id: funcionarioId, ativo: true },
+    { id: uuid, perfil, funcionario_id: funcionarioId, ativo },
     { onConflict: 'id' }
   );
   if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${error.message}</div>`; return; }
@@ -7890,13 +7919,14 @@ async function gerarProximoMes() {
 <div class="modal-bg" id="modal-usuario">
   <div class="modal-box" style="max-width:440px;">
     <div class="modal-header">
-      <strong>Vincular usuário ao sistema</strong>
+      <strong id="modal-usuario-titulo">Vincular usuário ao sistema</strong>
       <button onclick="fecharModal('modal-usuario')">×</button>
     </div>
-    <div style="background:#E6F1FB;border:1px solid #b3d4f0;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:12px;color:#185FA5;line-height:1.5;">
+    <div id="usuario-dica-uuid" style="background:#E6F1FB;border:1px solid #b3d4f0;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:12px;color:#185FA5;line-height:1.5;">
       Crie o usuário primeiro em <strong>Supabase → Authentication → Users → Add user</strong>, depois cole o UUID aqui para vincular ao perfil.
     </div>
     <input type="hidden" id="usuario-perfil-id">
+    <input type="hidden" id="usuario-ativo" value="true">
     <div class="campo">
       <label>UUID do usuário (do Supabase Auth) *</label>
       <input id="usuario-uuid" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
