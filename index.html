@@ -1028,6 +1028,29 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
+<!-- MODAL TRANSFERIR CLIENTES -->
+<div class="modal-bg" id="modal-transferir-clientes">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <strong>Transferir clientes</strong>
+      <button onclick="fecharModal('modal-transferir-clientes')">×</button>
+    </div>
+    <input type="hidden" id="transf-cobrador-origem-id">
+    <div id="transf-info" style="background:#E6F1FB;border:1px solid #b3d4f0;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;color:#185FA5;line-height:1.5;"></div>
+    <div class="campo">
+      <label>Novo cobrador responsável *</label>
+      <select id="transf-cobrador-destino">
+        <option value="">Selecione...</option>
+      </select>
+    </div>
+    <div id="msg-transferir"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-transferir-clientes')">Cancelar</button>
+      <button class="btn primario" onclick="confirmarTransferirClientes()">Transferir</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function toggleMenu() {
   document.querySelector('.sidebar').classList.toggle('aberta');
@@ -2421,6 +2444,7 @@ async function carregarFuncionarios() {
           <td>
             <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarFuncionario('${f.id}')">Editar</button>
             <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="toggleAtivo('${f.id}',${f.ativo})">${f.ativo?'Desativar':'Ativar'}</button>
+            ${f.tipo==='cobrador'?`<button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirTransferirClientes('${f.id}','${nomeEsc}')">Transferir clientes</button>`:''}
             <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;color:#C0392B;border-color:#C0392B;" onclick="excluirFuncionario('${f.id}','${nomeEsc}')">Excluir</button>
           </td>
         </tr>`;
@@ -2483,6 +2507,40 @@ async function excluirFuncionario(id, nome) {
     return;
   }
   carregarFuncionarios();
+}
+
+async function abrirTransferirClientes(id, nome) {
+  document.getElementById('transf-cobrador-origem-id').value = id;
+  document.getElementById('msg-transferir').innerHTML = '';
+  document.getElementById('transf-info').textContent = 'Carregando clientes de ' + nome + '...';
+
+  const [{ count }, { data: cobradores }] = await Promise.all([
+    sb.from('clientes').select('id', { count: 'exact', head: true }).eq('cobrador_id', id),
+    sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).neq('id', id).order('nome'),
+  ]);
+
+  document.getElementById('transf-info').textContent =
+    (count || 0) + ' cliente' + (count === 1 ? '' : 's') + ' vinculado' + (count === 1 ? '' : 's') + ' diretamente a ' + nome + '.';
+  document.getElementById('transf-cobrador-destino').innerHTML = '<option value="">Selecione...</option>' +
+    (cobradores || []).map(c => `<option value="${c.id}">${c.nome}</option>`).join('');
+  document.getElementById('modal-transferir-clientes').style.display = 'flex';
+}
+
+async function confirmarTransferirClientes() {
+  const origemId = document.getElementById('transf-cobrador-origem-id').value;
+  const destinoId = document.getElementById('transf-cobrador-destino').value;
+  const msg = document.getElementById('msg-transferir');
+  if (!destinoId) { msg.innerHTML = '<div class="msg erro">Selecione o cobrador de destino!</div>'; return; }
+
+  const { data, error } = await sb.from('clientes')
+    .update({ cobrador_id: destinoId })
+    .eq('cobrador_id', origemId)
+    .select('id');
+
+  if (error) { msg.innerHTML = `<div class="msg erro">Erro ao transferir: ${error.message}</div>`; return; }
+
+  fecharModal('modal-transferir-clientes');
+  alert((data ? data.length : 0) + ' cliente(s) transferido(s) com sucesso!\n\nObs: clientes atribuídos por rota não são afetados — para esses, edite o cobrador da rota em "Rotas".');
 }
 
 async function abrirNovaVenda() {
