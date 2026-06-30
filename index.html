@@ -875,6 +875,19 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
+<!-- MODAL RESUMO VENDA -->
+<div class="modal-bg" id="modal-resumo-venda">
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-header">
+      <strong style="font-size:18px;color:#3B6D11;">✅ Venda registrada com sucesso!</strong>
+    </div>
+    <div id="resumo-venda-conteudo"></div>
+    <div class="modal-footer" style="flex-direction:column;gap:10px;">
+      <button class="btn verde" style="width:100%;padding:18px;font-size:17px;font-weight:700;border-radius:12px;" onclick="concluirResumoVenda()">✅ Concluir</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL CLIENTE -->
 <div class="modal-bg" id="modal-cliente">
   <div class="modal-box">
@@ -2761,8 +2774,8 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
     alert('Erro ao registrar venda! Contate o suporte.'); return;
   }
   Logger.info('vendas', 'SALVAR_VENDA', 'Venda registrada com sucesso', { codigo: dados.codigo, tipo: dados.tipo, num_parcelas: dados.num_parcelas });
+  const parcelasResumo = [];
   if (tipo === 'entrada' && dados.num_parcelas) {
-    const parcelas = [];
     const entradaValor = parseFloat(document.getElementById('venda-entrada').value) || 0;
     const saldo = valor - entradaValor;
     const vlrParcela = saldo / dados.num_parcelas;
@@ -2770,7 +2783,7 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
     for (let i = 0; i < dados.num_parcelas; i++) {
       const dt = new Date(dataPrimeira + 'T12:00:00');
       dt.setMonth(dt.getMonth() + i);
-      parcelas.push({
+      parcelasResumo.push({
         venda_id: venda.id,
         cliente_id: clienteId,
         numero: i + 1,
@@ -2782,7 +2795,7 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
         cobrador_id: null,
       });
     }
-    await sb.from('parcelas').insert(parcelas);
+    await sb.from('parcelas').insert(parcelasResumo);
   }
   // Atualizar totais da equipe
   if (dados.equipe_id) {
@@ -2808,9 +2821,92 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
       await sb.from('equipe_estoque').update({ quantidade_voltou: (item.quantidade_voltou || 0) + 1 }).eq('id', item.id);
     }
   }
-  alert(`Venda registrada com sucesso! Código: ${dados.codigo}`);
-  carregarVendas();
   carregarDashboard();
+  const [{ data: clienteResumo }, vendedorResumo] = await Promise.all([
+    sb.from('clientes').select('nome, codigo, cpf, telefone, cidade').eq('id', clienteId).single(),
+    vendedorId ? sb.from('funcionarios').select('nome').eq('id', vendedorId).single().then(r => r.data) : Promise.resolve(null),
+  ]);
+  await abrirResumoVenda({
+    cliente: clienteResumo || {},
+    vendaCodigo: dados.codigo,
+    produto: dados.produto,
+    vendedorNome: vendedorResumo?.nome || '—',
+    dataVenda: venda?.data_venda,
+    tipo: dados.tipo,
+    valor: dados.valor,
+    entrada: dados.entrada,
+    parcelas: dados.tipo === 'entrada' ? parcelasResumo : [],
+  });
+}
+
+async function abrirResumoVenda(info) {
+  const tipoLabel = info.tipo === 'avista' ? 'À vista' : 'Crediário';
+  const dataVendaFmt = info.dataVenda ? new Date(info.dataVenda).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+
+  let parcelasHtml = '';
+  if (info.tipo === 'avista') {
+    parcelasHtml = `<div style="background:#F0FBE6;border:1px solid #C0DD97;border-radius:12px;padding:16px;text-align:center;">
+      <div style="font-size:14px;font-weight:700;color:#3B6D11;">💵 Pagamento à vista</div>
+      <div style="font-size:22px;font-weight:700;color:#3B6D11;margin-top:6px;">${fmtMoeda(info.valor)}</div>
+    </div>`;
+  } else {
+    const linhasParcelas = (info.parcelas || []).map(p => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #eee;">
+        <span style="font-size:14px;color:#333;white-space:nowrap;">Parcela ${p.numero}/${p.total_parcelas}</span>
+        <span style="font-size:13px;color:#888;">${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+        <span style="font-size:14px;font-weight:700;color:#1a1a1a;white-space:nowrap;">${fmtMoeda(p.valor)}</span>
+      </div>`).join('');
+    parcelasHtml = `<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:16px;">
+      <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:10px;">📅 Parcelas</div>
+      ${info.entrada > 0 ? `<div style="background:#F0FBE6;border:1px solid #C0DD97;border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:13px;font-weight:700;color:#3B6D11;">💵 Entrada (já paga)</span>
+        <span style="font-size:16px;font-weight:700;color:#3B6D11;">${fmtMoeda(info.entrada)}</span>
+      </div>` : ''}
+      ${linhasParcelas}
+    </div>`;
+  }
+
+  document.getElementById('resumo-venda-conteudo').innerHTML = `
+    <div style="background:#E6F1FB;border:1px solid #B8D4F0;border-radius:12px;padding:16px;margin-bottom:14px;">
+      <div style="font-size:14px;font-weight:700;color:#185FA5;margin-bottom:10px;">👤 Dados do cliente</div>
+      <div style="font-size:15px;font-weight:700;color:#1a1a1a;margin-bottom:4px;">${info.cliente.nome || '—'}</div>
+      <div style="font-size:13px;color:#555;line-height:1.8;">
+        🏷️ Código: <strong>${info.cliente.codigo || '—'}</strong><br>
+        🪪 CPF: ${info.cliente.cpf || '—'}<br>
+        📱 Telefone: ${info.cliente.telefone || '—'}<br>
+        📍 Cidade: ${info.cliente.cidade || '—'}
+      </div>
+    </div>
+
+    <div style="background:#F5F3FF;border:1px solid #D4CCEF;border-radius:12px;padding:16px;margin-bottom:14px;">
+      <div style="font-size:14px;font-weight:700;color:#5B21B6;margin-bottom:10px;">🛒 Dados da venda</div>
+      <div style="font-size:13px;color:#333;line-height:1.9;">
+        🏷️ Código da venda: <strong>${info.vendaCodigo}</strong><br>
+        📦 Produto: ${info.produto || '—'}<br>
+        👨‍💼 Vendedor: ${info.vendedorNome || '—'}<br>
+        📅 Data da venda: ${dataVendaFmt}<br>
+        💳 Tipo: ${tipoLabel}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid #D4CCEF;">
+        <span style="font-size:13px;color:#555;">💰 Valor total</span>
+        <span style="font-size:22px;font-weight:700;color:#3B6D11;">${fmtMoeda(info.valor)}</span>
+      </div>
+      ${info.tipo === 'entrada' && info.entrada > 0 ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+        <span style="font-size:13px;color:#555;">💵 Entrada</span>
+        <span style="font-size:15px;font-weight:700;color:#3B6D11;">${fmtMoeda(info.entrada)}</span>
+      </div>` : ''}
+    </div>
+
+    ${parcelasHtml}
+  `;
+  document.getElementById('modal-resumo-venda').style.display = 'flex';
+}
+
+function concluirResumoVenda() {
+  fecharModal('modal-resumo-venda');
+  const navVendas = document.getElementById('nav-vendas');
+  if (navVendas) pg('vendas', navVendas);
 }
 
 async function carregarVendas() {
