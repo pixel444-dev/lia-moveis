@@ -419,7 +419,28 @@ tr:hover td{background:#fafafa;}
         <div class="page-title" style="margin:0">Clientes</div>
         <button class="btn primario" onclick="abrirCadastroCliente()">+ Novo cliente</button>
       </div>
-      <div class="busca-wrap">
+      <div class="busca-wrap" id="busca-wrap-clientes-gestor" style="display:none;">
+        <select id="clientes-filtro-tipo" onchange="trocarFiltroClientes()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:170px;">
+          <option value="tudo">Pesquisar por: Tudo</option>
+          <option value="nome">Nome</option>
+          <option value="cpf">CPF</option>
+          <option value="celular">Celular</option>
+          <option value="endereco">Endereço</option>
+          <option value="municipio">Município</option>
+          <option value="codigo">Código</option>
+          <option value="codigo_venda">Código da venda</option>
+          <option value="estado">Estado</option>
+          <option value="rota">Rota</option>
+          <option value="cobrador">Cobrador</option>
+          <option value="vendedor">Vendedor</option>
+        </select>
+        <input class="busca" type="text" id="clientes-filtro-texto" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClientesManual();}">
+        <select id="clientes-filtro-pessoa" onchange="buscarClientesManual()" style="display:none;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:200px;">
+          <option value="">Selecione...</option>
+        </select>
+        <button class="btn primario" onclick="buscarClientesManual()" style="padding:8px 16px;" title="Buscar">🔍</button>
+      </div>
+      <div class="busca-wrap" id="busca-wrap-clientes-padrao">
         <input class="busca" type="text" id="busca-clientes" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClientesManual();}">
         <button class="btn primario" onclick="buscarClientesManual()" style="padding:8px 16px;" title="Buscar">🔍</button>
         <select id="filtro-cobrador-clientes" onchange="buscarClientesManual()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:180px;">
@@ -1932,13 +1953,54 @@ let _clientesFim = false;
 let _clientesCarregando = false;
 let _clientesObserver = null;
 
+const CLIENTES_FILTRO_PLACEHOLDER = {
+  tudo: 'Buscar por nome, CPF, código, endereço, cidade ou celular...',
+  nome: 'Digite o nome do cliente',
+  cpf: 'Digite o CPF (somente números)',
+  celular: 'Digite o número de celular',
+  endereco: 'Digite o endereço',
+  municipio: 'Digite o nome do município',
+  codigo: 'Digite o código do cliente',
+  codigo_venda: 'Digite o código da venda',
+  estado: 'Digite a sigla ou nome, ex: CE',
+  rota: 'Digite o nome da rota',
+};
+
+async function trocarFiltroClientes() {
+  const tipo = document.getElementById('clientes-filtro-tipo').value;
+  const campoTexto = document.getElementById('clientes-filtro-texto');
+  const campoPessoa = document.getElementById('clientes-filtro-pessoa');
+  if (tipo === 'cobrador' || tipo === 'vendedor') {
+    campoTexto.style.display = 'none';
+    campoTexto.value = '';
+    campoPessoa.style.display = '';
+    campoPessoa.innerHTML = '<option value="">Carregando...</option>';
+    const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', tipo).eq('ativo', true).order('nome');
+    campoPessoa.innerHTML = `<option value="">Selecione o ${tipo === 'cobrador' ? 'cobrador' : 'vendedor'}...</option>` +
+      (data || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+  } else {
+    campoPessoa.style.display = 'none';
+    campoPessoa.innerHTML = '<option value="">Selecione...</option>';
+    campoTexto.style.display = '';
+    campoTexto.value = '';
+    campoTexto.placeholder = CLIENTES_FILTRO_PLACEHOLDER[tipo] || 'Buscar...';
+  }
+}
+
 async function carregarClientes() {
-  const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
-  const sel = document.getElementById('filtro-cobrador-clientes');
-  const valorAtual = sel.value;
-  sel.innerHTML = '<option value="">Todos os cobradores</option>' +
-    (cobradores || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
-  sel.value = valorAtual;
+  const ehGestor = perfilAtivo.perfil === 'gestor';
+  const wrapGestor = document.getElementById('busca-wrap-clientes-gestor');
+  const wrapPadrao = document.getElementById('busca-wrap-clientes-padrao');
+  if (wrapGestor) wrapGestor.style.display = ehGestor ? '' : 'none';
+  if (wrapPadrao) wrapPadrao.style.display = ehGestor ? 'none' : '';
+  if (!ehGestor) {
+    const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+    const sel = document.getElementById('filtro-cobrador-clientes');
+    const valorAtual = sel.value;
+    sel.innerHTML = '<option value="">Todos os cobradores</option>' +
+      (cobradores || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+    sel.value = valorAtual;
+  }
   _configurarScrollClientes();
   await buscarClientesManual();
 }
@@ -1953,8 +2015,6 @@ function buscarClientesManual() {
 async function _executarBuscaClientes(append) {
   if (_clientesCarregando) return;
   _clientesCarregando = true;
-  const termo = (document.getElementById('busca-clientes').value || '').trim();
-  const cobradorId = document.getElementById('filtro-cobrador-clientes').value || null;
   const lista = document.getElementById('lista-clientes');
   const status = document.getElementById('lista-clientes-status');
   if (!append) {
@@ -1963,12 +2023,21 @@ async function _executarBuscaClientes(append) {
   } else {
     status.textContent = '⏳ Carregando mais...';
   }
-  const { data, error } = await sb.rpc('buscar_clientes', {
-    p_termo: termo || null,
-    p_cobrador: cobradorId,
-    p_limite: CLIENTES_PAGINA,
-    p_offset: _clientesOffset,
-  });
+  const params = { p_limite: CLIENTES_PAGINA, p_offset: _clientesOffset };
+  if (perfilAtivo.perfil === 'gestor') {
+    const tipo = document.getElementById('clientes-filtro-tipo').value || 'tudo';
+    const termo = (tipo === 'cobrador' || tipo === 'vendedor')
+      ? (document.getElementById('clientes-filtro-pessoa').value || null)
+      : ((document.getElementById('clientes-filtro-texto').value || '').trim() || null);
+    params.p_termo = termo;
+    params.p_filtro = tipo;
+  } else {
+    const termo = (document.getElementById('busca-clientes').value || '').trim();
+    const cobradorId = document.getElementById('filtro-cobrador-clientes').value || null;
+    params.p_termo = termo || null;
+    params.p_cobrador = cobradorId;
+  }
+  const { data, error } = await sb.rpc('buscar_clientes', params);
   _clientesCarregando = false;
   if (error) {
     Logger.error('clientes', 'BUSCAR_CLIENTES', 'Falha na RPC buscar_clientes', { error_message: error.message });
