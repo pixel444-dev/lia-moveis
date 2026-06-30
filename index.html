@@ -420,12 +420,15 @@ tr:hover td{background:#fafafa;}
         <button class="btn primario" onclick="abrirCadastroCliente()">+ Novo cliente</button>
       </div>
       <div class="busca-wrap">
-        <input class="busca" type="text" id="busca-clientes" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." oninput="filtrarClientes()">
-        <select id="filtro-cobrador-clientes" onchange="filtrarClientes()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:180px;">
+        <input class="busca" type="text" id="busca-clientes" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClientesManual();}">
+        <button class="btn primario" onclick="buscarClientesManual()" style="padding:8px 16px;" title="Buscar">🔍</button>
+        <select id="filtro-cobrador-clientes" onchange="buscarClientesManual()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:180px;">
           <option value="">Todos os cobradores</option>
         </select>
       </div>
       <div id="lista-clientes">Carregando...</div>
+      <div id="lista-clientes-sentinela" style="height:1px;"></div>
+      <div id="lista-clientes-status" style="text-align:center;padding:1rem;font-size:12px;color:#888;"></div>
     </div>
 
     <div class="page" id="page-funcionarios">
@@ -1910,6 +1913,12 @@ function _renderEquipes(lista) {
   }).join('');
 }
 
+const CLIENTES_PAGINA = 50;
+let _clientesOffset = 0;
+let _clientesFim = false;
+let _clientesCarregando = false;
+let _clientesObserver = null;
+
 async function carregarClientes() {
   const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
   const sel = document.getElementById('filtro-cobrador-clientes');
@@ -1917,40 +1926,64 @@ async function carregarClientes() {
   sel.innerHTML = '<option value="">Todos os cobradores</option>' +
     (cobradores || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
   sel.value = valorAtual;
-  await _executarBuscaClientes();
+  _configurarScrollClientes();
+  await buscarClientesManual();
 }
 
-let _buscaClientesTimer = null;
-
-function filtrarClientes() {
-  clearTimeout(_buscaClientesTimer);
-  _buscaClientesTimer = setTimeout(_executarBuscaClientes, 300);
+function buscarClientesManual() {
+  _clientesOffset = 0;
+  _clientesFim = false;
+  todosClientes = [];
+  _executarBuscaClientes(false);
 }
 
-async function _executarBuscaClientes() {
+async function _executarBuscaClientes(append) {
+  if (_clientesCarregando) return;
+  _clientesCarregando = true;
   const termo = (document.getElementById('busca-clientes').value || '').trim();
   const cobradorId = document.getElementById('filtro-cobrador-clientes').value || null;
   const lista = document.getElementById('lista-clientes');
-  lista.innerHTML = '<p style="color:#888;padding:1rem;">🔍 Buscando...</p>';
+  const status = document.getElementById('lista-clientes-status');
+  if (!append) {
+    lista.innerHTML = '<p style="color:#888;padding:1rem;">🔍 Buscando...</p>';
+    status.textContent = '';
+  } else {
+    status.textContent = '⏳ Carregando mais...';
+  }
   const { data, error } = await sb.rpc('buscar_clientes', {
     p_termo: termo || null,
     p_cobrador: cobradorId,
-    p_limite: 50,
+    p_limite: CLIENTES_PAGINA,
+    p_offset: _clientesOffset,
   });
+  _clientesCarregando = false;
   if (error) {
     Logger.error('clientes', 'BUSCAR_CLIENTES', 'Falha na RPC buscar_clientes', { error_message: error.message });
-    lista.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao buscar clientes.</p>';
+    if (!append) lista.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao buscar clientes.</p>';
+    status.textContent = '';
     return;
   }
-  todosClientes = data || [];
-  const total = todosClientes.length;
+  const pagina = data || [];
+  todosClientes = append ? todosClientes.concat(pagina) : pagina;
+  _clientesOffset += pagina.length;
+  _clientesFim = pagina.length < CLIENTES_PAGINA;
   renderClientes(todosClientes);
-  if (total === 50) {
-    const aviso = document.createElement('p');
-    aviso.style.cssText = 'color:#888;font-size:12px;padding:.5rem 1rem;';
-    aviso.textContent = 'Mostrando os primeiros 50 resultados. Refine a busca para ver mais.';
-    document.getElementById('lista-clientes').appendChild(aviso);
-  }
+  status.textContent = _clientesFim && todosClientes.length ? 'Fim da lista.' : '';
+}
+
+async function _carregarMaisClientes() {
+  if (_clientesCarregando || _clientesFim) return;
+  await _executarBuscaClientes(true);
+}
+
+function _configurarScrollClientes() {
+  if (_clientesObserver) return;
+  const sentinela = document.getElementById('lista-clientes-sentinela');
+  if (!sentinela) return;
+  _clientesObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) _carregarMaisClientes();
+  }, { rootMargin: '200px' });
+  _clientesObserver.observe(sentinela);
 }
 
 function renderClientes(lista) {
