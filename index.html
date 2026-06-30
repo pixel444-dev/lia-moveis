@@ -361,6 +361,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item active" data-page="dashboard" onclick="pg('dashboard',this)"><span class="nav-ico">📊</span>Dashboard</div>
       <div class="nav-item" data-page="clientes" onclick="pg('clientes',this)"><span class="nav-ico">👥</span>Clientes</div>
       <div class="nav-item" id="nav-funcionarios" data-page="funcionarios" onclick="pg('funcionarios',this)"><span class="nav-ico">🧑‍💼</span>Funcionários</div>
+      <div class="nav-item" id="nav-produtos" data-page="produtos" onclick="pg('produtos',this)"><span class="nav-ico">📦</span>Produtos</div>
       <div class="nav-item" id="nav-usuarios" data-page="usuarios" onclick="pg('usuarios',this)"><span class="nav-ico">🔐</span>Usuários</div>
       <div class="nav-item" id="nav-importacao" data-page="importacao" onclick="pg('importacao',this)"><span class="nav-ico">📥</span>Importar dados</div>
       <div class="nav-item" id="nav-rotas" data-page="rotas" onclick="pg('rotas',this)"><span class="nav-ico">🛣️</span>Rotas</div>
@@ -458,6 +459,14 @@ tr:hover td{background:#fafafa;}
         <button class="btn primario" onclick="abrirCadastroFuncionario()">+ Novo funcionário</button>
       </div>
       <div id="lista-funcionarios">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-produtos">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">📦 Produtos</div>
+        <button class="btn primario" onclick="abrirCadastroProduto()">+ Novo produto</button>
+      </div>
+      <div id="lista-produtos">Carregando...</div>
     </div>
 
     <div class="page" id="page-usuarios">
@@ -836,8 +845,13 @@ tr:hover td{background:#fafafa;}
           </div>
         </div>
         <div class="campo" id="campo-produto-texto">
-          <label style="font-size:13px;">📦 Produto(s)</label>
-          <input id="venda-produto" type="text" placeholder="Ex: Sofá 3 lugares, guarda-roupa..." style="padding:14px;font-size:16px;border-radius:10px;">
+          <label style="font-size:13px;">📦 Produto *</label>
+          <select id="venda-produto-catalogo" onchange="selecionarProdutoCatalogo(this)" style="padding:14px;font-size:16px;border-radius:10px;">
+            <option value="">Selecione o produto...</option>
+            <option value="__outro__">Outro (digitar manualmente)</option>
+          </select>
+          <input id="venda-produto-manual" type="text" placeholder="Digite o nome do produto" oninput="document.getElementById('venda-produto').value=this.value.trim()" style="display:none;margin-top:8px;padding:14px;font-size:16px;border-radius:10px;">
+          <input type="hidden" id="venda-produto">
         </div>
         <div class="campo" id="campo-produto-select" style="display:none;">
           <label style="font-size:13px;">📦 Produto *</label>
@@ -1047,6 +1061,30 @@ tr:hover td{background:#fafafa;}
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-transferir-clientes')">Cancelar</button>
       <button class="btn primario" onclick="confirmarTransferirClientes()">Transferir</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PRODUTO -->
+<div class="modal-bg" id="modal-produto">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <strong id="modal-produto-titulo">Novo produto</strong>
+      <button onclick="fecharModal('modal-produto')">×</button>
+    </div>
+    <input type="hidden" id="produto-id">
+    <div class="campo">
+      <label>Nome do produto *</label>
+      <input id="produto-nome" type="text" placeholder="Ex: Sofá 3 lugares">
+    </div>
+    <div class="campo">
+      <label>Preço sugerido (R$)</label>
+      <input id="produto-preco" type="number" min="0" step="0.01" placeholder="0,00">
+    </div>
+    <div id="msg-produto"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-produto')">Cancelar</button>
+      <button class="btn primario" onclick="salvarProduto()">Salvar</button>
     </div>
   </div>
 </div>
@@ -1471,6 +1509,7 @@ function aplicarPermissoes(perfil) {
     rotas:               gestor,
     meses:               gestor,
     funcionarios:        gestor,
+    produtos:            gestor,
     usuarios:            gestor,
     importacao:          gestor,
     'caixa-vendedores':  gestor,
@@ -1519,6 +1558,7 @@ function pg(nome, el) {
   if (nome === 'meses') carregarMeses();
   if (nome === 'clientes') carregarClientes();
   if (nome === 'funcionarios') carregarFuncionarios();
+  if (nome === 'produtos') carregarProdutos();
   if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarVendas(); });
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'localidades') carregarLocalidades();
@@ -2543,6 +2583,94 @@ async function confirmarTransferirClientes() {
   alert((data ? data.length : 0) + ' cliente(s) transferido(s) com sucesso!\n\nObs: clientes atribuídos por rota não são afetados — para esses, edite o cobrador da rota em "Rotas".');
 }
 
+// ===== CADASTRO DE PRODUTOS =====
+
+async function carregarProdutos() {
+  const { data, error } = await sb.from('produtos').select('*').order('nome');
+  if (error) { document.getElementById('lista-produtos').innerHTML = 'Erro ao carregar.'; return; }
+  const lista = data || [];
+  if (!lista.length) {
+    document.getElementById('lista-produtos').innerHTML = '<p style="color:#888;padding:1rem;">Nenhum produto cadastrado.</p>';
+    return;
+  }
+  document.getElementById('lista-produtos').innerHTML = `
+    <div class="tabela-wrap"><table>
+      <thead><tr><th>Nome</th><th>Preço sugerido</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody>${lista.map(p => {
+        const nomeEsc = p.nome.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `
+        <tr>
+          <td>${p.nome}</td>
+          <td>${p.preco != null ? 'R$ ' + Number(p.preco).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}</td>
+          <td><span class="badge ${p.ativo?'verde':'cinza'}">${p.ativo?'Ativo':'Inativo'}</span></td>
+          <td>
+            <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarProduto('${p.id}')">Editar</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="toggleAtivoProduto('${p.id}',${p.ativo})">${p.ativo?'Desativar':'Ativar'}</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;color:#C0392B;border-color:#C0392B;" onclick="excluirProduto('${p.id}','${nomeEsc}')">Excluir</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+function abrirCadastroProduto() {
+  document.getElementById('produto-id').value = '';
+  document.getElementById('produto-nome').value = '';
+  document.getElementById('produto-preco').value = '';
+  document.getElementById('msg-produto').innerHTML = '';
+  document.getElementById('modal-produto-titulo').textContent = 'Novo produto';
+  document.getElementById('modal-produto').style.display = 'flex';
+}
+
+async function editarProduto(id) {
+  const { data } = await sb.from('produtos').select('*').eq('id', id).single();
+  document.getElementById('produto-id').value = data.id;
+  document.getElementById('produto-nome').value = data.nome;
+  document.getElementById('produto-preco').value = data.preco != null ? data.preco : '';
+  document.getElementById('msg-produto').innerHTML = '';
+  document.getElementById('modal-produto-titulo').textContent = 'Editar produto';
+  document.getElementById('modal-produto').style.display = 'flex';
+}
+
+async function salvarProduto() {
+  const id = document.getElementById('produto-id').value;
+  const msg = document.getElementById('msg-produto');
+  const nome = document.getElementById('produto-nome').value.trim();
+  const precoStr = document.getElementById('produto-preco').value;
+  if (!nome) { msg.innerHTML = '<div class="msg erro">Digite o nome do produto!</div>'; return; }
+  const dados = { nome, preco: precoStr ? parseFloat(precoStr) : null };
+  const { error } = id
+    ? await sb.from('produtos').update(dados).eq('id', id)
+    : await sb.from('produtos').insert({ ...dados, ativo: true });
+  if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${error.message}</div>`; return; }
+  fecharModal('modal-produto');
+  carregarProdutos();
+}
+
+async function toggleAtivoProduto(id, ativo) {
+  await sb.from('produtos').update({ ativo: !ativo }).eq('id', id);
+  carregarProdutos();
+}
+
+async function excluirProduto(id, nome) {
+  if (!confirm('Excluir o produto "' + nome + '"?\nEsta ação não pode ser desfeita.')) return;
+  const { error } = await sb.from('produtos').delete().eq('id', id);
+  if (error) { alert('Erro ao excluir: ' + error.message); return; }
+  carregarProdutos();
+}
+
+async function carregarProdutosCatalogo() {
+  const { data } = await sb.from('produtos').select('id, nome, preco').eq('ativo', true).order('nome');
+  window._produtosCatalogo = data || [];
+  return window._produtosCatalogo;
+}
+
+function precoSugeridoProduto(nome) {
+  const item = (window._produtosCatalogo || []).find(p => p.nome === nome);
+  return item && item.preco != null ? item.preco : null;
+}
+
 async function abrirNovaVenda() {
   if (perfilAtivo.perfil === 'vendedor' && !equipeAtiva) {
     alert('Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor.');
@@ -2738,6 +2866,7 @@ async function mostrarFormVenda() {
   document.getElementById('venda-entrada').value = '';
   document.getElementById('venda-data-primeira').value = '';
   renderSeletorParcelas();
+  await carregarProdutosCatalogo();
 
   if (perfilAtivo.perfil === 'vendedor') {
     await carregarEquipeAtivaVendedor();
@@ -2756,6 +2885,12 @@ async function mostrarFormVenda() {
     document.getElementById('campo-equipe-wrap').style.display = '';
     document.getElementById('campo-produto-texto').style.display = '';
     document.getElementById('campo-produto-select').style.display = 'none';
+    document.getElementById('venda-produto-catalogo').innerHTML = '<option value="">Selecione o produto...</option>' +
+      window._produtosCatalogo.map(p => `<option value="${p.nome}">${p.nome}</option>`).join('') +
+      '<option value="__outro__">Outro (digitar manualmente)</option>';
+    document.getElementById('venda-produto-catalogo').value = '';
+    document.getElementById('venda-produto-manual').value = '';
+    document.getElementById('venda-produto-manual').style.display = 'none';
   }
 
   document.getElementById('form-dados-venda').style.display = 'block';
@@ -3152,6 +3287,26 @@ async function carregarEstoqueProdutos() {
 
 function selecionarProdutoEstoque(sel) {
   document.getElementById('venda-produto').value = sel.value;
+  const valorEl = document.getElementById('venda-valor');
+  const preco = precoSugeridoProduto(sel.value);
+  if (preco != null && !valorEl.value) valorEl.value = preco;
+}
+
+function selecionarProdutoCatalogo(sel) {
+  const manual = document.getElementById('venda-produto-manual');
+  const valorEl = document.getElementById('venda-valor');
+  if (sel.value === '__outro__') {
+    manual.style.display = '';
+    manual.value = '';
+    manual.focus();
+    document.getElementById('venda-produto').value = '';
+  } else {
+    manual.style.display = 'none';
+    manual.value = '';
+    document.getElementById('venda-produto').value = sel.value;
+    const preco = precoSugeridoProduto(sel.value);
+    if (preco != null && !valorEl.value) valorEl.value = preco;
+  }
 }
 
 function fecharModalVenda() {
@@ -7215,6 +7370,7 @@ async function salvarEquipe() {
 
 async function abrirEstoqueEquipe(equipeId) {
   document.getElementById('estoque-equipe-id').value = equipeId;
+  await carregarProdutosCatalogo();
   const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeId);
   const lista = document.getElementById('lista-itens-estoque');
   lista.innerHTML = '';
@@ -7228,23 +7384,48 @@ async function abrirEstoqueEquipe(equipeId) {
 
 function adicionarLinhaEstoque(produto, qtd) {
   const lista = document.getElementById('lista-itens-estoque');
+  const catalogo = window._produtosCatalogo || [];
+  const noCatalogo = !!produto && catalogo.some(p => p.nome === produto);
+  const valorSelect = produto ? (noCatalogo ? produto : '__outro__') : '';
   const div = document.createElement('div');
-  div.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:6px;align-items:center;';
-  div.innerHTML = `<input type="text" class="item-produto" placeholder="Produto" value="${produto||''}" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
-    <div style="display:flex;gap:6px;align-items:center;">
-      <input type="number" class="item-qtd" placeholder="Qtd" value="${qtd||''}" min="0" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:75px;">
-      <button class="btn" style="padding:5px 9px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="this.closest('div').parentElement.remove()">✕</button>
-    </div>`;
+  div.className = 'estoque-linha';
+  div.style.cssText = 'margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #eee;';
+  div.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
+      <select class="item-produto-select" onchange="onMudaProdutoEstoque(this)" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
+        <option value="">Selecione o produto...</option>
+        ${catalogo.map(p => `<option value="${p.nome}" ${p.nome === valorSelect ? 'selected' : ''}>${p.nome}</option>`).join('')}
+        <option value="__outro__" ${valorSelect === '__outro__' ? 'selected' : ''}>Outro (digitar manualmente)</option>
+      </select>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="number" class="item-qtd" placeholder="Qtd" value="${qtd||''}" min="0" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:75px;">
+        <button class="btn" style="padding:5px 9px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="this.closest('.estoque-linha').remove()">✕</button>
+      </div>
+    </div>
+    <input type="text" class="item-produto-manual" placeholder="Digite o nome do produto" value="${valorSelect === '__outro__' ? (produto||'') : ''}" style="display:${valorSelect === '__outro__' ? 'block' : 'none'};margin-top:6px;width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">`;
   lista.appendChild(div);
+}
+
+function onMudaProdutoEstoque(sel) {
+  const manual = sel.closest('.estoque-linha').querySelector('.item-produto-manual');
+  if (sel.value === '__outro__') {
+    manual.style.display = 'block';
+    manual.focus();
+  } else {
+    manual.style.display = 'none';
+    manual.value = '';
+  }
 }
 
 async function salvarEstoqueEquipe() {
   if (perfilAtivo.perfil !== 'gestor') { alert('Sem permissão'); return; }
   const equipeId = document.getElementById('estoque-equipe-id').value;
-  const linhas = document.querySelectorAll('#lista-itens-estoque > div');
+  const linhas = document.querySelectorAll('#lista-itens-estoque > .estoque-linha');
   const itens = [];
   linhas.forEach(linha => {
-    const produto = linha.querySelector('.item-produto').value.trim();
+    const sel = linha.querySelector('.item-produto-select');
+    const manual = linha.querySelector('.item-produto-manual');
+    const produto = (sel.value === '__outro__' ? manual.value : sel.value).trim();
     const qtd = parseInt(linha.querySelector('.item-qtd').value) || 0;
     if (produto) itens.push({ equipe_id: equipeId, produto, quantidade_saida: qtd });
   });
