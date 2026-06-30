@@ -2409,7 +2409,9 @@ async function carregarFuncionarios() {
   document.getElementById('lista-funcionarios').innerHTML = `
     <div class="tabela-wrap"><table>
       <thead><tr><th>Nome</th><th>Tipo</th><th>Rota</th><th>Telefone</th><th>Ativo</th><th>Ações</th></tr></thead>
-      <tbody>${data.map(f => `
+      <tbody>${data.map(f => {
+        const nomeEsc = f.nome.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `
         <tr>
           <td>${f.nome}</td>
           <td><span class="badge ${f.tipo==='cobrador'?'azul':f.tipo==='gestor'?'roxo':'verde'}">${f.tipo}</span></td>
@@ -2419,8 +2421,10 @@ async function carregarFuncionarios() {
           <td>
             <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarFuncionario('${f.id}')">Editar</button>
             <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="toggleAtivo('${f.id}',${f.ativo})">${f.ativo?'Desativar':'Ativar'}</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;color:#C0392B;border-color:#C0392B;" onclick="excluirFuncionario('${f.id}','${nomeEsc}')">Excluir</button>
           </td>
-        </tr>`).join('')}
+        </tr>`;
+      }).join('')}
       </tbody>
     </table></div>`;
 }
@@ -2464,6 +2468,20 @@ async function editarFuncionario(id) {
 
 async function toggleAtivo(id, ativo) {
   await sb.from('funcionarios').update({ ativo: !ativo }).eq('id', id);
+  carregarFuncionarios();
+}
+
+async function excluirFuncionario(id, nome) {
+  if (!confirm('Excluir o funcionário "' + nome + '"?\nEsta ação não pode ser desfeita.')) return;
+  const { error } = await sb.from('funcionarios').delete().eq('id', id);
+  if (error) {
+    if (error.code === '23503') {
+      alert('Este funcionário não pode ser excluído pois possui vendas, clientes ou outros registros vinculados.\nUse "Desativar" para removê-lo das listagens sem apagar o histórico.');
+    } else {
+      alert('Erro ao excluir: ' + error.message);
+    }
+    return;
+  }
   carregarFuncionarios();
 }
 
