@@ -6098,7 +6098,7 @@ async function imprimirCarne() {
 
   // ===== Dimensões e paginação (mantidas exatamente como antes) =====
   const largura = 210;
-  const altura = 99;
+  const altura = 90;
   const colunas = 1;
   const linhasPorPagina = 3;
   const divisorX = largura * 0.4; // via esquerda ~40% / via direita ~60%
@@ -6307,7 +6307,7 @@ async function imprimirCarne() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6);
       doc.setTextColor(140, 140, 140);
-      doc.text(carneCfg.texto_rodape, x + largura / 2, y + 94.5, { align: 'center', maxWidth: largura - 14 });
+      doc.text(carneCfg.texto_rodape, x + largura / 2 - 7, y + 94.5, { align: 'center', maxWidth: largura - 14 });
       doc.setTextColor(0, 0, 0);
     }
 
