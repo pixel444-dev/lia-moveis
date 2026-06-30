@@ -2813,7 +2813,7 @@ async function salvarVenda() {
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     const dataParc = new Date(dataPrimeira + 'T12:00:00');
     const diffDias = Math.round((dataParc - hoje) / (1000 * 60 * 60 * 24));
-    if (diffDias < 0) { alert('A data da primeira parcela não pode ser no passado!'); return; }
+    if (perfilAtivo.perfil === 'vendedor' && diffDias < 0) { alert('A data da primeira parcela não pode ser no passado!'); return; }
     if (perfilAtivo.perfil === 'vendedor' && diffDias > 70) { alert('A data da primeira parcela não pode ser mais de 70 dias a partir de hoje!'); return; }
   }
   const equipeId = perfilAtivo.perfil === 'vendedor'
