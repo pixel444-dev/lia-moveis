@@ -844,21 +844,11 @@ tr:hover td{background:#fafafa;}
             </select>
           </div>
         </div>
-        <div class="campo" id="campo-produto-texto">
-          <label style="font-size:13px;">📦 Produto *</label>
-          <select id="venda-produto-catalogo" onchange="selecionarProdutoCatalogo(this)" style="padding:14px;font-size:16px;border-radius:10px;">
-            <option value="">Selecione o produto...</option>
-            <option value="__outro__">Outro (digitar manualmente)</option>
-          </select>
-          <input id="venda-produto-manual" type="text" placeholder="Digite o nome do produto" oninput="document.getElementById('venda-produto').value=this.value.trim()" style="display:none;margin-top:8px;padding:14px;font-size:16px;border-radius:10px;">
-          <input type="hidden" id="venda-produto">
-        </div>
-        <div class="campo" id="campo-produto-select" style="display:none;">
-          <label style="font-size:13px;">📦 Produto *</label>
-          <select id="venda-produto-select" onchange="selecionarProdutoEstoque(this)" style="padding:14px;font-size:16px;border-radius:10px;">
-            <option value="">Selecione o produto...</option>
-          </select>
-          <div id="msg-estoque-produto" style="font-size:12px;color:#888;margin-top:4px;"></div>
+        <div class="campo" id="campo-itens-venda">
+          <label style="font-size:13px;">📦 Produto(s) *</label>
+          <div id="lista-itens-venda"></div>
+          <button type="button" class="btn" style="font-size:12px;margin-top:4px;" onclick="novaLinhaItemVenda()">+ Adicionar outro produto</button>
+          <div id="msg-estoque-produto" style="font-size:12px;color:#888;margin-top:6px;"></div>
         </div>
         <div class="grid2">
           <div class="campo">
@@ -871,7 +861,7 @@ tr:hover td{background:#fafafa;}
           </div>
           <div class="campo">
             <label style="font-size:13px;">💰 Valor (R$) *</label>
-            <input id="venda-valor" type="number" placeholder="0,00" oninput="atualizarPreviewParcelas()" style="padding:14px;font-size:18px;font-weight:700;border-radius:10px;">
+            <input id="venda-valor" type="number" placeholder="0,00" oninput="window._valorAutoPreenchido=false;atualizarPreviewParcelas();" style="padding:14px;font-size:18px;font-weight:700;border-radius:10px;">
           </div>
         </div>
         <div id="campo-parcelas" style="display:none;">
@@ -2856,7 +2846,6 @@ async function salvarNovoClienteVenda() {
 async function mostrarFormVenda() {
   const codigo = await gerarCodigoVenda();
   document.getElementById('venda-codigo').value = codigo;
-  document.getElementById('venda-produto').value = '';
   document.getElementById('venda-valor').value = '';
   document.getElementById('venda-obs').value = '';
   document.getElementById('venda-tipo').value = '';
@@ -2866,7 +2855,9 @@ async function mostrarFormVenda() {
   document.getElementById('venda-entrada').value = '';
   document.getElementById('venda-data-primeira').value = '';
   renderSeletorParcelas();
-  await carregarProdutosCatalogo();
+  window._valorAutoPreenchido = true;
+  document.getElementById('msg-estoque-produto').innerHTML = '';
+  document.getElementById('lista-itens-venda').innerHTML = '';
 
   if (perfilAtivo.perfil === 'vendedor') {
     await carregarEquipeAtivaVendedor();
@@ -2874,27 +2865,136 @@ async function mostrarFormVenda() {
     document.getElementById('campo-vendedor-wrap').style.display = '';
     document.getElementById('venda-equipe').value = equipeAtiva?.id || '';
     document.getElementById('campo-equipe-wrap').style.display = 'none';
-    await carregarEstoqueProdutos();
-    document.getElementById('campo-produto-texto').style.display = 'none';
-    document.getElementById('campo-produto-select').style.display = 'block';
-    document.getElementById('venda-produto-select').value = '';
+    await carregarFonteItensVenda();
+    if (!equipeAtiva?.id) {
+      document.getElementById('msg-estoque-produto').innerHTML = '<span style="color:#A32D2D;">Nenhuma equipe ativa encontrada.</span>';
+    } else if (!window._fonteItensVenda.length) {
+      document.getElementById('msg-estoque-produto').innerHTML = '<span style="color:#A32D2D;">Estoque esgotado para todos os itens.</span>';
+    } else {
+      novaLinhaItemVenda();
+    }
   } else {
     await carregarVendedoresSelect('venda-vendedor');
     await carregarEquipesParaVenda();
     document.getElementById('campo-vendedor-wrap').style.display = '';
     document.getElementById('campo-equipe-wrap').style.display = '';
-    document.getElementById('campo-produto-texto').style.display = '';
-    document.getElementById('campo-produto-select').style.display = 'none';
-    document.getElementById('venda-produto-catalogo').innerHTML = '<option value="">Selecione o produto...</option>' +
-      window._produtosCatalogo.map(p => `<option value="${p.nome}">${p.nome}</option>`).join('') +
-      '<option value="__outro__">Outro (digitar manualmente)</option>';
-    document.getElementById('venda-produto-catalogo').value = '';
-    document.getElementById('venda-produto-manual').value = '';
-    document.getElementById('venda-produto-manual').style.display = 'none';
+    await carregarFonteItensVenda();
+    novaLinhaItemVenda();
   }
 
   document.getElementById('form-dados-venda').style.display = 'block';
   document.getElementById('btn-salvar-venda').style.display = 'inline-block';
+}
+
+async function carregarFonteItensVenda() {
+  if (perfilAtivo.perfil === 'vendedor') {
+    if (!equipeAtiva?.id) { window._fonteItensVenda = []; return; }
+    const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
+    window._fonteItensVenda = (estoque || [])
+      .map(e => ({ nome: e.produto, disponivel: e.quantidade_saida - (e.quantidade_voltou || 0) }))
+      .filter(f => f.disponivel > 0);
+  } else {
+    await carregarProdutosCatalogo();
+    window._fonteItensVenda = window._produtosCatalogo.map(p => ({ nome: p.nome, disponivel: null }));
+  }
+}
+
+function novaLinhaItemVenda() {
+  const container = document.getElementById('lista-itens-venda');
+  const isVendedor = perfilAtivo.perfil === 'vendedor';
+  const fonte = window._fonteItensVenda || [];
+  const div = document.createElement('div');
+  div.className = 'item-venda-linha';
+  div.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;';
+  const opcoes = fonte.map(f => `<option value="${f.nome}">${f.nome}${isVendedor ? ' (' + f.disponivel + ' disponível' + (f.disponivel > 1 ? 'is' : '') + ')' : ''}</option>`).join('');
+  div.innerHTML = `
+    <div style="flex:1;">
+      <select class="iv-produto" onchange="onMudaItemVenda(this)" style="width:100%;padding:12px;font-size:15px;border-radius:10px;border:1px solid #ddd;">
+        <option value="">Selecione o produto...</option>
+        ${opcoes}
+        ${isVendedor ? '' : '<option value="__outro__">Outro (digitar manualmente)</option>'}
+      </select>
+      <input type="text" class="iv-produto-manual" placeholder="Digite o nome do produto" oninput="atualizarValorSugeridoItens()" style="display:none;margin-top:6px;width:100%;box-sizing:border-box;padding:10px;font-size:14px;border-radius:8px;border:1px solid #ddd;">
+    </div>
+    <input type="number" class="iv-qtd" value="1" min="1" oninput="atualizarValorSugeridoItens()" style="width:70px;padding:12px;font-size:15px;border-radius:10px;border:1px solid #ddd;">
+    <button type="button" class="btn" style="padding:10px 12px;color:#A32D2D;border-color:#f5c6c6;" onclick="removerLinhaItemVenda(this)">✕</button>`;
+  container.appendChild(div);
+}
+
+function removerLinhaItemVenda(btn) {
+  const container = document.getElementById('lista-itens-venda');
+  if (container.children.length <= 1) { alert('A venda precisa ter pelo menos um produto!'); return; }
+  btn.closest('.item-venda-linha').remove();
+  atualizarValorSugeridoItens();
+}
+
+function onMudaItemVenda(sel) {
+  const linha = sel.closest('.item-venda-linha');
+  const manual = linha.querySelector('.iv-produto-manual');
+  const qtdInput = linha.querySelector('.iv-qtd');
+  if (sel.value === '__outro__') {
+    manual.style.display = 'block';
+    manual.focus();
+    qtdInput.removeAttribute('max');
+  } else {
+    manual.style.display = 'none';
+    manual.value = '';
+    const item = (window._fonteItensVenda || []).find(f => f.nome === sel.value);
+    if (item && item.disponivel != null) {
+      qtdInput.max = item.disponivel;
+      if (parseInt(qtdInput.value) > item.disponivel) qtdInput.value = item.disponivel;
+    } else {
+      qtdInput.removeAttribute('max');
+    }
+  }
+  atualizarValorSugeridoItens();
+}
+
+function atualizarValorSugeridoItens() {
+  const linhas = document.querySelectorAll('#lista-itens-venda .item-venda-linha');
+  let soma = 0, temItemSemPreco = false, algumPreenchido = false;
+  linhas.forEach(linha => {
+    const sel = linha.querySelector('.iv-produto');
+    const manual = linha.querySelector('.iv-produto-manual');
+    const nome = (sel.value === '__outro__' ? manual.value : sel.value).trim();
+    const qtd = parseInt(linha.querySelector('.iv-qtd').value) || 0;
+    if (!nome || !qtd) return;
+    algumPreenchido = true;
+    const preco = precoSugeridoProduto(nome);
+    if (preco == null) { temItemSemPreco = true; return; }
+    soma += preco * qtd;
+  });
+  const valorEl = document.getElementById('venda-valor');
+  if (algumPreenchido && !temItemSemPreco && soma > 0 && window._valorAutoPreenchido) {
+    valorEl.value = soma.toFixed(2);
+    atualizarPreviewParcelas();
+  }
+}
+
+function coletarItensVenda() {
+  const linhas = document.querySelectorAll('#lista-itens-venda .item-venda-linha');
+  const itens = [];
+  const vistos = new Set();
+  for (const linha of linhas) {
+    const sel = linha.querySelector('.iv-produto');
+    const manual = linha.querySelector('.iv-produto-manual');
+    const nome = (sel.value === '__outro__' ? manual.value : sel.value).trim();
+    const qtd = parseInt(linha.querySelector('.iv-qtd').value) || 0;
+    if (!nome && !qtd) continue;
+    if (!nome) return { ok: false, erro: 'Selecione o produto em todos os itens ou remova a linha vazia!' };
+    if (!qtd || qtd < 1) return { ok: false, erro: `Informe a quantidade do produto "${nome}"!` };
+    const chave = nome.toLowerCase();
+    if (vistos.has(chave)) return { ok: false, erro: `O produto "${nome}" foi informado em mais de uma linha. Some a quantidade em uma única linha.` };
+    vistos.add(chave);
+    if (perfilAtivo.perfil === 'vendedor') {
+      const fonte = (window._fonteItensVenda || []).find(f => f.nome.toLowerCase() === chave);
+      const disponivel = fonte ? fonte.disponivel : 0;
+      if (qtd > disponivel) return { ok: false, erro: `Estoque insuficiente de "${nome}": disponível ${disponivel}, solicitado ${qtd}.` };
+    }
+    itens.push({ produto: nome, quantidade: qtd });
+  }
+  if (!itens.length) return { ok: false, erro: 'Adicione pelo menos um produto à venda!' };
+  return { ok: true, itens };
 }
 
 function renderSeletorParcelas() {
@@ -3012,8 +3112,9 @@ async function salvarVenda() {
   if (!tipo) { alert('Selecione o tipo de venda!'); return; }
   const valor = parseFloat(document.getElementById('venda-valor').value);
   if (!valor || valor <= 0) { alert('Digite o valor da venda!'); return; }
-  const produto = document.getElementById('venda-produto').value.trim();
-  if (!produto) { alert('Selecione ou informe o produto!'); return; }
+  const itensVenda = coletarItensVenda();
+  if (!itensVenda.ok) { alert(itensVenda.erro); return; }
+  const produto = itensVenda.itens.map(i => i.quantidade > 1 ? `${i.quantidade}x ${i.produto}` : i.produto).join(', ');
   const vendedorId = document.getElementById('venda-vendedor').value || null;
   if (!vendedorId && perfilAtivo.perfil !== 'gestor') { alert('Selecione o vendedor responsável pela venda!'); return; }
   if (tipo === 'entrada') {
@@ -3094,12 +3195,19 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
     }).eq('id', dados.equipe_id);
   }
   fecharModalVenda();
-  // For vendedor: decrement equipe_estoque
-  if (perfilAtivo.perfil === 'vendedor' && equipeAtiva?.id && dados.produto) {
+  // Registra os itens da venda (produto + quantidade)
+  const { error: errItens } = await sb.from('venda_itens').insert(
+    itensVenda.itens.map(i => ({ venda_id: venda.id, produto: i.produto, quantidade: i.quantidade }))
+  );
+  if (errItens) Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao salvar itens da venda', { supabase_code: errItens.code });
+  // For vendedor: decrement equipe_estoque por item vendido
+  if (perfilAtivo.perfil === 'vendedor' && equipeAtiva?.id) {
     const { data: estoqueItems } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
-    const item = (estoqueItems || []).find(e => e.produto.trim().toLowerCase() === dados.produto.trim().toLowerCase());
-    if (item) {
-      await sb.from('equipe_estoque').update({ quantidade_voltou: (item.quantidade_voltou || 0) + 1 }).eq('id', item.id);
+    for (const it of itensVenda.itens) {
+      const item = (estoqueItems || []).find(e => e.produto.trim().toLowerCase() === it.produto.trim().toLowerCase());
+      if (item) {
+        await sb.from('equipe_estoque').update({ quantidade_voltou: (item.quantidade_voltou || 0) + it.quantidade }).eq('id', item.id);
+      }
     }
   }
   carregarDashboard();
@@ -3259,53 +3367,6 @@ async function carregarEquipeAtivaVendedor() {
   } catch (e) {
     Logger.error('vendas', 'CARREGAR_EQUIPE_ATIVA', 'Falha ao carregar equipe ativa', { error_message: e?.message });
     equipeAtiva = null;
-  }
-}
-
-async function carregarEstoqueProdutos() {
-  const sel = document.getElementById('venda-produto-select');
-  const msg = document.getElementById('msg-estoque-produto');
-  if (!equipeAtiva?.id) {
-    sel.innerHTML = '<option value="">Sem equipe ativa</option>';
-    if (msg) msg.innerHTML = '<span style="color:#A32D2D;">Nenhuma equipe ativa encontrada.</span>';
-    return;
-  }
-  const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
-  const disponiveis = (estoque || []).filter(e => e.quantidade_saida - (e.quantidade_voltou || 0) > 0);
-  if (!disponiveis.length) {
-    sel.innerHTML = '<option value="">Estoque esgotado</option>';
-    if (msg) msg.innerHTML = '<span style="color:#A32D2D;">Estoque esgotado para todos os itens.</span>';
-    return;
-  }
-  if (msg) msg.innerHTML = '';
-  sel.innerHTML = '<option value="">Selecione o produto...</option>' +
-    disponiveis.map(e => {
-      const disp = e.quantidade_saida - (e.quantidade_voltou || 0);
-      return `<option value="${e.produto}">${e.produto} (${disp} disponível${disp > 1 ? 'is' : ''})</option>`;
-    }).join('');
-}
-
-function selecionarProdutoEstoque(sel) {
-  document.getElementById('venda-produto').value = sel.value;
-  const valorEl = document.getElementById('venda-valor');
-  const preco = precoSugeridoProduto(sel.value);
-  if (preco != null && !valorEl.value) valorEl.value = preco;
-}
-
-function selecionarProdutoCatalogo(sel) {
-  const manual = document.getElementById('venda-produto-manual');
-  const valorEl = document.getElementById('venda-valor');
-  if (sel.value === '__outro__') {
-    manual.style.display = '';
-    manual.value = '';
-    manual.focus();
-    document.getElementById('venda-produto').value = '';
-  } else {
-    manual.style.display = 'none';
-    manual.value = '';
-    document.getElementById('venda-produto').value = sel.value;
-    const preco = precoSugeridoProduto(sel.value);
-    if (preco != null && !valorEl.value) valorEl.value = preco;
   }
 }
 
