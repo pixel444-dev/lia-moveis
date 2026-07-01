@@ -109,7 +109,7 @@ tr:hover td{background:#fafafa;}
 .carne-status-label{font-size:11px;font-weight:700;color:#A32D2D;text-align:center;margin-top:4px;}
 #comprovante-impressao{display:none;}
 .comp-linha{display:flex;justify-content:space-between;gap:8px;}
-.comp-sep{border-top:1px dashed #000;margin:6px 0;}
+.comp-sep{margin:5px 0;white-space:nowrap;overflow:hidden;letter-spacing:1px;}
 .comp-centro{text-align:center;}
 
 @media print {
@@ -703,6 +703,7 @@ tr:hover td{background:#fafafa;}
 
         <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
           <div style="font-size:13px;font-weight:700;color:#185FA5;margin-bottom:1rem;">🧾 Comprovante de venda (impressora térmica)</div>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;"><input type="checkbox" id="cfg-comprovante-logo"> Mostrar logo (desligue se a impressora imprimir fraco/apagado)</label>
           <div class="campo"><label>Mensagem de agradecimento</label>
             <input id="cfg-comprovante-msg" type="text" placeholder="Ex: Obrigado pela preferência!" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
         </div>
@@ -3378,46 +3379,47 @@ async function imprimirComprovanteVenda() {
 
   const cfg = await getConfigImpressao();
   const comp = cfg.comprovante || {};
-  const nomeLoja = cfg.nome_loja || 'Lia Móveis';
-  const logoUrl = cfg.logo_url ? await urlAssinada('comprovantes', cfg.logo_url) : null;
+  const nomeLoja = (cfg.nome_loja || 'Lia Móveis').toUpperCase();
+  const logoUrl = comp.mostrar_logo && cfg.logo_url ? await urlAssinada('comprovantes', cfg.logo_url) : null;
   const mensagem = comp.texto_agradecimento || 'Obrigado pela preferência!';
+  const sep = '<div class="comp-sep">--------------------------------</div>';
 
   const linhasParcelas = (info.tipo === 'entrada' ? (info.parcelas || []) : []).map(p => `
     <div class="comp-linha">
-      <span>Parcela ${p.numero}/${p.total_parcelas} (${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')})</span>
+      <span>Parc ${p.numero}/${p.total_parcelas} (${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')})</span>
       <span>${fmtMoeda(p.valor)}</span>
     </div>`).join('');
 
   document.getElementById('comprovante-impressao').innerHTML = `
     <div class="comp-centro">
-      ${logoUrl ? `<img src="${logoUrl}" style="max-width:35mm;max-height:20mm;margin-bottom:4px;">` : ''}
-      <div style="font-size:14px;font-weight:700;">${nomeLoja}</div>
-      ${cfg.endereco ? `<div style="font-size:10px;">${cfg.endereco}</div>` : ''}
-      ${cfg.telefone ? `<div style="font-size:10px;">${cfg.telefone}</div>` : ''}
+      ${logoUrl ? `<img src="${logoUrl}" style="max-width:30mm;max-height:16mm;margin-bottom:4px;">` : ''}
+      <div style="font-size:15px;">${nomeLoja}</div>
+      ${cfg.endereco ? `<div>${cfg.endereco}</div>` : ''}
+      ${cfg.telefone ? `<div>${cfg.telefone}</div>` : ''}
     </div>
-    <div class="comp-sep"></div>
-    <div class="comp-centro" style="font-weight:700;">COMPROVANTE DE COMPRA</div>
+    ${sep}
+    <div class="comp-centro">COMPROVANTE DE COMPRA</div>
     <div class="comp-linha"><span>Venda</span><span>#${info.vendaCodigo}</span></div>
     <div class="comp-linha"><span>Data</span><span>${dataVendaFmt}</span></div>
     <div class="comp-linha"><span>Vendedor</span><span>${info.vendedorNome || '—'}</span></div>
-    <div class="comp-sep"></div>
-    <div style="font-weight:700;">Cliente</div>
+    ${sep}
+    <div>CLIENTE</div>
     <div>${info.cliente?.nome || '—'}</div>
-    ${info.cliente?.codigo ? `<div>Código: ${info.cliente.codigo}</div>` : ''}
+    ${info.cliente?.codigo ? `<div>Codigo: ${info.cliente.codigo}</div>` : ''}
     ${info.cliente?.cpf ? `<div>CPF: ${info.cliente.cpf}</div>` : ''}
     ${info.cliente?.telefone ? `<div>Tel: ${info.cliente.telefone}</div>` : ''}
-    <div class="comp-sep"></div>
-    <div style="font-weight:700;">Produto(s)</div>
+    ${sep}
+    <div>PRODUTO(S)</div>
     <div>${info.produto || '—'}</div>
-    <div class="comp-sep"></div>
-    <div class="comp-linha" style="font-weight:700;"><span>Tipo</span><span>${tipoLabel}</span></div>
-    ${info.tipo === 'entrada' && info.entrada > 0 ? `<div class="comp-linha"><span>Entrada (já paga)</span><span>${fmtMoeda(info.entrada)}</span></div>` : ''}
+    ${sep}
+    <div class="comp-linha"><span>Tipo</span><span>${tipoLabel}</span></div>
+    ${info.tipo === 'entrada' && info.entrada > 0 ? `<div class="comp-linha"><span>Entrada (ja paga)</span><span>${fmtMoeda(info.entrada)}</span></div>` : ''}
     ${linhasParcelas}
-    <div class="comp-sep"></div>
-    <div class="comp-linha" style="font-weight:700;font-size:13px;"><span>TOTAL</span><span>${fmtMoeda(info.valor)}</span></div>
-    <div class="comp-sep"></div>
+    ${sep}
+    <div class="comp-linha" style="font-size:15px;"><span>TOTAL</span><span>${fmtMoeda(info.valor)}</span></div>
+    ${sep}
     <div class="comp-centro" style="margin-top:6px;">${mensagem}</div>
-    <div class="comp-centro" style="font-size:9px;color:#333;margin-top:6px;">Impresso em ${agora}</div>
+    <div class="comp-centro" style="margin-top:6px;">Impresso em ${agora}</div>
   `;
 
   const estilo = document.createElement('style');
@@ -3430,8 +3432,9 @@ async function imprimirComprovanteVenda() {
         display: block !important;
         width: 54mm;
         font-family: 'Courier New', monospace;
-        font-size: 11px;
-        line-height: 1.4;
+        font-weight: 700;
+        font-size: 13px;
+        line-height: 1.5;
         color: #000;
       }
     }`;
@@ -6050,6 +6053,7 @@ async function carregarConfigImpressao() {
   document.getElementById('cfg-ficha-rodape').value = f.texto_rodape || '';
 
   const comp = c.comprovante || {};
+  document.getElementById('cfg-comprovante-logo').checked = comp.mostrar_logo ?? false;
   document.getElementById('cfg-comprovante-msg').value = comp.texto_agradecimento || '';
 }
 
@@ -6086,6 +6090,7 @@ async function salvarConfigImpressao() {
       texto_rodape: document.getElementById('cfg-ficha-rodape').value.trim()
     },
     comprovante: {
+      mostrar_logo: document.getElementById('cfg-comprovante-logo').checked,
       texto_agradecimento: document.getElementById('cfg-comprovante-msg').value.trim()
     }
   };
