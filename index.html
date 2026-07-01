@@ -107,6 +107,10 @@ tr:hover td{background:#fafafa;}
 .carne-valor-destaque{font-size:13px;font-weight:700;color:#1a1a1a;}
 .carne-assinatura{font-size:10px;color:#888;margin-top:4px;border-top:1px solid #ddd;padding-top:4px;}
 .carne-status-label{font-size:11px;font-weight:700;color:#A32D2D;text-align:center;margin-top:4px;}
+#comprovante-impressao{display:none;}
+.comp-linha{display:flex;justify-content:space-between;gap:8px;}
+.comp-sep{border-top:1px dashed #000;margin:6px 0;}
+.comp-centro{text-align:center;}
 
 @media print {
   @page { size: A4 portrait; margin: 0; }
@@ -697,6 +701,12 @@ tr:hover td{background:#fafafa;}
             <input id="cfg-ficha-rodape" type="text" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
         </div>
 
+        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
+          <div style="font-size:13px;font-weight:700;color:#185FA5;margin-bottom:1rem;">🧾 Comprovante de venda (impressora térmica)</div>
+          <div class="campo"><label>Mensagem de agradecimento</label>
+            <input id="cfg-comprovante-msg" type="text" placeholder="Ex: Obrigado pela preferência!" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"></div>
+        </div>
+
         <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;" onclick="salvarConfigImpressao()">Salvar configurações</button>
       </div>
     </div>
@@ -912,10 +922,14 @@ tr:hover td{background:#fafafa;}
     </div>
     <div id="resumo-venda-conteudo"></div>
     <div class="modal-footer" style="flex-direction:column;gap:10px;">
+      <button class="btn" style="width:100%;padding:16px;font-size:15px;font-weight:700;border-radius:12px;" onclick="imprimirComprovanteVenda()">🖨️ Imprimir comprovante</button>
       <button class="btn verde" style="width:100%;padding:18px;font-size:17px;font-weight:700;border-radius:12px;" onclick="concluirResumoVenda()">✅ Concluir</button>
     </div>
   </div>
 </div>
+
+<!-- COMPROVANTE TÉRMICO (impressão) -->
+<div id="comprovante-impressao"></div>
 
 <!-- MODAL CLIENTE -->
 <div class="modal-bg" id="modal-cliente">
@@ -3284,6 +3298,7 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
 }
 
 async function abrirResumoVenda(info) {
+  window._ultimoResumoVenda = info;
   const tipoLabel = info.tipo === 'avista' ? 'À vista' : 'Crediário';
   const dataVendaFmt = info.dataVenda ? new Date(info.dataVenda).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
   const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
@@ -3352,6 +3367,84 @@ function concluirResumoVenda() {
   const navVendas = document.getElementById('nav-vendas');
   if (navVendas) pg('vendas', navVendas);
 }
+
+async function imprimirComprovanteVenda() {
+  const info = window._ultimoResumoVenda;
+  if (!info) { alert('Nenhuma venda para imprimir.'); return; }
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  const tipoLabel = info.tipo === 'avista' ? 'À vista' : 'Crediário';
+  const dataVendaFmt = info.dataVenda ? new Date(info.dataVenda).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+  const agora = new Date().toLocaleString('pt-BR');
+
+  const cfg = await getConfigImpressao();
+  const comp = cfg.comprovante || {};
+  const nomeLoja = cfg.nome_loja || 'Lia Móveis';
+  const logoUrl = cfg.logo_url ? await urlAssinada('comprovantes', cfg.logo_url) : null;
+  const mensagem = comp.texto_agradecimento || 'Obrigado pela preferência!';
+
+  const linhasParcelas = (info.tipo === 'entrada' ? (info.parcelas || []) : []).map(p => `
+    <div class="comp-linha">
+      <span>Parcela ${p.numero}/${p.total_parcelas} (${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')})</span>
+      <span>${fmtMoeda(p.valor)}</span>
+    </div>`).join('');
+
+  document.getElementById('comprovante-impressao').innerHTML = `
+    <div class="comp-centro">
+      ${logoUrl ? `<img src="${logoUrl}" style="max-width:35mm;max-height:20mm;margin-bottom:4px;">` : ''}
+      <div style="font-size:14px;font-weight:700;">${nomeLoja}</div>
+      ${cfg.endereco ? `<div style="font-size:10px;">${cfg.endereco}</div>` : ''}
+      ${cfg.telefone ? `<div style="font-size:10px;">${cfg.telefone}</div>` : ''}
+    </div>
+    <div class="comp-sep"></div>
+    <div class="comp-centro" style="font-weight:700;">COMPROVANTE DE COMPRA</div>
+    <div class="comp-linha"><span>Venda</span><span>#${info.vendaCodigo}</span></div>
+    <div class="comp-linha"><span>Data</span><span>${dataVendaFmt}</span></div>
+    <div class="comp-linha"><span>Vendedor</span><span>${info.vendedorNome || '—'}</span></div>
+    <div class="comp-sep"></div>
+    <div style="font-weight:700;">Cliente</div>
+    <div>${info.cliente?.nome || '—'}</div>
+    ${info.cliente?.codigo ? `<div>Código: ${info.cliente.codigo}</div>` : ''}
+    ${info.cliente?.cpf ? `<div>CPF: ${info.cliente.cpf}</div>` : ''}
+    ${info.cliente?.telefone ? `<div>Tel: ${info.cliente.telefone}</div>` : ''}
+    <div class="comp-sep"></div>
+    <div style="font-weight:700;">Produto(s)</div>
+    <div>${info.produto || '—'}</div>
+    <div class="comp-sep"></div>
+    <div class="comp-linha" style="font-weight:700;"><span>Tipo</span><span>${tipoLabel}</span></div>
+    ${info.tipo === 'entrada' && info.entrada > 0 ? `<div class="comp-linha"><span>Entrada (já paga)</span><span>${fmtMoeda(info.entrada)}</span></div>` : ''}
+    ${linhasParcelas}
+    <div class="comp-sep"></div>
+    <div class="comp-linha" style="font-weight:700;font-size:13px;"><span>TOTAL</span><span>${fmtMoeda(info.valor)}</span></div>
+    <div class="comp-sep"></div>
+    <div class="comp-centro" style="margin-top:6px;">${mensagem}</div>
+    <div class="comp-centro" style="font-size:9px;color:#333;margin-top:6px;">Impresso em ${agora}</div>
+  `;
+
+  const estilo = document.createElement('style');
+  estilo.id = 'estilo-impressao-comprovante';
+  estilo.textContent = `
+    @media print {
+      @page { size: 58mm auto; margin: 2mm; }
+      body.imprimir-comprovante > *:not(#comprovante-impressao) { display: none !important; }
+      body.imprimir-comprovante #comprovante-impressao {
+        display: block !important;
+        width: 54mm;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+        line-height: 1.4;
+        color: #000;
+      }
+    }`;
+  document.head.appendChild(estilo);
+  document.body.classList.add('imprimir-comprovante');
+  window.print();
+}
+
+window.addEventListener('afterprint', () => {
+  document.body.classList.remove('imprimir-comprovante');
+  const estilo = document.getElementById('estilo-impressao-comprovante');
+  if (estilo) estilo.remove();
+});
 
 async function carregarVendas() {
   if (perfilAtivo.perfil === 'vendedor') { await carregarVendasVendedor(); return; }
@@ -5955,6 +6048,9 @@ async function carregarConfigImpressao() {
   document.getElementById('cfg-ficha-localizacao').checked = f.mostrar_localizacao ?? true;
   document.getElementById('cfg-ficha-parcelas').checked = f.mostrar_parcelas ?? true;
   document.getElementById('cfg-ficha-rodape').value = f.texto_rodape || '';
+
+  const comp = c.comprovante || {};
+  document.getElementById('cfg-comprovante-msg').value = comp.texto_agradecimento || '';
 }
 
 async function processarLogoConfig(input) {
@@ -5988,6 +6084,9 @@ async function salvarConfigImpressao() {
       mostrar_localizacao: document.getElementById('cfg-ficha-localizacao').checked,
       mostrar_parcelas: document.getElementById('cfg-ficha-parcelas').checked,
       texto_rodape: document.getElementById('cfg-ficha-rodape').value.trim()
+    },
+    comprovante: {
+      texto_agradecimento: document.getElementById('cfg-comprovante-msg').value.trim()
     }
   };
 
