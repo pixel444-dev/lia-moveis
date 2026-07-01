@@ -6986,6 +6986,21 @@ function _importParseData(valor) {
   return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
 }
 
+async function _importSelecionarTudo(tabela, colunas) {
+  const todos = [];
+  let offset = 0;
+  const limite = 1000;
+  while (true) {
+    const { data, error } = await sb.from(tabela).select(colunas).range(offset, offset + limite - 1);
+    if (error) { Logger.error('importacao', 'SELECIONAR_TUDO', 'Erro ao paginar ' + tabela, { error_message: error.message }); break; }
+    if (!data || !data.length) break;
+    todos.push(...data);
+    if (data.length < limite) break;
+    offset += limite;
+  }
+  return todos;
+}
+
 async function _importCarregarMunicipios() {
   const todos = [];
   let offset = 0;
@@ -7027,8 +7042,8 @@ async function importarClientes() {
     progTexto.textContent = '⏳ Carregando municípios do banco...';
     const mapaMun = await _importCarregarMunicipios();
 
-    const { data: existentes } = await sb.from('clientes').select('codigo');
-    const codigosExistentes = new Set((existentes || []).map(c => c.codigo));
+    const existentes = await _importSelecionarTudo('clientes', 'codigo');
+    const codigosExistentes = new Set(existentes.map(c => c.codigo));
 
     const total = rows.length;
     let ok = 0, pulados = 0, erros = 0, duplicados = 0;
@@ -7135,13 +7150,13 @@ async function importarParcelas() {
     if (!rows.length) { log.innerHTML = '⚠️ Planilha vazia.'; return; }
 
     progTexto.textContent = '⏳ Carregando clientes e vendas existentes...';
-    const { data: clientes } = await sb.from('clientes').select('id, codigo');
+    const clientes = await _importSelecionarTudo('clientes', 'id, codigo');
     const mapaClientes = {};
-    (clientes || []).forEach(c => { mapaClientes[c.codigo] = c.id; });
+    clientes.forEach(c => { mapaClientes[c.codigo] = c.id; });
 
-    const { data: vendasExist } = await sb.from('vendas').select('id, codigo');
+    const vendasExist = await _importSelecionarTudo('vendas', 'id, codigo');
     const mapaVendasExist = {};
-    (vendasExist || []).forEach(v => { mapaVendasExist[v.codigo] = v.id; });
+    vendasExist.forEach(v => { mapaVendasExist[v.codigo] = v.id; });
 
     progTexto.textContent = '⏳ Agrupando por venda...';
     const grupos = {};
@@ -7171,10 +7186,6 @@ async function importarParcelas() {
 
       const codPessoa = String(linhas[0]['Cód. Pessoa']).trim();
       const clienteId = mapaClientes[codPessoa];
-      if (codVenda === '117788') {
-        const chavesParecidas = Object.keys(mapaClientes).filter(k => k.replace(/^0+/, '') === codPessoa.replace(/^0+/, ''));
-        alert('DEBUG venda 117788\ncodPessoa: ' + JSON.stringify(codPessoa) + '\ntipo original: ' + typeof linhas[0]['Cód. Pessoa'] + '\nexiste no mapa? ' + (codPessoa in mapaClientes) + '\nchaves parecidas: ' + JSON.stringify(chavesParecidas));
-      }
       if (!clienteId) {
         avisos.push('🛒 Venda ' + codVenda + ': cliente cód. ' + codPessoa + ' não encontrado');
         vendasIgnoradas++;
