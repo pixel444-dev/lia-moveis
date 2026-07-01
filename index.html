@@ -392,6 +392,7 @@ tr:hover td{background:#fafafa;}
     <div class="nav-grupo">
       <div class="nav-sep">Impressões</div>
       <div class="nav-item" data-page="carnes" onclick="pg('carnes',this)"><span class="nav-ico">🖨️</span>Carnês</div>
+      <div class="nav-item" data-page="imprimir-ficha" onclick="pg('imprimir-ficha',this)"><span class="nav-ico">📄</span>Ficha do cliente</div>
       <div class="nav-item" data-page="config-impressao" onclick="pg('config-impressao',this)"><span class="nav-ico">⚙️</span>Configurar layout</div>
     </div>
     <div class="nav-grupo">
@@ -581,6 +582,31 @@ tr:hover td{background:#fafafa;}
   </div>
   <div id="resultado-carne"></div>
   <div id="preview-carne"></div>
+</div>
+<div class="page" id="page-imprimir-ficha">
+  <div class="topbar-pg">
+    <div class="page-title" style="margin:0">Ficha do cliente</div>
+  </div>
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
+    <div class="campo" style="max-width:280px;margin-bottom:.75rem;">
+      <label style="font-size:13px;">Buscar por</label>
+      <select id="ficha-metodo" onchange="trocarMetodoFicha()" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+        <option value="venda">Código da venda</option>
+        <option value="cliente">Cliente (nome, código ou CPF)</option>
+      </select>
+    </div>
+    <div id="ficha-busca-venda-wrap" style="display:flex;gap:8px;">
+      <input id="ficha-codigo-venda" type="text" class="busca" placeholder="Ex: 00001" style="max-width:200px;">
+      <button class="btn primario" onclick="buscarVendaFicha()">Buscar venda</button>
+    </div>
+    <div id="ficha-busca-cliente-wrap" style="display:none;gap:8px;">
+      <input id="ficha-busca-cliente" type="text" class="busca" placeholder="Nome, código ou CPF do cliente" style="max-width:300px;">
+      <button class="btn primario" onclick="buscarClienteFicha()">Buscar cliente</button>
+    </div>
+  </div>
+  <div id="ficha-resultado-clientes"></div>
+  <div id="resultado-ficha"></div>
+  <div id="preview-ficha"></div>
 </div>
     <div class="page" id="page-importacao">
   <div class="page-title">📥 Importar dados do sistema antigo</div>
@@ -1521,6 +1547,7 @@ function aplicarPermissoes(perfil) {
     prestacao:           gestor,
     'historico-caixas':  gestor,
     carnes:              gestor,
+    'imprimir-ficha':    gestor,
     'config-impressao':  gestor,
     cobrancas:           gestorOuCobrador,
     ciclos:              gestorOuCobrador,
@@ -6964,6 +6991,264 @@ async function imprimirCarne() {
 
   doc.save('carnes-lia-moveis.pdf');
 }
+
+// ===== FICHA DO CLIENTE (frente: dados da venda / verso: dados do cliente) =====
+let _fichaAtual = null;
+
+function trocarMetodoFicha() {
+  const metodo = document.getElementById('ficha-metodo').value;
+  document.getElementById('ficha-busca-venda-wrap').style.display = metodo === 'venda' ? 'flex' : 'none';
+  document.getElementById('ficha-busca-cliente-wrap').style.display = metodo === 'cliente' ? 'flex' : 'none';
+  document.getElementById('ficha-resultado-clientes').innerHTML = '';
+  document.getElementById('resultado-ficha').innerHTML = '';
+  document.getElementById('preview-ficha').innerHTML = '';
+  _fichaAtual = null;
+}
+
+async function buscarVendaFicha() {
+  const codigo = document.getElementById('ficha-codigo-venda').value.trim();
+  if (!codigo) { alert('Digite o código da venda!'); return; }
+  const { data, error } = await sb.from('vendas')
+    .select('*, clientes(*), funcionarios(nome)')
+    .eq('codigo', codigo)
+    .single();
+  if (error || !data) {
+    document.getElementById('resultado-ficha').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Venda não encontrada. Verifique o código.</p>';
+    document.getElementById('preview-ficha').innerHTML = '';
+    return;
+  }
+  await carregarFichaDaVenda(data);
+}
+
+async function buscarClienteFicha() {
+  const termo = document.getElementById('ficha-busca-cliente').value.trim();
+  if (!termo) { alert('Digite nome, código ou CPF do cliente!'); return; }
+  document.getElementById('resultado-ficha').innerHTML = '';
+  document.getElementById('preview-ficha').innerHTML = '';
+  const { data, error } = await sb.rpc('buscar_clientes', { p_termo: termo, p_filtro: 'tudo', p_limite: 20, p_offset: 0 });
+  if (error || !data || !data.length) {
+    document.getElementById('ficha-resultado-clientes').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Nenhum cliente encontrado.</p>';
+    return;
+  }
+  document.getElementById('ficha-resultado-clientes').innerHTML =
+    '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.5rem;margin-bottom:1rem;">' +
+    data.map(c => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="selecionarClienteFicha('${c.id}')">
+        <div><strong style="font-size:13px;">${c.nome}</strong><div style="font-size:11px;color:#888;">${c.codigo||'—'} · ${c.cpf||'—'} · ${c.cidade||'—'}</div></div>
+        <span style="font-size:12px;color:#185FA5;">Selecionar ›</span>
+      </div>`).join('') +
+    '</div>';
+}
+
+async function selecionarClienteFicha(clienteId) {
+  document.getElementById('preview-ficha').innerHTML = '';
+  const { data: vendas, error } = await sb.from('vendas')
+    .select('id, codigo, produto, valor, data_venda')
+    .eq('cliente_id', clienteId)
+    .order('data_venda', { ascending: false });
+  if (error || !vendas || !vendas.length) {
+    document.getElementById('resultado-ficha').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Este cliente não possui vendas cadastradas.</p>';
+    return;
+  }
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  document.getElementById('resultado-ficha').innerHTML =
+    '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.5rem;margin-bottom:1rem;">' +
+    '<div style="font-size:12px;color:#888;padding:.5rem .75rem;">Selecione a venda que aparecerá na frente da ficha:</div>' +
+    vendas.map(v => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="buscarVendaFichaPorId('${v.id}')">
+        <div><strong style="font-size:13px;">Venda #${v.codigo}</strong><div style="font-size:11px;color:#888;">${v.produto||'—'} · ${new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR')}</div></div>
+        <span style="font-size:13px;font-weight:600;">${fmtMoeda(v.valor)}</span>
+      </div>`).join('') +
+    '</div>';
+}
+
+async function buscarVendaFichaPorId(vendaId) {
+  const { data, error } = await sb.from('vendas')
+    .select('*, clientes(*), funcionarios(nome)')
+    .eq('id', vendaId)
+    .single();
+  if (error || !data) { alert('Erro ao carregar venda.'); return; }
+  await carregarFichaDaVenda(data);
+}
+
+async function carregarFichaDaVenda(venda) {
+  const { data: parcelas } = await sb.from('parcelas').select('*').eq('venda_id', venda.id).order('numero');
+  _fichaAtual = { venda, cliente: venda.clientes || {}, parcelas: parcelas || [] };
+  document.getElementById('resultado-ficha').innerHTML = `
+    <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;">
+      ✓ Venda encontrada — <strong>${_fichaAtual.cliente.nome || '—'}</strong> — ${venda.produto || '—'} — ${_fichaAtual.parcelas.length} parcela(s)
+      <button class="btn primario" style="margin-left:12px;font-size:12px;" onclick="imprimirFicha()">🖨️ Imprimir ficha</button>
+    </div>`;
+  await renderPreviewFicha();
+}
+
+async function renderPreviewFicha() {
+  if (!_fichaAtual) return;
+  const cfg = await getConfigImpressao();
+  const f = cfg.ficha || {};
+  const { venda, cliente, parcelas } = _fichaAtual;
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  const emAberto = parcelas.filter(p => !p.pago && p.status !== 'devolvida');
+  const totalAberto = emAberto.reduce((a, p) => a + Number(p.valor), 0);
+
+  const frenteHtml = `
+    <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;">
+      <div style="font-size:11px;color:#888;letter-spacing:.04em;margin-bottom:.5rem;">FRENTE — DADOS DA VENDA</div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:.5rem;">Venda #${venda.codigo}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Cliente: <strong>${cliente.nome || '—'}</strong></div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Produto: ${venda.produto || '—'}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Data da venda: ${venda.data_venda ? new Date(venda.data_venda + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Vendedor: ${venda.funcionarios?.nome || '—'}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Valor total: ${fmtMoeda(venda.valor)}</div>
+      ${venda.entrada > 0 ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">Entrada: ${fmtMoeda(venda.entrada)}</div>` : ''}
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Parcelas: ${parcelas.length} · Em aberto: ${emAberto.length} (${fmtMoeda(totalAberto)})</div>
+    </div>`;
+
+  const versoHtml = `
+    <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;">
+      <div style="font-size:11px;color:#888;letter-spacing:.04em;margin-bottom:.5rem;">VERSO — DADOS DO CLIENTE</div>
+      ${(f.mostrar_foto ?? true) && cliente.foto_casa ? '<div style="font-size:12px;color:#185FA5;margin-bottom:6px;">📷 Foto da casa incluída</div>' : ''}
+      <div style="font-size:15px;font-weight:700;margin-bottom:.5rem;">${cliente.nome || '—'}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Código: ${cliente.codigo || '—'}</div>
+      ${(f.mostrar_cpf ?? true) ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">CPF: ${cliente.cpf || '—'}</div>` : ''}
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Celular: ${cliente.telefone || '—'}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Endereço: ${[cliente.endereco, cliente.bairro, cliente.cidade].filter(Boolean).join(', ') || '—'}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Referência: ${cliente.referencia || '—'}</div>
+      ${(f.mostrar_localizacao ?? true) && cliente.latitude && cliente.longitude ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">Localização: ${Number(cliente.latitude).toFixed(4)}, ${Number(cliente.longitude).toFixed(4)}</div>` : ''}
+      ${(f.mostrar_parcelas ?? true) ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">Resumo de parcelas: ${emAberto.length} em aberto (${fmtMoeda(totalAberto)})</div>` : ''}
+      ${f.texto_rodape ? `<div style="font-size:11px;color:#888;margin-top:.75rem;border-top:1px solid #eee;padding-top:.5rem;">${f.texto_rodape}</div>` : ''}
+    </div>`;
+
+  document.getElementById('preview-ficha').innerHTML =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' + frenteHtml + versoHtml + '</div>';
+}
+
+async function imprimirFicha() {
+  if (!_fichaAtual) { alert('Nenhuma ficha carregada para imprimir.'); return; }
+  const { jsPDF } = window.jspdf;
+  const { venda, cliente, parcelas } = _fichaAtual;
+  const cfg = await getConfigImpressao();
+  const f = cfg.ficha || {};
+  const corRgb = hexToRgb(cfg.cor) || { r: 12, g: 68, b: 124 };
+  const nomeLoja = cfg.nome_loja || 'Lia Móveis';
+  const logoData = cfg.logo_url ? await carregarLogoDataUrl(await urlAssinada('comprovantes', cfg.logo_url)) : null;
+  const fotoData = (f.mostrar_foto ?? true) && cliente.foto_casa
+    ? await carregarLogoDataUrl(await urlAssinada('fotos-clientes', cliente.foto_casa))
+    : null;
+
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  const emAberto = (parcelas || []).filter(p => !p.pago && p.status !== 'devolvida');
+  const totalAberto = emAberto.reduce((a, p) => a + Number(p.valor), 0);
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const largura = 210, altura = 297, margem = 15;
+
+  function cabecalho(titulo) {
+    let y = margem;
+    if (logoData) {
+      const w = 20, h = logoData.h ? w * (logoData.h / logoData.w) : 20;
+      doc.addImage(logoData.dataUrl, 'PNG', margem, y, w, h);
+    }
+    doc.setTextColor(corRgb.r, corRgb.g, corRgb.b);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text(nomeLoja, largura / 2, y + 6, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.setFont('helvetica', 'normal');
+    if (cfg.endereco) doc.text(cfg.endereco, largura / 2, y + 12, { align: 'center' });
+    if (cfg.telefone) doc.text(cfg.telefone, largura / 2, y + 17, { align: 'center' });
+    doc.setDrawColor(corRgb.r, corRgb.g, corRgb.b);
+    doc.setLineWidth(0.6);
+    doc.line(margem, y + 22, largura - margem, y + 22);
+    doc.setTextColor(corRgb.r, corRgb.g, corRgb.b);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text(titulo, margem, y + 30);
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.2);
+    return y + 36;
+  }
+
+  function linhaCampo(y, label, valor) {
+    if (y > altura - 20) { doc.addPage(); y = margem; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(label.toUpperCase(), margem, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(30);
+    const linhasTexto = doc.splitTextToSize(String(valor || '—'), largura - margem * 2);
+    doc.text(linhasTexto, margem, y + 5);
+    return y + 5 + linhasTexto.length * 5 + 4;
+  }
+
+  // ===== PÁGINA 1 — FRENTE (dados da venda) =====
+  let y = cabecalho('Dados da venda');
+  y = linhaCampo(y, 'Código da venda', '#' + venda.codigo);
+  y = linhaCampo(y, 'Cliente', cliente.nome);
+  y = linhaCampo(y, 'Produto', venda.produto);
+  y = linhaCampo(y, 'Data da venda', venda.data_venda ? new Date(venda.data_venda + 'T12:00:00').toLocaleDateString('pt-BR') : '—');
+  y = linhaCampo(y, 'Vendedor', venda.funcionarios?.nome);
+  y = linhaCampo(y, 'Tipo', venda.tipo === 'avista' ? 'À vista' : 'Crediário');
+  y = linhaCampo(y, 'Valor total', fmtMoeda(venda.valor));
+  if (venda.entrada > 0) y = linhaCampo(y, 'Entrada (já paga)', fmtMoeda(venda.entrada));
+  y = linhaCampo(y, 'Parcelas', parcelas.length ? `${parcelas.length} parcela(s) — ${emAberto.length} em aberto (${fmtMoeda(totalAberto)})` : 'Sem parcelamento');
+
+  if (parcelas.length) {
+    if (y > altura - 30) { doc.addPage(); y = margem; }
+    y += 2;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(120);
+    doc.text('Nº', margem, y);
+    doc.text('Vencimento', margem + 20, y);
+    doc.text('Valor', margem + 55, y);
+    doc.text('Status', margem + 85, y);
+    y += 4;
+    doc.setDrawColor(220); doc.line(margem, y, largura - margem, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(40);
+    parcelas.forEach(p => {
+      if (y > altura - 20) { doc.addPage(); y = margem; }
+      doc.text(String(p.numero) + '/' + p.total_parcelas, margem, y);
+      doc.text(new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR'), margem + 20, y);
+      doc.text(fmtMoeda(p.valor), margem + 55, y);
+      doc.text(p.pago ? 'Pago' : (p.status === 'devolvida' ? 'Devolvida' : 'Em aberto'), margem + 85, y);
+      y += 5;
+    });
+  }
+
+  // ===== PÁGINA 2 — VERSO (dados do cliente) =====
+  doc.addPage();
+  y = cabecalho('Dados do cliente');
+  if (fotoData) {
+    const w = 60, h = fotoData.h ? w * (fotoData.h / fotoData.w) : 45;
+    doc.addImage(fotoData.dataUrl, 'PNG', margem, y, w, h);
+    y += h + 6;
+  }
+  y = linhaCampo(y, 'Nome', cliente.nome);
+  y = linhaCampo(y, 'Código', cliente.codigo);
+  if (f.mostrar_cpf ?? true) y = linhaCampo(y, 'CPF', cliente.cpf);
+  y = linhaCampo(y, 'Data de nascimento', cliente.data_nascimento ? new Date(cliente.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—');
+  y = linhaCampo(y, 'Celular', cliente.telefone);
+  y = linhaCampo(y, 'Endereço', [cliente.endereco, cliente.bairro, cliente.cidade].filter(Boolean).join(', '));
+  y = linhaCampo(y, 'Ponto de referência', cliente.referencia);
+  if ((f.mostrar_localizacao ?? true) && cliente.latitude && cliente.longitude) {
+    y = linhaCampo(y, 'Localização (GPS)', Number(cliente.latitude).toFixed(6) + ', ' + Number(cliente.longitude).toFixed(6));
+  }
+  if (f.mostrar_parcelas ?? true) {
+    y = linhaCampo(y, 'Resumo de parcelas', `${emAberto.length} em aberto — ${fmtMoeda(totalAberto)}`);
+  }
+  if (f.texto_rodape) {
+    if (y > altura - 25) { doc.addPage(); y = margem; }
+    doc.setDrawColor(220); doc.line(margem, altura - 25, largura - margem, altura - 25);
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(120);
+    doc.text(doc.splitTextToSize(f.texto_rodape, largura - margem * 2), margem, altura - 18);
+  }
+
+  doc.save(`ficha_${venda.codigo}.pdf`);
+}
+
 function _importNorm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
