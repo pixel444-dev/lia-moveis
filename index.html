@@ -7056,7 +7056,11 @@ async function importarClientes() {
       for (const row of lote) {
         const codigo = row['Código'] != null ? String(row['Código']).trim() : '';
         const nome = row['Cliente'] ? String(row['Cliente']).trim() : '';
-        if (!codigo || !nome) { pulados++; continue; }
+        if (!codigo || !nome) {
+          pulados++;
+          avisos.push('⚠️ Linha pulada — código: ' + (codigo || '(vazio)') + ', nome: ' + (nome || '(vazio)'));
+          continue;
+        }
         if (codigosExistentes.has(codigo)) { duplicados++; continue; }
 
         const cpfRaw = row['CPF'] ? String(row['CPF']).replace(/[^\d]/g, '') : null;
