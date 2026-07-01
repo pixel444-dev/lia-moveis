@@ -3396,12 +3396,6 @@ async function imprimirComprovanteVenda() {
   const info = window._ultimoResumoVenda;
   if (!info) { alert('Nenhuma venda para imprimir.'); return; }
 
-  // Abre a janela já de cara (gesto do clique), antes de qualquer await,
-  // para não ser bloqueada por bloqueador de pop-up.
-  const janela = window.open('', '_blank');
-  if (!janela) { alert('Não foi possível abrir a janela de impressão. Verifique se o navegador está bloqueando pop-ups.'); return; }
-  janela.document.write('<p style="font-family:sans-serif;color:#888;padding:20px;">Gerando comprovante...</p>');
-
   const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
   const tipoLabel = info.tipo === 'avista' ? 'À vista' : 'Crediário';
   const dataVendaFmt = info.dataVenda ? new Date(info.dataVenda).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
@@ -3452,8 +3446,7 @@ async function imprimirComprovanteVenda() {
     <div class="comp-centro" style="margin-top:6px;">Impresso em ${agora}</div>
   `;
 
-  janela.document.open();
-  janela.document.write(`<!DOCTYPE html>
+  const documentoHtml = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -3469,12 +3462,27 @@ async function imprimirComprovanteVenda() {
 </style>
 </head>
 <body>${conteudo}</body>
-</html>`);
-  janela.document.close();
+</html>`;
 
-  janela.onafterprint = () => janela.close();
-  janela.focus();
-  janela.print();
+  const antigo = document.getElementById('iframe-impressao-comprovante');
+  if (antigo) antigo.remove();
+
+  const iframe = document.createElement('iframe');
+  iframe.id = 'iframe-impressao-comprovante';
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(documentoHtml);
+  doc.close();
+
+  const limpar = () => { if (iframe.parentNode) iframe.remove(); };
+  iframe.contentWindow.onafterprint = limpar;
+  setTimeout(limpar, 60000);
+
+  iframe.contentWindow.focus();
+  iframe.contentWindow.print();
 }
 
 async function carregarVendas() {
