@@ -7182,6 +7182,9 @@ function abrirEditarParcela(id, numero, total, valor, dataVenc, produto, pago, c
   document.getElementById('edit-parcela-id').value = id;
   document.getElementById('edit-parcela-num').textContent = `Parcela ${numero}/${total}`;
   document.getElementById('edit-valor').value = valor;
+  document.getElementById('edit-parcela-pago').value = pago ? '1' : '';
+  document.getElementById('edit-valor').disabled = !!pago;
+  document.getElementById('msg-edit-parcela-pago').style.display = pago ? 'block' : 'none';
   document.getElementById('edit-data-venc').value = dataVenc;
   document.getElementById('edit-produto').value = produto;
   document.getElementById('edit-cliente-id').value = clienteId || '';
@@ -7193,12 +7196,17 @@ function abrirEditarParcela(id, numero, total, valor, dataVenc, produto, pago, c
 
 async function salvarEdicaoParcela() {
   const id = document.getElementById('edit-parcela-id').value;
-  const valor = parseFloat(document.getElementById('edit-valor').value);
+  const pago = document.getElementById('edit-parcela-pago').value === '1';
   const dataVenc = document.getElementById('edit-data-venc').value;
   const produto = document.getElementById('edit-produto').value.trim();
-  if (!valor || valor <= 0) { alert('Digite o valor!'); return; }
   if (!dataVenc) { alert('Digite a data de vencimento!'); return; }
-  await sb.from('parcelas').update({ valor, data_vencimento: dataVenc }).eq('id', id);
+  const atualizacao = { data_vencimento: dataVenc };
+  if (!pago) {
+    const valor = parseFloat(document.getElementById('edit-valor').value);
+    if (!valor || valor <= 0) { alert('Digite o valor!'); return; }
+    atualizacao.valor = valor;
+  }
+  await sb.from('parcelas').update(atualizacao).eq('id', id);
   if (produto) {
     const { data: parcela } = await sb.from('parcelas').select('venda_id').eq('id', id).single();
     if (parcela?.venda_id) {
@@ -8348,6 +8356,10 @@ async function gerarProximoMes() {
     <input type="hidden" id="edit-parcela-id">
     <input type="hidden" id="edit-cliente-id">
     <input type="hidden" id="edit-codigo-venda">
+    <input type="hidden" id="edit-parcela-pago">
+    <div id="msg-edit-parcela-pago" style="display:none;background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:12px;color:#854F0B;">
+      ⚠️ Esta parcela já foi paga. O valor não pode ser alterado aqui — clique em "Cancelar baixa" primeiro se precisar corrigi-lo.
+    </div>
     <div class="campo">
       <label>Produto / descrição</label>
       <input id="edit-produto" type="text" placeholder="Ex: Sofá 3 lugares...">
