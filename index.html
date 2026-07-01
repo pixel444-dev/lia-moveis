@@ -107,10 +107,6 @@ tr:hover td{background:#fafafa;}
 .carne-valor-destaque{font-size:13px;font-weight:700;color:#1a1a1a;}
 .carne-assinatura{font-size:10px;color:#888;margin-top:4px;border-top:1px solid #ddd;padding-top:4px;}
 .carne-status-label{font-size:11px;font-weight:700;color:#A32D2D;text-align:center;margin-top:4px;}
-#comprovante-impressao{display:none;}
-.comp-linha{display:flex;justify-content:space-between;gap:8px;}
-.comp-sep{margin:5px 0;white-space:nowrap;overflow:hidden;letter-spacing:1px;}
-.comp-centro{text-align:center;}
 
 @media print {
   @page { size: A4 portrait; margin: 0; }
@@ -928,9 +924,6 @@ tr:hover td{background:#fafafa;}
     </div>
   </div>
 </div>
-
-<!-- COMPROVANTE TÉRMICO (impressão) -->
-<div id="comprovante-impressao"></div>
 
 <!-- MODAL CLIENTE -->
 <div class="modal-bg" id="modal-cliente">
@@ -3402,6 +3395,13 @@ async function abrirResumoVendaPorId(vendaId) {
 async function imprimirComprovanteVenda() {
   const info = window._ultimoResumoVenda;
   if (!info) { alert('Nenhuma venda para imprimir.'); return; }
+
+  // Abre a janela já de cara (gesto do clique), antes de qualquer await,
+  // para não ser bloqueada por bloqueador de pop-up.
+  const janela = window.open('', '_blank');
+  if (!janela) { alert('Não foi possível abrir a janela de impressão. Verifique se o navegador está bloqueando pop-ups.'); return; }
+  janela.document.write('<p style="font-family:sans-serif;color:#888;padding:20px;">Gerando comprovante...</p>');
+
   const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
   const tipoLabel = info.tipo === 'avista' ? 'À vista' : 'Crediário';
   const dataVendaFmt = info.dataVenda ? new Date(info.dataVenda).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
@@ -3412,7 +3412,7 @@ async function imprimirComprovanteVenda() {
   const nomeLoja = (cfg.nome_loja || 'Lia Móveis').toUpperCase();
   const logoUrl = comp.mostrar_logo && cfg.logo_url ? await urlAssinada('comprovantes', cfg.logo_url) : null;
   const mensagem = comp.texto_agradecimento || 'Obrigado pela preferência!';
-  const sep = '<div class="comp-sep">--------------------------------</div>';
+  const sep = '--------------------------------';
 
   const linhasParcelas = (info.tipo === 'entrada' ? (info.parcelas || []) : []).map(p => `
     <div class="comp-linha">
@@ -3420,64 +3420,62 @@ async function imprimirComprovanteVenda() {
       <span>${fmtMoeda(p.valor)}</span>
     </div>`).join('');
 
-  document.getElementById('comprovante-impressao').innerHTML = `
+  const conteudo = `
     <div class="comp-centro">
       ${logoUrl ? `<img src="${logoUrl}" style="max-width:30mm;max-height:16mm;margin-bottom:4px;">` : ''}
       <div style="font-size:15px;">${nomeLoja}</div>
       ${cfg.endereco ? `<div>${cfg.endereco}</div>` : ''}
       ${cfg.telefone ? `<div>${cfg.telefone}</div>` : ''}
     </div>
-    ${sep}
+    <div class="comp-sep">${sep}</div>
     <div class="comp-centro">COMPROVANTE DE COMPRA</div>
     <div class="comp-linha"><span>Venda</span><span>#${info.vendaCodigo}</span></div>
     <div class="comp-linha"><span>Data</span><span>${dataVendaFmt}</span></div>
     <div class="comp-linha"><span>Vendedor</span><span>${info.vendedorNome || '—'}</span></div>
-    ${sep}
+    <div class="comp-sep">${sep}</div>
     <div>CLIENTE</div>
     <div>${info.cliente?.nome || '—'}</div>
     ${info.cliente?.codigo ? `<div>Codigo: ${info.cliente.codigo}</div>` : ''}
     ${info.cliente?.cpf ? `<div>CPF: ${info.cliente.cpf}</div>` : ''}
     ${info.cliente?.telefone ? `<div>Tel: ${info.cliente.telefone}</div>` : ''}
-    ${sep}
+    <div class="comp-sep">${sep}</div>
     <div>PRODUTO(S)</div>
     <div>${info.produto || '—'}</div>
-    ${sep}
+    <div class="comp-sep">${sep}</div>
     <div class="comp-linha"><span>Tipo</span><span>${tipoLabel}</span></div>
     ${info.tipo === 'entrada' && info.entrada > 0 ? `<div class="comp-linha"><span>Entrada (ja paga)</span><span>${fmtMoeda(info.entrada)}</span></div>` : ''}
     ${linhasParcelas}
-    ${sep}
+    <div class="comp-sep">${sep}</div>
     <div class="comp-linha" style="font-size:15px;"><span>TOTAL</span><span>${fmtMoeda(info.valor)}</span></div>
-    ${sep}
+    <div class="comp-sep">${sep}</div>
     <div class="comp-centro" style="margin-top:6px;">${mensagem}</div>
     <div class="comp-centro" style="margin-top:6px;">Impresso em ${agora}</div>
   `;
 
-  const estilo = document.createElement('style');
-  estilo.id = 'estilo-impressao-comprovante';
-  estilo.textContent = `
-    @media print {
-      @page { size: 58mm auto; margin: 2mm; }
-      body.imprimir-comprovante > *:not(#comprovante-impressao) { display: none !important; }
-      body.imprimir-comprovante #comprovante-impressao {
-        display: block !important;
-        width: 54mm;
-        font-family: 'Courier New', monospace;
-        font-weight: 700;
-        font-size: 13px;
-        line-height: 1.5;
-        color: #000;
-      }
-    }`;
-  document.head.appendChild(estilo);
-  document.body.classList.add('imprimir-comprovante');
-  window.print();
-}
+  janela.document.open();
+  janela.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Comprovante</title>
+<style>
+  @page { margin: 2mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2mm; width: 54mm; font-family: 'Courier New', monospace; font-weight: 700; font-size: 13px; line-height: 1.5; color: #000; }
+  img { display: block; margin-left: auto; margin-right: auto; }
+  .comp-linha { display: flex; justify-content: space-between; gap: 8px; }
+  .comp-sep { margin: 5px 0; white-space: nowrap; overflow: hidden; letter-spacing: 1px; }
+  .comp-centro { text-align: center; }
+</style>
+</head>
+<body>${conteudo}</body>
+</html>`);
+  janela.document.close();
 
-window.addEventListener('afterprint', () => {
-  document.body.classList.remove('imprimir-comprovante');
-  const estilo = document.getElementById('estilo-impressao-comprovante');
-  if (estilo) estilo.remove();
-});
+  janela.onafterprint = () => janela.close();
+  janela.focus();
+  janela.print();
+}
 
 async function carregarVendas() {
   if (perfilAtivo.perfil === 'vendedor') { await carregarVendasVendedor(); return; }
