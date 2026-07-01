@@ -743,6 +743,7 @@ tr:hover td{background:#fafafa;}
         </div>
         <div id="btn-sem-cpf-wrap" style="display:none;margin-top:10px;">
           <button class="btn" style="width:100%;border-color:#FAC775;color:#854F0B;padding:14px;font-size:14px;border-radius:10px;" onclick="solicitarAutorizacaoSemCPF()">🔓 Solicitar autorização sem CPF</button>
+          <button class="btn" style="width:100%;border-color:#8fc98f;color:#2E7D32;padding:14px;font-size:14px;border-radius:10px;margin-top:8px;" onclick="iniciarVendaAvista()">💵 Venda à vista (sem CPF)</button>
         </div>
       </div>
     </div>
@@ -764,7 +765,7 @@ tr:hover td{background:#fafafa;}
             <input id="vnc-telefone" type="text" placeholder="(88) 99999-9999" style="padding:14px;font-size:16px;border-radius:10px;">
           </div>
           <div class="campo">
-            <label style="font-size:13px;">📅 Nascimento *</label>
+            <label id="lbl-vnc-nascimento" style="font-size:13px;">📅 Nascimento *</label>
             <input id="vnc-nascimento" type="date" style="padding:14px;font-size:16px;border-radius:10px;">
           </div>
         </div>
@@ -792,7 +793,7 @@ tr:hover td{background:#fafafa;}
           </div>
         </div>
         <div class="campo">
-          <label style="font-size:13px;">📷 Foto da casa *</label>
+          <label id="lbl-vnc-foto" style="font-size:13px;">📷 Foto da casa *</label>
           <div id="vnc-foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
             <img id="vnc-foto-preview" style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid #ddd;display:block;">
             <button type="button" onclick="removerFotoVnc()" style="margin-top:.4rem;font-size:.85rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
@@ -819,10 +820,13 @@ tr:hover td{background:#fafafa;}
           <div style="font-size:12px;color:#888;margin-top:6px;">O vendedor deve estar na frente da casa do cliente ao capturar.</div>
         </div>
         <div class="campo" style="margin-bottom:12px;">
-          <label style="font-size:13px;">👷 Cobrador responsável *</label>
+          <label id="lbl-vnc-cobrador" style="font-size:13px;">👷 Cobrador responsável *</label>
           <select id="vnc-cobrador" style="padding:14px;font-size:16px;border-radius:10px;">
             <option value="">Selecione...</option>
           </select>
+        </div>
+        <div id="aviso-venda-avista" style="display:none;background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#3B6D11;">
+          💵 Venda à vista sem CPF: apenas nome, endereço, cidade e localização são obrigatórios. Esta venda só poderá ser registrada como à vista.
         </div>
         <button class="btn verde" onclick="salvarNovoClienteVenda()" style="width:100%;padding:16px;font-size:16px;font-weight:700;border-radius:12px;">✅ Salvar cliente e continuar</button>
       </div>
@@ -2661,6 +2665,17 @@ function precoSugeridoProduto(nome) {
   return item && item.preco != null ? item.preco : null;
 }
 
+function _sairModoVendaAvista() {
+  window._modoVendaAvista = false;
+  document.getElementById('lbl-vnc-nascimento').textContent = '📅 Nascimento *';
+  document.getElementById('lbl-vnc-foto').textContent = '📷 Foto da casa *';
+  document.getElementById('lbl-vnc-cobrador').textContent = '👷 Cobrador responsável *';
+  document.getElementById('aviso-venda-avista').style.display = 'none';
+  const tipoEl = document.getElementById('venda-tipo');
+  tipoEl.disabled = false;
+  Array.from(tipoEl.options).forEach(o => { o.disabled = false; });
+}
+
 async function abrirNovaVenda() {
   if (perfilAtivo.perfil === 'vendedor' && !equipeAtiva) {
     alert('Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor.');
@@ -2678,10 +2693,31 @@ async function abrirNovaVenda() {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   window._clienteInadimplente = false;
   window._autorizacaoInadimplenteId = null;
+  _sairModoVendaAvista();
   document.getElementById('modal-venda').style.display = 'flex';
 }
 
+async function iniciarVendaAvista() {
+  window._modoVendaAvista = true;
+  document.getElementById('lbl-vnc-nascimento').textContent = '📅 Nascimento (opcional)';
+  document.getElementById('lbl-vnc-foto').textContent = '📷 Foto da casa (opcional)';
+  document.getElementById('lbl-vnc-cobrador').textContent = '👷 Cobrador responsável (opcional)';
+  document.getElementById('aviso-venda-avista').style.display = 'block';
+  document.getElementById('resultado-busca-cliente').innerHTML = '<div class="cliente-nao-encontrado">Venda à vista sem CPF. Preencha os dados abaixo.</div>';
+  await carregarCobradoresSelect('vnc-cobrador');
+  document.getElementById('form-novo-cliente-venda').style.display = 'block';
+  document.getElementById('form-dados-venda').style.display = 'none';
+  document.getElementById('btn-salvar-venda').style.display = 'none';
+  ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+  _resetVncCidade();
+  document.getElementById('vnc-edit-id').value = '';
+  window._vncFotoUrl = null;
+  removerFotoVnc();
+  _resetLocStatus();
+}
+
 async function buscarClientePorCPF() {
+  _sairModoVendaAvista();
   const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
   const div = document.getElementById('resultado-busca-cliente');
 
@@ -2770,9 +2806,20 @@ async function salvarNovoClienteVenda() {
   const cobradorId = document.getElementById('vnc-cobrador').value || null;
 
   const editId = document.getElementById('vnc-edit-id').value;
+  const modoAvista = !!window._modoVendaAvista;
   if (!nome) { alert('Preencha o nome completo!'); return; }
   if (cidade && !municipioIdVnc) { alert('Selecione uma cidade válida da lista.'); return; }
-  if (perfilAtivo.perfil === 'vendedor') {
+  if (perfilAtivo.perfil === 'vendedor' && modoAvista) {
+    if (nascimento && !validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
+    if (!endereco) { alert('Preencha o endereço!'); return; }
+    if (!cidade) { alert('Preencha a cidade!'); return; }
+    const lat = document.getElementById('vnc-latitude').value;
+    const lng = document.getElementById('vnc-longitude').value;
+    if (!editId && (!lat || !lng)) {
+      alert('Localização obrigatória! Clique em "Salvar localização atual" antes de continuar.');
+      return;
+    }
+  } else if (perfilAtivo.perfil === 'vendedor') {
     if (!nascimento) { alert('Preencha a data de nascimento!'); return; }
     if (!validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
     if (!endereco) { alert('Preencha o endereço!'); return; }
@@ -2880,6 +2927,14 @@ async function mostrarFormVenda() {
     document.getElementById('campo-equipe-wrap').style.display = '';
     await carregarFonteItensVenda();
     novaLinhaItemVenda();
+  }
+
+  if (window._modoVendaAvista) {
+    const tipoEl = document.getElementById('venda-tipo');
+    tipoEl.value = 'avista';
+    Array.from(tipoEl.options).forEach(o => { if (o.value !== 'avista') o.disabled = true; });
+    tipoEl.disabled = true;
+    atualizarFormVenda();
   }
 
   document.getElementById('form-dados-venda').style.display = 'block';
@@ -3376,6 +3431,7 @@ function fecharModalVenda() {
 }
 
 async function solicitarAutorizacaoSemCPF() {
+  _sairModoVendaAvista();
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   const codigo = Math.floor(100000 + Math.random() * 900000).toString();
   const painel = document.getElementById('painel-autorizacao');
