@@ -7072,12 +7072,20 @@ async function buscarVendaFichaPorId(vendaId) {
 }
 
 async function carregarFichaDaVenda(venda) {
-  const { data: parcelas } = await sb.from('parcelas').select('*').eq('venda_id', venda.id).order('numero');
-  _fichaAtual = { venda, cliente: venda.clientes || {}, parcelas: parcelas || [] };
+  const cliente = venda.clientes || {};
+  const [{ data: parcelas }, { data: itens }, locRes] = await Promise.all([
+    sb.from('parcelas').select('*').eq('venda_id', venda.id).order('numero'),
+    sb.from('venda_itens').select('produto, quantidade').eq('venda_id', venda.id),
+    cliente.localidade_id
+      ? sb.from('localidades').select('nome').eq('id', cliente.localidade_id).single()
+      : Promise.resolve({ data: null }),
+  ]);
+  _fichaAtual = { venda, cliente, parcelas: parcelas || [], itens: itens || [], localidadeNome: locRes?.data?.nome || '' };
   document.getElementById('resultado-ficha').innerHTML = `
     <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;">
       ✓ Venda encontrada — <strong>${_fichaAtual.cliente.nome || '—'}</strong> — ${venda.produto || '—'} — ${_fichaAtual.parcelas.length} parcela(s)
       <button class="btn primario" style="margin-left:12px;font-size:12px;" onclick="imprimirFicha()">🖨️ Imprimir ficha</button>
+      <div style="font-size:11px;color:#666;margin-top:6px;">💡 Cada ficha ocupa meia folha A4 (duas fichas por folha). Imprima em <strong>frente e verso, virando na borda longa</strong>, e corte a folha ao meio na linha tracejada.</div>
     </div>`;
   await renderPreviewFicha();
 }
@@ -7123,130 +7131,286 @@ async function renderPreviewFicha() {
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' + frenteHtml + versoHtml + '</div>';
 }
 
+function _fichaFmtData(d) {
+  if (!d) return '';
+  return new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR');
+}
+
 async function imprimirFicha() {
   if (!_fichaAtual) { alert('Nenhuma ficha carregada para imprimir.'); return; }
+  await gerarPdfFichas([_fichaAtual], `ficha_${_fichaAtual.venda.codigo}.pdf`);
+}
+
+// Gera o PDF de fichas em meia folha A4 (2 fichas por folha), com páginas
+// intercaladas frente/verso: ao imprimir em duplex virando na borda longa,
+// o verso de cada ficha cai atrás da sua frente. Preparada para lote.
+async function gerarPdfFichas(fichas, nomeArquivo) {
   const { jsPDF } = window.jspdf;
-  const { venda, cliente, parcelas } = _fichaAtual;
   const cfg = await getConfigImpressao();
-  const f = cfg.ficha || {};
+  const fCfg = cfg.ficha || {};
   const corRgb = hexToRgb(cfg.cor) || { r: 12, g: 68, b: 124 };
   const nomeLoja = cfg.nome_loja || 'Lia Móveis';
   const logoData = cfg.logo_url ? await carregarLogoDataUrl(await urlAssinada('comprovantes', cfg.logo_url)) : null;
-  const fotoData = (f.mostrar_foto ?? true) && cliente.foto_casa
-    ? await carregarLogoDataUrl(await urlAssinada('fotos-clientes', cliente.foto_casa))
-    : null;
-
-  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-  const emAberto = (parcelas || []).filter(p => !p.pago && p.status !== 'devolvida');
-  const totalAberto = emAberto.reduce((a, p) => a + Number(p.valor), 0);
+  const fotos = await Promise.all(fichas.map(fi =>
+    (fCfg.mostrar_foto ?? true) && fi.cliente.foto_casa
+      ? urlAssinada('fotos-clientes', fi.cliente.foto_casa).then(u => carregarLogoDataUrl(u))
+      : Promise.resolve(null)
+  ));
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const largura = 210, altura = 297, margem = 15;
+  const W = 210, MEIA = 148.5;
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
 
-  function cabecalho(titulo) {
-    let y = margem;
-    if (logoData) {
-      const w = 20, h = logoData.h ? w * (logoData.h / logoData.w) : 20;
-      doc.addImage(logoData.dataUrl, 'PNG', margem, y, w, h);
-    }
-    doc.setTextColor(corRgb.r, corRgb.g, corRgb.b);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.text(nomeLoja, largura / 2, y + 6, { align: 'center' });
-    doc.setFontSize(10);
-    doc.setTextColor(120);
-    doc.setFont('helvetica', 'normal');
-    if (cfg.endereco) doc.text(cfg.endereco, largura / 2, y + 12, { align: 'center' });
-    if (cfg.telefone) doc.text(cfg.telefone, largura / 2, y + 17, { align: 'center' });
-    doc.setDrawColor(corRgb.r, corRgb.g, corRgb.b);
-    doc.setLineWidth(0.6);
-    doc.line(margem, y + 22, largura - margem, y + 22);
-    doc.setTextColor(corRgb.r, corRgb.g, corRgb.b);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(titulo, margem, y + 30);
-    doc.setDrawColor(200);
+  const linhaCorte = () => {
+    doc.setDrawColor(180);
     doc.setLineWidth(0.2);
-    return y + 36;
-  }
+    doc.setLineDashPattern([2, 2], 0);
+    doc.line(0, MEIA, W, MEIA);
+    doc.setLineDashPattern([], 0);
+  };
 
-  function linhaCampo(y, label, valor) {
-    if (y > altura - 20) { doc.addPage(); y = margem; }
+  // Campo com rótulo em negrito + valor sobre linha (padrão da ficha antiga)
+  const campo = (label, valor, x, xFim, y) => {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    doc.text(label.toUpperCase(), margem, y);
+    doc.setFontSize(7);
+    doc.setTextColor(60);
+    doc.text(label, x, y);
+    const lw = doc.getTextWidth(label);
+    doc.setDrawColor(120);
+    doc.setLineWidth(0.2);
+    doc.line(x + lw + 1.5, y + 0.8, xFim, y + 0.8);
+    if (valor) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(20);
+      doc.text(String(valor), x + lw + 3, y, { maxWidth: xFim - (x + lw + 3) });
+    }
+  };
+
+  // ===== FRENTE — mercadorias, plano e grade de pagamentos =====
+  function desenharFrente(fi, oy) {
+    const { venda, cliente, parcelas, itens } = fi;
+
+    // Linha do topo: Nome / Código / Nº
+    campo('Nome', cliente.nome, 8, 118, oy + 10);
+    campo('Código', cliente.codigo, 122, 156, oy + 10);
+    campo('Nº', venda.codigo, 160, 202, oy + 10);
+
+    // Tabela de mercadorias: Quant. | Mercadorias | Valor (3 linhas)
+    const yT = oy + 15, hCab = 6, hLin = 6;
+    doc.setDrawColor(30);
+    doc.setLineWidth(0.5);
+    doc.rect(8, yT, 194, hCab + hLin * 3);
+    doc.setLineWidth(0.4);
+    doc.line(8, yT + hCab, 202, yT + hCab);
+    doc.line(38, yT, 38, yT + hCab + hLin * 3);
+    doc.line(172, yT, 172, yT + hCab + hLin * 3);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(20);
+    doc.text('Quant.', 23, yT + 4.2, { align: 'center' });
+    doc.text('Mercadorias', 105, yT + 4.2, { align: 'center' });
+    doc.text('Valor', 187, yT + 4.2, { align: 'center' });
+    doc.setLineWidth(0.2);
+    doc.setDrawColor(120);
+    doc.line(8, yT + hCab + hLin, 172, yT + hCab + hLin);
+    doc.line(8, yT + hCab + hLin * 2, 172, yT + hCab + hLin * 2);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-    doc.setTextColor(30);
-    const linhasTexto = doc.splitTextToSize(String(valor || '—'), largura - margem * 2);
-    doc.text(linhasTexto, margem, y + 5);
-    return y + 5 + linhasTexto.length * 5 + 4;
-  }
-
-  // ===== PÁGINA 1 — FRENTE (dados da venda) =====
-  let y = cabecalho('Dados da venda');
-  y = linhaCampo(y, 'Código da venda', '#' + venda.codigo);
-  y = linhaCampo(y, 'Cliente', cliente.nome);
-  y = linhaCampo(y, 'Produto', venda.produto);
-  y = linhaCampo(y, 'Data da venda', venda.data_venda ? new Date(venda.data_venda + 'T12:00:00').toLocaleDateString('pt-BR') : '—');
-  y = linhaCampo(y, 'Vendedor', venda.funcionarios?.nome);
-  y = linhaCampo(y, 'Tipo', venda.tipo === 'avista' ? 'À vista' : 'Crediário');
-  y = linhaCampo(y, 'Valor total', fmtMoeda(venda.valor));
-  if (venda.entrada > 0) y = linhaCampo(y, 'Entrada (já paga)', fmtMoeda(venda.entrada));
-  y = linhaCampo(y, 'Parcelas', parcelas.length ? `${parcelas.length} parcela(s) — ${emAberto.length} em aberto (${fmtMoeda(totalAberto)})` : 'Sem parcelamento');
-
-  if (parcelas.length) {
-    if (y > altura - 30) { doc.addPage(); y = margem; }
-    y += 2;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(120);
-    doc.text('Nº', margem, y);
-    doc.text('Vencimento', margem + 20, y);
-    doc.text('Valor', margem + 55, y);
-    doc.text('Status', margem + 85, y);
-    y += 4;
-    doc.setDrawColor(220); doc.line(margem, y, largura - margem, y);
-    y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(40);
-    parcelas.forEach(p => {
-      if (y > altura - 20) { doc.addPage(); y = margem; }
-      doc.text(String(p.numero) + '/' + p.total_parcelas, margem, y);
-      doc.text(new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR'), margem + 20, y);
-      doc.text(fmtMoeda(p.valor), margem + 55, y);
-      doc.text(p.pago ? 'Pago' : (p.status === 'devolvida' ? 'Devolvida' : 'Em aberto'), margem + 85, y);
-      y += 5;
+    doc.setFontSize(8);
+    const linhasItens = (itens && itens.length)
+      ? (itens.length <= 3 ? itens : itens.slice(0, 2).concat([{ quantidade: '', produto: `+ ${itens.length - 2} outros itens (ver sistema)` }]))
+      : [{ quantidade: '', produto: venda.produto || '' }];
+    linhasItens.forEach((it, i) => {
+      const yl = yT + hCab + hLin * i + 4.2;
+      if (it.quantidade) doc.text(String(it.quantidade), 23, yl, { align: 'center' });
+      doc.text(String(it.produto || ''), 40, yl, { maxWidth: 130 });
     });
+    doc.text(fmtMoeda(venda.valor), 187, yT + hCab + 4.2, { align: 'center' });
+
+    // Linha do plano: Plano N x R$ | Valor Total
+    const yP = yT + hCab + hLin * 3;
+    doc.setDrawColor(30);
+    doc.setLineWidth(0.5);
+    doc.rect(8, yP, 194, 7);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    const ehAvista = venda.tipo === 'avista' || !(parcelas || []).length;
+    doc.text('Plano', 11, yP + 4.7);
+    doc.setFont('helvetica', 'normal');
+    doc.text(ehAvista ? 'À vista' : `${parcelas.length}  x  ${fmtMoeda(parcelas[0]?.valor)}`, 22, yP + 4.7);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Valor Total R$', 130, yP + 4.7);
+    doc.setFont('helvetica', 'normal');
+    doc.text(fmtMoeda(venda.valor).replace('R$ ', ''), 155, yP + 4.7);
+    doc.setDrawColor(120);
+    doc.setLineWidth(0.2);
+    doc.line(153, yP + 5.5, 200, yP + 5.5);
+
+    // Grade de pagamentos com faixa lateral "Ponto de Referências"
+    const yPay = oy + 50, hCabP = 6, hRow = 7.5, nRows = 9;
+    const hTab = hCabP + hRow * nRows;
+    const xStrip = 8, xCols = 16;
+    const colValor = [xCols, 70], colData = [70, 120], colAv = [120, 140], colAss = [140, 202];
+    doc.setDrawColor(30);
+    doc.setLineWidth(0.5);
+    doc.rect(xStrip, yPay, 202 - xStrip, hTab);
+    doc.setLineWidth(0.4);
+    doc.line(xCols, yPay, xCols, yPay + hTab);
+    doc.line(xCols, yPay + hCabP, 202, yPay + hCabP);
+    doc.line(colData[0], yPay, colData[0], yPay + hTab);
+    doc.line(colAv[0], yPay, colAv[0], yPay + hTab);
+    doc.line(colAss[0], yPay, colAss[0], yPay + hTab);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text('Valor Pago', (colValor[0] + colValor[1]) / 2, yPay + 4.2, { align: 'center' });
+    doc.text('Data Pg.', (colData[0] + colData[1]) / 2, yPay + 4.2, { align: 'center' });
+    doc.text('Av', (colAv[0] + colAv[1]) / 2, yPay + 4.2, { align: 'center' });
+    doc.text('Ass. Cobr.', (colAss[0] + colAss[1]) / 2, yPay + 4.2, { align: 'center' });
+    doc.setDrawColor(120);
+    doc.setLineWidth(0.2);
+    for (let i = 1; i < nRows; i++) doc.line(xCols, yPay + hCabP + hRow * i, 202, yPay + hCabP + hRow * i);
+    // Rótulo vertical + ponto de referência do cliente
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(20);
+    doc.text('Ponto de Referências', 12, yPay + hTab - 4, { angle: 90 });
+    if (cliente.referencia) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(80);
+      doc.text(String(cliente.referencia).slice(0, 55), 15.2, yPay + hTab - 4, { angle: 90 });
+      doc.setTextColor(20);
+    }
+    // Lembrete discreto do vencimento/valor de cada parcela dentro das linhas
+    if ((fCfg.mostrar_parcelas ?? true) && (parcelas || []).length) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.5);
+      doc.setTextColor(150);
+      parcelas.slice(0, nRows).forEach((p, i) => {
+        doc.text(`${p.numero}/${p.total_parcelas} · venc. ${_fichaFmtData(p.data_vencimento)} · ${fmtMoeda(p.valor)}`,
+          colData[0] + 1.5, yPay + hCabP + hRow * i + 2.6);
+      });
+      doc.setTextColor(20);
+    }
+
+    // Observações (texto configurável ou padrão da loja)
+    const yObs = oy + 126, hObs = 17.5;
+    doc.setDrawColor(30);
+    doc.setLineWidth(0.5);
+    doc.rect(8, yObs, 194, hObs);
+    doc.setFont('helvetica', 'bolditalic');
+    doc.setFontSize(8);
+    doc.text('OBSERVAÇÕES', 10.5, yObs + 4.2);
+    const obsPadrao =
+      '1º Sempre que o comprador deixar de efetuar o pagamento de qualquer parcela de seu débito, incidirão juros de mora de 0,17% ao dia mais 2% de multa sobre o total;  ' +
+      '2º As parcelas em atraso de 45 dias serão incluídas na lista do SPC e o cliente pagará as despesas para tirá-las do SPC;  ' +
+      '3º Se o comprador desistir terá que pagar o frete mais despesas (carnê, comissão do vendedor e etc.)';
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(40);
+    doc.text(doc.splitTextToSize(fCfg.texto_rodape || obsPadrao, 188), 10.5, yObs + 7.8);
+    doc.setTextColor(20);
   }
 
-  // ===== PÁGINA 2 — VERSO (dados do cliente) =====
-  doc.addPage();
-  y = cabecalho('Dados do cliente');
-  if (fotoData) {
-    const w = 60, h = fotoData.h ? w * (fotoData.h / fotoData.w) : 45;
-    doc.addImage(fotoData.dataUrl, 'PNG', margem, y, w, h);
-    y += h + 6;
-  }
-  y = linhaCampo(y, 'Nome', cliente.nome);
-  y = linhaCampo(y, 'Código', cliente.codigo);
-  if (f.mostrar_cpf ?? true) y = linhaCampo(y, 'CPF', cliente.cpf);
-  y = linhaCampo(y, 'Data de nascimento', cliente.data_nascimento ? new Date(cliente.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—');
-  y = linhaCampo(y, 'Celular', cliente.telefone);
-  y = linhaCampo(y, 'Endereço', [cliente.endereco, cliente.bairro, cliente.cidade].filter(Boolean).join(', '));
-  y = linhaCampo(y, 'Ponto de referência', cliente.referencia);
-  if ((f.mostrar_localizacao ?? true) && cliente.latitude && cliente.longitude) {
-    y = linhaCampo(y, 'Localização (GPS)', Number(cliente.latitude).toFixed(6) + ', ' + Number(cliente.longitude).toFixed(6));
-  }
-  if (f.mostrar_parcelas ?? true) {
-    y = linhaCampo(y, 'Resumo de parcelas', `${emAberto.length} em aberto — ${fmtMoeda(totalAberto)}`);
-  }
-  if (f.texto_rodape) {
-    if (y > altura - 25) { doc.addPage(); y = margem; }
-    doc.setDrawColor(220); doc.line(margem, altura - 25, largura - margem, altura - 25);
-    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); doc.setTextColor(120);
-    doc.text(doc.splitTextToSize(f.texto_rodape, largura - margem * 2), margem, altura - 18);
+  // ===== VERSO — cadastro completo do cliente =====
+  function desenharVerso(fi, oy, fotoData) {
+    const { venda, cliente, localidadeNome } = fi;
+    doc.setDrawColor(30);
+    doc.setLineWidth(0.4);
+    doc.rect(8, oy + 5, 194, 138);
+
+    // Cabeçalho: logo + loja à esquerda, contato ao centro, caixas à direita
+    if (logoData) {
+      const wl = 14, hl = logoData.h ? wl * (logoData.h / logoData.w) : 12;
+      doc.addImage(logoData.dataUrl, 'PNG', 11, oy + 8, wl, Math.min(hl, 13));
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(corRgb.r, corRgb.g, corRgb.b);
+    doc.text(nomeLoja.toUpperCase(), 11, oy + 25);
+    doc.setTextColor(20);
+    if (cfg.telefone) {
+      doc.setFontSize(9);
+      doc.text(cfg.telefone, 105, oy + 11, { align: 'center' });
+    }
+    if (cfg.endereco) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.text(cfg.endereco, 105, oy + 15.5, { align: 'center', maxWidth: 80 });
+    }
+    doc.setDrawColor(30);
+    doc.setLineWidth(0.3);
+    doc.rect(160, oy + 8, 40, 8);
+    doc.rect(160, oy + 18, 40, 8);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5);
+    doc.text('CÓDIGO', 161.5, oy + 11);
+    doc.text('Nº', 161.5, oy + 21);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(String(cliente.codigo || ''), 172, oy + 13.5);
+    doc.text(String(venda.codigo || ''), 172, oy + 23.5);
+
+    // Campos (linhas a cada 7,5mm; em branco = preencher à mão)
+    const gps = (fCfg.mostrar_localizacao ?? true) && cliente.latitude && cliente.longitude
+      ? Number(cliente.latitude).toFixed(5) + ', ' + Number(cliente.longitude).toFixed(5) : '';
+    let y = oy + 34;
+    campo('Nome.', cliente.nome, 11, 199, y); y += 7.5;
+    campo('CPF.', (fCfg.mostrar_cpf ?? true) ? cliente.cpf : '', 11, 105, y);
+    campo('Data Nasc.:', _fichaFmtData(cliente.data_nascimento), 110, 199, y); y += 7.5;
+    campo('R.G.:', '', 11, 105, y);
+    campo('Conhec.', '', 110, 199, y); y += 7.5;
+    campo('Rua:', cliente.endereco, 11, 199, y); y += 7.5;
+    campo('Bairro:', cliente.bairro, 11, 105, y);
+    campo('Cidade:', cliente.cidade, 110, 199, y); y += 7.5;
+    campo('Localidade:', localidadeNome, 11, 105, y);
+    campo('GPS:', gps, 110, 199, y); y += 7.5;
+    campo('Fone', '', 11, 65, y);
+    campo('Cel:', cliente.telefone, 68, 130, y);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text('Casa Próp. (   ) Sim  (   ) Não', 135, y); y += 7.5;
+    campo('Onde Trabalha:', '', 11, 105, y);
+    campo('Fone:', '', 110, 199, y); y += 7.5;
+    campo('Mãe:', '', 11, 105, y);
+    campo('Conhec.', '', 110, 199, y); y += 7.5;
+    campo('Esposo(a):', '', 11, 105, y);
+    campo('Conhec.', '', 110, 199, y); y += 7.5;
+    campo('Nome de Parente.', '', 11, 105, y);
+    campo('Fone:', '', 110, 199, y); y += 7.5;
+    campo('Nome de Colega:', '', 11, 105, y);
+    campo('Fone:', '', 110, 199, y); y += 7.5;
+    campo('Ponto de Referência:', cliente.referencia, 11, 155, y); y += 7.5;
+    campo('Data da Compra:', _fichaFmtData(venda.data_venda), 11, 80, y); y += 7.5;
+    campo('Assinatura:', '', 11, 80, y);
+    campo('Vendedor:', venda.funcionarios?.nome, 85, 155, y);
+
+    // Caixa da foto da casa (canto inferior direito, como na ficha antiga)
+    doc.setDrawColor(30);
+    doc.setLineWidth(0.3);
+    doc.rect(158, oy + 119, 41, 21);
+    if (fotoData) {
+      const boxW = 39, boxH = 19;
+      let fw = boxW, fh = fotoData.h ? boxW * (fotoData.h / fotoData.w) : boxH;
+      if (fh > boxH) { fh = boxH; fw = fotoData.w ? boxH * (fotoData.w / fotoData.h) : boxW; }
+      doc.addImage(fotoData.dataUrl, 'PNG', 159 + (boxW - fw) / 2, oy + 120 + (boxH - fh) / 2, fw, fh);
+    }
   }
 
-  doc.save(`ficha_${venda.codigo}.pdf`);
+  // Monta as páginas em pares: frentes (fichas i e i+1), depois versos —
+  // ordem exigida pela impressão duplex.
+  for (let i = 0; i < fichas.length; i += 2) {
+    if (i > 0) doc.addPage();
+    desenharFrente(fichas[i], 0);
+    if (fichas[i + 1]) desenharFrente(fichas[i + 1], MEIA);
+    linhaCorte();
+    doc.addPage();
+    desenharVerso(fichas[i], 0, fotos[i]);
+    if (fichas[i + 1]) desenharVerso(fichas[i + 1], MEIA, fotos[i + 1]);
+    linhaCorte();
+  }
+
+  doc.save(nomeArquivo || 'fichas-lia-moveis.pdf');
 }
 
 function _importNorm(s) {
