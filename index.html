@@ -7171,6 +7171,9 @@ async function importarParcelas() {
 
       const codPessoa = String(linhas[0]['Cód. Pessoa']).trim();
       const clienteId = mapaClientes[codPessoa];
+      if (codVenda === '117788') {
+        console.log('DEBUG codPessoa:', JSON.stringify(codPessoa), 'tipo original:', typeof linhas[0]['Cód. Pessoa'], 'existe no mapa?', codPessoa in mapaClientes, 'chaves parecidas:', Object.keys(mapaClientes).filter(k => k.replace(/^0+/, '') === codPessoa.replace(/^0+/, '')));
+      }
       if (!clienteId) {
         avisos.push('🛒 Venda ' + codVenda + ': cliente cód. ' + codPessoa + ' não encontrado');
         vendasIgnoradas++;
