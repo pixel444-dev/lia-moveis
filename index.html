@@ -2887,6 +2887,7 @@ async function mostrarFormVenda() {
 }
 
 async function carregarFonteItensVenda() {
+  await carregarProdutosCatalogo();
   if (perfilAtivo.perfil === 'vendedor') {
     if (!equipeAtiva?.id) { window._fonteItensVenda = []; return; }
     const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
@@ -2894,7 +2895,6 @@ async function carregarFonteItensVenda() {
       .map(e => ({ nome: e.produto, disponivel: e.quantidade_saida - (e.quantidade_voltou || 0) }))
       .filter(f => f.disponivel > 0);
   } else {
-    await carregarProdutosCatalogo();
     window._fonteItensVenda = window._produtosCatalogo.map(p => ({ nome: p.nome, disponivel: null }));
   }
 }
