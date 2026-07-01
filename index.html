@@ -3404,85 +3404,99 @@ async function imprimirComprovanteVenda() {
   const cfg = await getConfigImpressao();
   const comp = cfg.comprovante || {};
   const nomeLoja = (cfg.nome_loja || 'Lia Móveis').toUpperCase();
-  const logoUrl = comp.mostrar_logo && cfg.logo_url ? await urlAssinada('comprovantes', cfg.logo_url) : null;
+  const logoData = comp.mostrar_logo && cfg.logo_url
+    ? await carregarLogoDataUrl(await urlAssinada('comprovantes', cfg.logo_url))
+    : null;
   const mensagem = comp.texto_agradecimento || 'Obrigado pela preferência!';
-  const sep = '--------------------------------';
+  const parcelas = info.tipo === 'entrada' ? (info.parcelas || []) : [];
 
-  const linhasParcelas = (info.tipo === 'entrada' ? (info.parcelas || []) : []).map(p => `
-    <div class="comp-linha">
-      <span>Parc ${p.numero}/${p.total_parcelas} (${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')})</span>
-      <span>${fmtMoeda(p.valor)}</span>
-    </div>`).join('');
+  // Monta a lista de "linhas lógicas" do recibo (quebra de linha real é calculada depois).
+  const linhas = [];
+  if (cfg.endereco) linhas.push({ t: cfg.endereco, size: 8, align: 'center' });
+  if (cfg.telefone) linhas.push({ t: cfg.telefone, size: 8, align: 'center' });
+  linhas.push({ t: '-', sep: true });
+  linhas.push({ t: 'COMPROVANTE DE COMPRA', size: 9, align: 'center' });
+  linhas.push({ t: 'Venda: #' + info.vendaCodigo, size: 8 });
+  linhas.push({ t: 'Data: ' + dataVendaFmt, size: 8 });
+  linhas.push({ t: 'Vendedor: ' + (info.vendedorNome || '—'), size: 8 });
+  linhas.push({ t: '-', sep: true });
+  linhas.push({ t: 'CLIENTE', size: 8 });
+  linhas.push({ t: info.cliente?.nome || '—', size: 8 });
+  if (info.cliente?.codigo) linhas.push({ t: 'Codigo: ' + info.cliente.codigo, size: 8 });
+  if (info.cliente?.cpf) linhas.push({ t: 'CPF: ' + info.cliente.cpf, size: 8 });
+  if (info.cliente?.telefone) linhas.push({ t: 'Tel: ' + info.cliente.telefone, size: 8 });
+  linhas.push({ t: '-', sep: true });
+  linhas.push({ t: 'PRODUTO(S)', size: 8 });
+  linhas.push({ t: info.produto || '—', size: 8 });
+  linhas.push({ t: '-', sep: true });
+  linhas.push({ t: 'Tipo: ' + tipoLabel, size: 8 });
+  if (info.tipo === 'entrada' && info.entrada > 0) linhas.push({ t: 'Entrada (ja paga): ' + fmtMoeda(info.entrada), size: 8 });
+  parcelas.forEach(p => {
+    linhas.push({ t: `Parcela ${p.numero}/${p.total_parcelas} - ${new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR')}`, size: 8 });
+    linhas.push({ t: '  Valor: ' + fmtMoeda(p.valor), size: 8 });
+  });
+  linhas.push({ t: '-', sep: true });
+  linhas.push({ t: 'TOTAL: ' + fmtMoeda(info.valor), size: 10 });
+  linhas.push({ t: '-', sep: true });
+  linhas.push({ t: mensagem, size: 8, align: 'center' });
+  linhas.push({ t: 'Impresso em ' + agora, size: 7, align: 'center' });
 
-  const conteudo = `
-    <div class="comp-centro">
-      ${logoUrl ? `<img src="${logoUrl}" style="max-width:30mm;max-height:16mm;margin-bottom:4px;">` : ''}
-      <div style="font-size:15px;">${nomeLoja}</div>
-      ${cfg.endereco ? `<div>${cfg.endereco}</div>` : ''}
-      ${cfg.telefone ? `<div>${cfg.telefone}</div>` : ''}
-    </div>
-    <div class="comp-sep">${sep}</div>
-    <div class="comp-centro">COMPROVANTE DE COMPRA</div>
-    <div class="comp-linha"><span>Venda</span><span>#${info.vendaCodigo}</span></div>
-    <div class="comp-linha"><span>Data</span><span>${dataVendaFmt}</span></div>
-    <div class="comp-linha"><span>Vendedor</span><span>${info.vendedorNome || '—'}</span></div>
-    <div class="comp-sep">${sep}</div>
-    <div>CLIENTE</div>
-    <div>${info.cliente?.nome || '—'}</div>
-    ${info.cliente?.codigo ? `<div>Codigo: ${info.cliente.codigo}</div>` : ''}
-    ${info.cliente?.cpf ? `<div>CPF: ${info.cliente.cpf}</div>` : ''}
-    ${info.cliente?.telefone ? `<div>Tel: ${info.cliente.telefone}</div>` : ''}
-    <div class="comp-sep">${sep}</div>
-    <div>PRODUTO(S)</div>
-    <div>${info.produto || '—'}</div>
-    <div class="comp-sep">${sep}</div>
-    <div class="comp-linha"><span>Tipo</span><span>${tipoLabel}</span></div>
-    ${info.tipo === 'entrada' && info.entrada > 0 ? `<div class="comp-linha"><span>Entrada (ja paga)</span><span>${fmtMoeda(info.entrada)}</span></div>` : ''}
-    ${linhasParcelas}
-    <div class="comp-sep">${sep}</div>
-    <div class="comp-linha" style="font-size:15px;"><span>TOTAL</span><span>${fmtMoeda(info.valor)}</span></div>
-    <div class="comp-sep">${sep}</div>
-    <div class="comp-centro" style="margin-top:6px;">${mensagem}</div>
-    <div class="comp-centro" style="margin-top:6px;">Impresso em ${agora}</div>
-  `;
+  const { jsPDF } = window.jspdf;
+  const larguraMm = 58;
+  const margemMm = 3;
+  const larguraUtil = larguraMm - margemMm * 2;
+  const lhPorSize = { 7: 3.2, 8: 3.6, 9: 4.2, 10: 4.8, 11: 5.4 };
 
-  const documentoHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Comprovante</title>
-<style>
-  @page { margin: 2mm; }
-  * { box-sizing: border-box; }
-  body { margin: 0; padding: 2mm; width: 54mm; font-family: 'Courier New', monospace; font-weight: 700; font-size: 13px; line-height: 1.5; color: #000; }
-  img { display: block; margin-left: auto; margin-right: auto; }
-  .comp-linha { display: flex; justify-content: space-between; gap: 8px; }
-  .comp-sep { margin: 5px 0; white-space: nowrap; overflow: hidden; letter-spacing: 1px; }
-  .comp-centro { text-align: center; }
-</style>
-</head>
-<body>${conteudo}</body>
-</html>`;
+  // Doc temporário só para calcular a altura total necessária (splitTextToSize
+  // não depende do tamanho da página).
+  const docCalc = new jsPDF({ unit: 'mm', format: [larguraMm, 500] });
+  let alturaTotal = margemMm * 2;
+  if (logoData) alturaTotal += logoData.h ? 20 * (logoData.h / logoData.w) + 2 : 12;
+  alturaTotal += lhPorSize[11]; // nome da loja
+  linhas.forEach(l => {
+    if (l.sep) { alturaTotal += 3; return; }
+    docCalc.setFontSize(l.size);
+    docCalc.setFont('courier', 'bold');
+    const qtdLinhas = docCalc.splitTextToSize(l.t, larguraUtil).length;
+    alturaTotal += qtdLinhas * lhPorSize[l.size];
+  });
+  alturaTotal += margemMm;
 
-  const antigo = document.getElementById('iframe-impressao-comprovante');
-  if (antigo) antigo.remove();
+  const doc = new jsPDF({ unit: 'mm', format: [larguraMm, alturaTotal] });
+  let y = margemMm + 2;
 
-  const iframe = document.createElement('iframe');
-  iframe.id = 'iframe-impressao-comprovante';
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
-  document.body.appendChild(iframe);
+  const escreverLinha = (texto, size, align) => {
+    doc.setFontSize(size);
+    doc.setFont('courier', 'bold');
+    const partes = doc.splitTextToSize(texto, larguraUtil);
+    partes.forEach(parte => {
+      const x = align === 'center' ? larguraMm / 2 : margemMm;
+      doc.text(parte, x, y, { align: align || 'left' });
+      y += lhPorSize[size];
+    });
+  };
+  const escreverSeparador = () => {
+    doc.setFontSize(8);
+    doc.setFont('courier', 'bold');
+    doc.text('-'.repeat(28), margemMm, y);
+    y += 3;
+  };
 
-  const doc = iframe.contentWindow.document;
-  doc.open();
-  doc.write(documentoHtml);
-  doc.close();
+  if (logoData) {
+    try {
+      const larguraImg = 20;
+      const alturaImg = logoData.h ? larguraImg * (logoData.h / logoData.w) : 12;
+      doc.addImage(logoData.dataUrl, 'PNG', (larguraMm - larguraImg) / 2, y, larguraImg, alturaImg);
+      y += alturaImg + 2;
+    } catch (e) {}
+  }
+  escreverLinha(nomeLoja, 11, 'center');
+  linhas.forEach(l => {
+    if (l.sep) escreverSeparador();
+    else escreverLinha(l.t, l.size, l.align);
+  });
 
-  const limpar = () => { if (iframe.parentNode) iframe.remove(); };
-  iframe.contentWindow.onafterprint = limpar;
-  setTimeout(limpar, 60000);
-
-  iframe.contentWindow.focus();
-  iframe.contentWindow.print();
+  doc.save(`comprovante_${info.vendaCodigo}.pdf`);
 }
 
 async function carregarVendas() {
