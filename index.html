@@ -487,7 +487,25 @@ tr:hover td{background:#fafafa;}
         ⚠️ Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor para ser adicionado a uma equipe.
       </div>
       <div class="busca-wrap" id="busca-vendas-wrap">
-        <input class="busca" type="text" placeholder="🔍 Buscar por código ou nome do cliente..." oninput="buscarVenda(this.value)" style="padding:14px 16px;font-size:15px;border-radius:10px;border:1.5px solid #ddd;width:100%;max-width:500px;">
+        <select id="vendas-filtro-tipo" onchange="trocarFiltroGenerico('vendas')" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:170px;">
+          <option value="tudo">Pesquisar por: Tudo</option>
+          <option value="nome">Nome</option>
+          <option value="cpf">CPF</option>
+          <option value="celular">Celular</option>
+          <option value="endereco">Endereço</option>
+          <option value="municipio">Município</option>
+          <option value="codigo">Código</option>
+          <option value="codigo_venda">Código da venda</option>
+          <option value="estado">Estado</option>
+          <option value="rota">Rota</option>
+          <option value="cobrador">Cobrador</option>
+          <option value="vendedor">Vendedor</option>
+        </select>
+        <input class="busca" type="text" id="vendas-filtro-texto" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." onkeydown="if(event.key==='Enter'){event.preventDefault();buscarVendasFiltro();}">
+        <select id="vendas-filtro-pessoa" onchange="buscarVendasFiltro()" style="display:none;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:200px;">
+          <option value="">Selecione...</option>
+        </select>
+        <button class="btn primario" onclick="buscarVendasFiltro()" style="padding:8px 16px;" title="Buscar">🔍</button>
       </div>
       <div id="lista-vendas">Carregando...</div>
     </div>
@@ -518,8 +536,31 @@ tr:hover td{background:#fafafa;}
   <div class="topbar-pg">
     <div class="page-title" style="margin:0">Cobranças — dar baixa em parcelas</div>
   </div>
-  <div class="busca-wrap">
-    <input class="busca" type="text" placeholder="Buscar cliente por nome, CPF ou código..." oninput="buscarClienteCobranca(this.value)">
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
+    <div class="campo" style="max-width:280px;margin-bottom:.75rem;">
+      <label style="font-size:13px;">Buscar por</label>
+      <select id="cobranca-filtro-tipo" onchange="trocarFiltroGenerico('cobranca')" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+        <option value="tudo">Pesquisar por: Tudo</option>
+        <option value="nome">Nome</option>
+        <option value="cpf">CPF</option>
+        <option value="celular">Celular</option>
+        <option value="endereco">Endereço</option>
+        <option value="municipio">Município</option>
+        <option value="codigo">Código</option>
+        <option value="codigo_venda">Código da venda</option>
+        <option value="estado">Estado</option>
+        <option value="rota">Rota</option>
+        <option value="cobrador">Cobrador</option>
+        <option value="vendedor">Vendedor</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <input id="cobranca-filtro-texto" type="text" class="busca" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." style="max-width:320px;" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarCobrancaFiltro();}">
+      <select id="cobranca-filtro-pessoa" style="display:none;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:200px;">
+        <option value="">Selecione...</option>
+      </select>
+      <button class="btn primario" onclick="buscarCobrancaFiltro()">🔍 Buscar</button>
+    </div>
   </div>
   <div id="resultado-cobranca-cliente"></div>
   <div id="lista-parcelas-cliente"></div>
@@ -574,12 +615,32 @@ tr:hover td{background:#fafafa;}
     <div class="page-title" style="margin:0">Impressão de carnês</div>
   </div>
   <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
-    <div style="font-size:13px;color:#666;margin-bottom:.75rem;">Digite o código da venda para gerar o carnê:</div>
-    <div style="display:flex;gap:8px;">
-      <input id="carne-codigo" type="text" class="busca" placeholder="Ex: 00001" style="max-width:200px;">
-      <button class="btn primario" onclick="buscarVendaCarne()">Buscar venda</button>
+    <div class="campo" style="max-width:280px;margin-bottom:.75rem;">
+      <label style="font-size:13px;">Buscar por</label>
+      <select id="carne-filtro-tipo" onchange="trocarFiltroGenerico('carne')" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+        <option value="tudo">Pesquisar por: Tudo</option>
+        <option value="nome">Nome</option>
+        <option value="cpf">CPF</option>
+        <option value="celular">Celular</option>
+        <option value="endereco">Endereço</option>
+        <option value="municipio">Município</option>
+        <option value="codigo">Código</option>
+        <option value="codigo_venda" selected>Código da venda</option>
+        <option value="estado">Estado</option>
+        <option value="rota">Rota</option>
+        <option value="cobrador">Cobrador</option>
+        <option value="vendedor">Vendedor</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <input id="carne-filtro-texto" type="text" class="busca" placeholder="Digite o código da venda" style="max-width:220px;" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarCarneFiltro();}">
+      <select id="carne-filtro-pessoa" style="display:none;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:200px;">
+        <option value="">Selecione...</option>
+      </select>
+      <button class="btn primario" onclick="buscarCarneFiltro()">🔍 Buscar</button>
     </div>
   </div>
+  <div id="carne-resultado-clientes"></div>
   <div id="resultado-carne"></div>
   <div id="preview-carne"></div>
 </div>
@@ -590,9 +651,19 @@ tr:hover td{background:#fafafa;}
   <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;margin-bottom:1rem;">
     <div class="campo" style="max-width:280px;margin-bottom:.75rem;">
       <label style="font-size:13px;">Buscar por</label>
-      <select id="ficha-metodo" onchange="trocarMetodoFicha()" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
-        <option value="venda">Código da venda</option>
-        <option value="cliente">Cliente (nome, código ou CPF)</option>
+      <select id="ficha-filtro-tipo" onchange="trocarMetodoFicha()" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+        <option value="tudo">Pesquisar por: Tudo</option>
+        <option value="nome">Nome</option>
+        <option value="cpf">CPF</option>
+        <option value="celular">Celular</option>
+        <option value="endereco">Endereço</option>
+        <option value="municipio">Município</option>
+        <option value="codigo">Código</option>
+        <option value="codigo_venda" selected>Código da venda</option>
+        <option value="estado">Estado</option>
+        <option value="rota">Rota</option>
+        <option value="cobrador">Cobrador</option>
+        <option value="vendedor">Vendedor</option>
         <option value="periodo">Período de vendas (várias fichas)</option>
       </select>
     </div>
@@ -600,9 +671,12 @@ tr:hover td{background:#fafafa;}
       <input id="ficha-codigo-venda" type="text" class="busca" placeholder="Ex: 00001" style="max-width:200px;">
       <button class="btn primario" onclick="buscarVendaFicha()">Buscar venda</button>
     </div>
-    <div id="ficha-busca-cliente-wrap" style="display:none;gap:8px;">
-      <input id="ficha-busca-cliente" type="text" class="busca" placeholder="Nome, código ou CPF do cliente" style="max-width:300px;">
-      <button class="btn primario" onclick="buscarClienteFicha()">Buscar cliente</button>
+    <div id="ficha-busca-cliente-wrap" style="display:none;gap:8px;flex-wrap:wrap;">
+      <input id="ficha-filtro-texto" type="text" class="busca" placeholder="Buscar..." style="max-width:280px;" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClienteFicha();}">
+      <select id="ficha-filtro-pessoa" style="display:none;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:200px;">
+        <option value="">Selecione...</option>
+      </select>
+      <button class="btn primario" onclick="buscarClienteFicha()">🔍 Buscar</button>
     </div>
     <div id="ficha-busca-periodo-wrap" style="display:none;gap:8px;align-items:flex-end;flex-wrap:wrap;">
       <div class="campo" style="margin-bottom:0;">
@@ -2172,6 +2246,59 @@ function _configurarScrollClientes() {
     if (entries[0].isIntersecting) _carregarMaisClientes();
   }, { rootMargin: '200px' });
   _clientesObserver.observe(sentinela);
+}
+
+// ===== Busca de cliente genérica (mesmo padrão da tela de Clientes),
+// reaproveitada em Vendas, Cobranças, Carnês e Ficha do cliente =====
+async function trocarFiltroGenerico(prefixo) {
+  const tipo = document.getElementById(prefixo + '-filtro-tipo').value;
+  const campoTexto = document.getElementById(prefixo + '-filtro-texto');
+  const campoPessoa = document.getElementById(prefixo + '-filtro-pessoa');
+  if (tipo === 'cobrador' || tipo === 'vendedor') {
+    campoTexto.style.display = 'none';
+    campoTexto.value = '';
+    campoPessoa.style.display = '';
+    campoPessoa.innerHTML = '<option value="">Carregando...</option>';
+    const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', tipo).eq('ativo', true).order('nome');
+    campoPessoa.innerHTML = `<option value="">Selecione o ${tipo === 'cobrador' ? 'cobrador' : 'vendedor'}...</option>` +
+      (data || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+  } else {
+    campoPessoa.style.display = 'none';
+    campoPessoa.innerHTML = '<option value="">Selecione...</option>';
+    campoTexto.style.display = '';
+    campoTexto.value = '';
+    campoTexto.placeholder = CLIENTES_FILTRO_PLACEHOLDER[tipo] || 'Buscar...';
+  }
+}
+
+function buscarClientesComFiltro(prefixo, limite = 30) {
+  const tipo = document.getElementById(prefixo + '-filtro-tipo').value || 'tudo';
+  const termo = (tipo === 'cobrador' || tipo === 'vendedor')
+    ? (document.getElementById(prefixo + '-filtro-pessoa').value || null)
+    : ((document.getElementById(prefixo + '-filtro-texto').value || '').trim() || null);
+  return sb.rpc('buscar_clientes', { p_termo: termo, p_filtro: tipo, p_limite: limite, p_offset: 0 });
+}
+
+function _htmlListaClientesGenerica(data, onClickFn) {
+  return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.5rem;margin-bottom:1rem;">' +
+    data.map(c => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="${onClickFn}('${c.id}')">
+        <div><strong style="font-size:13px;">${c.nome}</strong><div style="font-size:11px;color:#888;">${c.codigo||'—'} · ${c.cpf||'—'} · ${c.cidade||'—'}</div></div>
+        <span style="font-size:12px;color:#185FA5;">Selecionar ›</span>
+      </div>`).join('') +
+    '</div>';
+}
+
+function _htmlListaVendasGenerica(vendas, onClickFn) {
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.5rem;margin-bottom:1rem;">' +
+    '<div style="font-size:12px;color:#888;padding:.5rem .75rem;">Selecione a venda:</div>' +
+    vendas.map(v => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="${onClickFn}('${v.id}','${v.codigo}')">
+        <div><strong style="font-size:13px;">Venda #${v.codigo}</strong><div style="font-size:11px;color:#888;">${v.produto||'—'} · ${new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR')}</div></div>
+        <span style="font-size:13px;font-weight:600;">${fmtMoeda(v.valor)}</span>
+      </div>`).join('') +
+    '</div>';
 }
 
 function renderClientes(lista) {
@@ -3805,13 +3932,42 @@ function renderVendas(lista) {
     </table></div>`;
 }
 
-function buscarVenda(termo) {
-  const t = termo.toLowerCase();
-  const filtrado = todasVendas.filter(v =>
-    (v.codigo && v.codigo.includes(t)) ||
-    (v.clientes?.nome && v.clientes.nome.toLowerCase().includes(t))
-  );
-  renderVendas(filtrado);
+async function buscarVendasFiltro() {
+  const tipo = document.getElementById('vendas-filtro-tipo').value;
+  const lista = document.getElementById('lista-vendas');
+  const termoTexto = (document.getElementById('vendas-filtro-texto').value || '').trim();
+
+  if (tipo === 'tudo' && !termoTexto) { await carregarVendas(); return; }
+
+  lista.innerHTML = '<p style="color:#888;padding:1rem;">🔍 Buscando...</p>';
+
+  if (tipo === 'codigo_venda') {
+    if (!termoTexto) { alert('Digite o código da venda!'); return; }
+    const { data, error } = await sb.from('vendas')
+      .select('*, clientes(nome, codigo), funcionarios(nome)')
+      .ilike('codigo', `%${termoTexto}%`)
+      .order('data_venda', { ascending: false })
+      .limit(100);
+    if (error) { lista.innerHTML = 'Erro ao buscar.'; return; }
+    todasVendas = data || [];
+    renderVendas(todasVendas);
+    return;
+  }
+
+  const { data: clientesEncontrados, error: errCli } = await buscarClientesComFiltro('vendas', 200);
+  if (errCli || !clientesEncontrados || !clientesEncontrados.length) {
+    lista.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum cliente encontrado.</p>';
+    return;
+  }
+  const idsClientes = clientesEncontrados.map(c => c.id);
+  const { data, error } = await sb.from('vendas')
+    .select('*, clientes(nome, codigo), funcionarios(nome)')
+    .in('cliente_id', idsClientes)
+    .order('data_venda', { ascending: false })
+    .limit(200);
+  if (error) { lista.innerHTML = 'Erro ao buscar.'; return; }
+  todasVendas = data || [];
+  renderVendas(todasVendas);
 }
 
 async function abrirEditarVenda(vendaId) {
@@ -4662,71 +4818,45 @@ async function buscarClienteCobrador(termo) {
 
 let clientesCobranca = [];
 
-async function buscarClienteCobranca(termo) {
-  if (termo.length < 2) {
-    document.getElementById('resultado-cobranca-cliente').innerHTML = '';
-    document.getElementById('lista-parcelas-cliente').innerHTML = '';
-    return;
-  }
-  const t = termo.trim();
-
-  // Tenta buscar por código de venda primeiro
-  const { data: vendaEncontrada } = await sb.from('vendas')
-    .select('id, codigo, produto, cliente_id, clientes(id, codigo, nome, cpf, telefone)')
-    .ilike('codigo', `%${t}%`)
-    .limit(5);
-
-  if (vendaEncontrada && vendaEncontrada.length) {
-    if (isMobile()) {
-      document.getElementById('resultado-cobranca-cliente').innerHTML =
-        '<div style="display:flex;flex-direction:column;gap:8px;">' +
-        vendaEncontrada.map(v =>
-          '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-          '<span class="codigo-badge">' + v.codigo + '</span>' +
-          '<span style="font-size:13px;font-weight:600;">' + (v.clientes?.nome||'—') + '</span>' +
-          '</div>' +
-          '<div style="font-size:13px;color:#888;margin-bottom:8px;">📦 ' + (v.produto||'—') + '</div>' +
-          '<button class="btn primario" style="width:100%;padding:10px;font-size:14px;" ' +
-          'onclick="verParcelasVenda(\'' + v.id + '\',\'' + (v.clientes?.id||'') + '\',\'' + (v.clientes?.nome||'').replace(/'/g,"\\'") + '\',\'' + v.codigo + '\')">Ver parcelas</button>' +
-          '</div>'
-        ).join('') +
-        '</div>';
-    } else {
-      document.getElementById('resultado-cobranca-cliente').innerHTML = `
-        <div class="tabela-wrap"><table>
-          <thead><tr><th>Cód. Venda</th><th>Produto</th><th>Cliente</th><th>CPF</th><th></th></tr></thead>
-          <tbody>${vendaEncontrada.map(v => `
-            <tr>
-              <td><span class="codigo-badge">${v.codigo}</span></td>
-              <td>${v.produto||'—'}</td>
-              <td>${v.clientes?.nome||'—'}</td>
-              <td>${v.clientes?.cpf||'—'}</td>
-              <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasVenda('${v.id}','${v.clientes?.id}','${v.clientes?.nome}','${v.codigo}')">Ver parcelas</button></td>
-            </tr>`).join('')}
-          </tbody>
-        </table></div>`;
-    }
-    document.getElementById('lista-parcelas-cliente').innerHTML = '';
-    return;
-  }
-
-  // Senão busca por cliente
-  const { data } = await sb.from('clientes')
-    .select('id, codigo, nome, cpf, telefone')
-    .or(`nome.ilike.%${t}%,cpf.ilike.%${t}%,codigo.ilike.%${t}%`)
-    .limit(10);
-
-  clientesCobranca = data || [];
-  if (!clientesCobranca.length) {
-    document.getElementById('resultado-cobranca-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhum cliente ou venda encontrado.</p>';
-    document.getElementById('lista-parcelas-cliente').innerHTML = '';
-    return;
-  }
+function _renderResultadoCobrancaVendas(vendaEncontrada) {
   if (isMobile()) {
     document.getElementById('resultado-cobranca-cliente').innerHTML =
       '<div style="display:flex;flex-direction:column;gap:8px;">' +
-      clientesCobranca.map(c =>
+      vendaEncontrada.map(v =>
+        '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+        '<span class="codigo-badge">' + v.codigo + '</span>' +
+        '<span style="font-size:13px;font-weight:600;">' + (v.clientes?.nome||'—') + '</span>' +
+        '</div>' +
+        '<div style="font-size:13px;color:#888;margin-bottom:8px;">📦 ' + (v.produto||'—') + '</div>' +
+        '<button class="btn primario" style="width:100%;padding:10px;font-size:14px;" ' +
+        'onclick="verParcelasVenda(\'' + v.id + '\',\'' + (v.clientes?.id||'') + '\',\'' + (v.clientes?.nome||'').replace(/'/g,"\\'") + '\',\'' + v.codigo + '\')">Ver parcelas</button>' +
+        '</div>'
+      ).join('') +
+      '</div>';
+  } else {
+    document.getElementById('resultado-cobranca-cliente').innerHTML = `
+      <div class="tabela-wrap"><table>
+        <thead><tr><th>Cód. Venda</th><th>Produto</th><th>Cliente</th><th>CPF</th><th></th></tr></thead>
+        <tbody>${vendaEncontrada.map(v => `
+          <tr>
+            <td><span class="codigo-badge">${v.codigo}</span></td>
+            <td>${v.produto||'—'}</td>
+            <td>${v.clientes?.nome||'—'}</td>
+            <td>${v.clientes?.cpf||'—'}</td>
+            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasVenda('${v.id}','${v.clientes?.id}','${v.clientes?.nome}','${v.codigo}')">Ver parcelas</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+  }
+  document.getElementById('lista-parcelas-cliente').innerHTML = '';
+}
+
+function _renderResultadoCobrancaClientes(lista) {
+  if (isMobile()) {
+    document.getElementById('resultado-cobranca-cliente').innerHTML =
+      '<div style="display:flex;flex-direction:column;gap:8px;">' +
+      lista.map(c =>
         '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
         '<span style="font-size:15px;font-weight:600;">' + c.nome + '</span>' +
@@ -4742,7 +4872,7 @@ async function buscarClienteCobranca(termo) {
     document.getElementById('resultado-cobranca-cliente').innerHTML = `
       <div class="tabela-wrap"><table>
         <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Celular</th><th></th></tr></thead>
-        <tbody>${clientesCobranca.map(c => `
+        <tbody>${lista.map(c => `
           <tr>
             <td><span class="codigo-badge">${c.codigo||'—'}</span></td>
             <td>${c.nome}</td>
@@ -4753,6 +4883,33 @@ async function buscarClienteCobranca(termo) {
         </tbody>
       </table></div>`;
   }
+  document.getElementById('lista-parcelas-cliente').innerHTML = '';
+}
+
+async function buscarCobrancaFiltro() {
+  const tipo = document.getElementById('cobranca-filtro-tipo').value;
+  document.getElementById('lista-parcelas-cliente').innerHTML = '';
+  document.getElementById('resultado-cobranca-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">🔍 Buscando...</p>';
+
+  if (tipo === 'codigo_venda') {
+    const codigo = (document.getElementById('cobranca-filtro-texto').value || '').trim();
+    if (!codigo) { alert('Digite o código da venda!'); return; }
+    const { data: vendaEncontrada } = await sb.from('vendas')
+      .select('id, codigo, produto, cliente_id, clientes(id, codigo, nome, cpf, telefone)')
+      .ilike('codigo', `%${codigo}%`)
+      .limit(10);
+    if (vendaEncontrada && vendaEncontrada.length) { _renderResultadoCobrancaVendas(vendaEncontrada); return; }
+    document.getElementById('resultado-cobranca-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhuma venda encontrada com esse código.</p>';
+    return;
+  }
+
+  const { data, error } = await buscarClientesComFiltro('cobranca');
+  clientesCobranca = data || [];
+  if (error || !clientesCobranca.length) {
+    document.getElementById('resultado-cobranca-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhum cliente encontrado.</p>';
+    return;
+  }
+  _renderResultadoCobrancaClientes(clientesCobranca);
 }
 function renderParcelasEmAbertoMobile(parcelas, showVendaCodigo) {
   return parcelas.map(function(p) {
@@ -6684,8 +6841,44 @@ async function cancelarVenda(vendaId, codigo) {
   carregarVendas();
   carregarDashboard();
 }
-async function buscarVendaCarne() {
-  const codigo = document.getElementById('carne-codigo').value.trim();
+async function buscarCarneFiltro() {
+  document.getElementById('carne-resultado-clientes').innerHTML = '';
+  document.getElementById('resultado-carne').innerHTML = '';
+  document.getElementById('preview-carne').innerHTML = '';
+  const tipo = document.getElementById('carne-filtro-tipo').value;
+  if (tipo === 'codigo_venda') {
+    await buscarVendaCarne();
+    return;
+  }
+  document.getElementById('carne-resultado-clientes').innerHTML = '<p style="color:#888;padding:.5rem;">🔍 Buscando...</p>';
+  const { data, error } = await buscarClientesComFiltro('carne');
+  if (error || !data || !data.length) {
+    document.getElementById('carne-resultado-clientes').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Nenhum cliente encontrado.</p>';
+    return;
+  }
+  document.getElementById('carne-resultado-clientes').innerHTML = _htmlListaClientesGenerica(data, 'selecionarClienteCarne');
+}
+
+async function selecionarClienteCarne(clienteId) {
+  document.getElementById('resultado-carne').innerHTML = '';
+  document.getElementById('preview-carne').innerHTML = '';
+  const { data: vendas, error } = await sb.from('vendas')
+    .select('id, codigo, produto, valor, data_venda')
+    .eq('cliente_id', clienteId)
+    .order('data_venda', { ascending: false });
+  if (error || !vendas || !vendas.length) {
+    document.getElementById('resultado-carne').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Este cliente não possui vendas cadastradas.</p>';
+    return;
+  }
+  document.getElementById('resultado-carne').innerHTML = _htmlListaVendasGenerica(vendas, 'buscarVendaCarnePorCodigo');
+}
+
+function buscarVendaCarnePorCodigo(vendaId, codigo) {
+  buscarVendaCarne(codigo);
+}
+
+async function buscarVendaCarne(codigoParam) {
+  const codigo = (codigoParam || document.getElementById('carne-filtro-texto').value || '').trim();
   if (!codigo) { alert('Digite o código da venda!'); return; }
   const { data, error } = await sb.from('vendas')
     .select('*, clientes(nome, cpf, endereco, cidade, bairro), funcionarios(nome)')
@@ -7009,10 +7202,11 @@ async function imprimirCarne() {
 let _fichaAtual = null;
 let _vendasPeriodoAtual = [];
 
-function trocarMetodoFicha() {
-  const metodo = document.getElementById('ficha-metodo').value;
-  document.getElementById('ficha-busca-venda-wrap').style.display = metodo === 'venda' ? 'flex' : 'none';
-  document.getElementById('ficha-busca-cliente-wrap').style.display = metodo === 'cliente' ? 'flex' : 'none';
+async function trocarMetodoFicha() {
+  const metodo = document.getElementById('ficha-filtro-tipo').value;
+  const ehCliente = metodo !== 'codigo_venda' && metodo !== 'periodo';
+  document.getElementById('ficha-busca-venda-wrap').style.display = metodo === 'codigo_venda' ? 'flex' : 'none';
+  document.getElementById('ficha-busca-cliente-wrap').style.display = ehCliente ? 'flex' : 'none';
   document.getElementById('ficha-busca-periodo-wrap').style.display = metodo === 'periodo' ? 'flex' : 'none';
   document.getElementById('ficha-resultado-clientes').innerHTML = '';
   document.getElementById('ficha-resultado-periodo').innerHTML = '';
@@ -7020,6 +7214,7 @@ function trocarMetodoFicha() {
   document.getElementById('preview-ficha').innerHTML = '';
   _fichaAtual = null;
   _vendasPeriodoAtual = [];
+  if (ehCliente) await trocarFiltroGenerico('ficha');
 }
 
 async function buscarVendaFicha() {
@@ -7038,23 +7233,15 @@ async function buscarVendaFicha() {
 }
 
 async function buscarClienteFicha() {
-  const termo = document.getElementById('ficha-busca-cliente').value.trim();
-  if (!termo) { alert('Digite nome, código ou CPF do cliente!'); return; }
   document.getElementById('resultado-ficha').innerHTML = '';
   document.getElementById('preview-ficha').innerHTML = '';
-  const { data, error } = await sb.rpc('buscar_clientes', { p_termo: termo, p_filtro: 'tudo', p_limite: 20, p_offset: 0 });
+  document.getElementById('ficha-resultado-clientes').innerHTML = '<p style="color:#888;padding:.5rem;">🔍 Buscando...</p>';
+  const { data, error } = await buscarClientesComFiltro('ficha');
   if (error || !data || !data.length) {
     document.getElementById('ficha-resultado-clientes').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Nenhum cliente encontrado.</p>';
     return;
   }
-  document.getElementById('ficha-resultado-clientes').innerHTML =
-    '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.5rem;margin-bottom:1rem;">' +
-    data.map(c => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="selecionarClienteFicha('${c.id}')">
-        <div><strong style="font-size:13px;">${c.nome}</strong><div style="font-size:11px;color:#888;">${c.codigo||'—'} · ${c.cpf||'—'} · ${c.cidade||'—'}</div></div>
-        <span style="font-size:12px;color:#185FA5;">Selecionar ›</span>
-      </div>`).join('') +
-    '</div>';
+  document.getElementById('ficha-resultado-clientes').innerHTML = _htmlListaClientesGenerica(data, 'selecionarClienteFicha');
 }
 
 async function selecionarClienteFicha(clienteId) {
