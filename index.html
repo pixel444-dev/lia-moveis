@@ -4125,38 +4125,43 @@ async function buscarTudoPaginado(montarQuery) {
 }
 
 // .in() com centenas de IDs estoura o tamanho máximo da URL e a consulta falha
-// inteira — divide em lotes e concatena os resultados (cada lote também paginado).
+// inteira — divide em lotes e concatena os resultados. Os lotes são disparados
+// em paralelo (Promise.all): sequencial demorava demais com carteiras grandes
+// (dezenas de idas e voltas ao servidor, uma atrás da outra).
 async function buscarInLotes(ids, montarQueryLote, tamLote = 100) {
+  const lotes = [];
+  for (let i = 0; i < ids.length; i += tamLote) lotes.push(ids.slice(i, i + tamLote));
+  const resultados = await Promise.all(lotes.map(lote => buscarTudoPaginado(() => montarQueryLote(lote))));
   let todas = [];
   let falhas = 0;
-  for (let i = 0; i < ids.length; i += tamLote) {
-    const lote = ids.slice(i, i + tamLote);
-    const { data, error } = await buscarTudoPaginado(() => montarQueryLote(lote));
-    if (error) { falhas++; Logger.warn('cobrador', 'BUSCA_LOTES', 'Falha em um lote da consulta', { error_message: error.message }); }
+  resultados.forEach(({ data, error }) => {
+    if (error) falhas++;
     todas = todas.concat(data || []);
-  }
+  });
   if (falhas) Logger.error('cobrador', 'BUSCA_LOTES', `${falhas} lote(s) falharam — resultado pode estar incompleto`, {});
   return todas;
 }
 
 async function _clientesDoCobrador(campos) {
   const sel = campos || 'id, codigo, nome, telefone, foto_casa, localidade_id';
-  const { data: diretos, error: errDir } = await buscarTudoPaginado(() =>
-    sb.from('clientes').select(sel).eq('cobrador_id', funcionarioLogado.id).order('id'));
-  if (errDir) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes diretos', { error_message: errDir.message });
 
-  let porRota = [];
-  const { data: rotas } = await sb.from('rotas').select('id').eq('cobrador_id', funcionarioLogado.id).eq('ativa', true);
-  if (rotas && rotas.length) {
+  const buscarPorRota = async () => {
+    const { data: rotas } = await sb.from('rotas').select('id').eq('cobrador_id', funcionarioLogado.id).eq('ativa', true);
+    if (!rotas || !rotas.length) return [];
     const { data: muns } = await sb.from('rotas_municipios').select('municipio_id').in('rota_id', rotas.map(r => r.id));
-    if (muns && muns.length) {
-      const munIds = [...new Set(muns.map(m => m.municipio_id))];
-      const { data, error: errRota } = await buscarTudoPaginado(() =>
-        sb.from('clientes').select(sel).in('municipio_id', munIds).is('cobrador_id', null).order('id'));
-      if (errRota) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes por rota', { error_message: errRota.message });
-      porRota = data || [];
-    }
-  }
+    if (!muns || !muns.length) return [];
+    const munIds = [...new Set(muns.map(m => m.municipio_id))];
+    const { data, error: errRota } = await buscarTudoPaginado(() =>
+      sb.from('clientes').select(sel).in('municipio_id', munIds).is('cobrador_id', null).order('id'));
+    if (errRota) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes por rota', { error_message: errRota.message });
+    return data || [];
+  };
+
+  const [{ data: diretos, error: errDir }, porRota] = await Promise.all([
+    buscarTudoPaginado(() => sb.from('clientes').select(sel).eq('cobrador_id', funcionarioLogado.id).order('id')),
+    buscarPorRota(),
+  ]);
+  if (errDir) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes diretos', { error_message: errDir.message });
 
   const mapa = new Map();
   [...(diretos || []), ...porRota].forEach(c => mapa.set(c.id, c));
@@ -4574,10 +4579,14 @@ async function renderCicloSelecionado(cicloChave) {
   const conteudo = document.getElementById('secao-ciclo-conteudo');
   conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:1rem;">Carregando fichas...</p>';
 
-  const { data: localidades } = await sb.from('localidades')
-    .select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome');
-
-  const clientes = await _clientesDoCobrador();
+  const [{ data: localidades }, clientes, { data: visitas }] = await Promise.all([
+    sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome'),
+    _clientesDoCobrador(),
+    buscarTudoPaginado(() => sb.from('visitas_agendadas')
+      .select('parcela_id, data_agendada, concluida, criado_em')
+      .eq('cobrador_id', funcionarioLogado.id).eq('concluida', false)
+      .order('criado_em', { ascending: false })),
+  ]);
   const clienteIds = clientes.map(c => c.id);
   if (!clienteIds.length) {
     conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Nenhum cliente na sua rota.</p>';
@@ -4588,10 +4597,6 @@ async function renderCicloSelecionado(cicloChave) {
     .select('id, cliente_id, venda_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
     .in('cliente_id', lote).eq('pago', false).neq('status', 'devolvida').order('id'));
 
-  const { data: visitas } = await buscarTudoPaginado(() => sb.from('visitas_agendadas')
-    .select('parcela_id, data_agendada, concluida, criado_em')
-    .eq('cobrador_id', funcionarioLogado.id).eq('concluida', false)
-    .order('criado_em', { ascending: false }));
   const mapaRemarque = {};
   (visitas||[]).forEach(v => { if (v.parcela_id && !mapaRemarque[v.parcela_id]) mapaRemarque[v.parcela_id] = v.data_agendada; });
 
