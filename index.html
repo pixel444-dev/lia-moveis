@@ -4129,6 +4129,7 @@ async function buscarTudoPaginado(montarQuery) {
 // em paralelo (Promise.all): sequencial demorava demais com carteiras grandes
 // (dezenas de idas e voltas ao servidor, uma atrás da outra).
 async function buscarInLotes(ids, montarQueryLote, tamLote = 100) {
+  if (!ids.length) return [];
   const lotes = [];
   for (let i = 0; i < ids.length; i += tamLote) lotes.push(ids.slice(i, i + tamLote));
   const resultados = await Promise.all(lotes.map(lote => buscarTudoPaginado(() => montarQueryLote(lote))));
@@ -4138,11 +4139,21 @@ async function buscarInLotes(ids, montarQueryLote, tamLote = 100) {
     if (error) falhas++;
     todas = todas.concat(data || []);
   });
-  if (falhas) Logger.error('cobrador', 'BUSCA_LOTES', `${falhas} lote(s) falharam — resultado pode estar incompleto`, {});
+  if (falhas) {
+    Logger.error('cobrador', 'BUSCA_LOTES', `${falhas}/${lotes.length} lote(s) falharam — resultado pode estar incompleto`, {});
+    // Falha pontual num lote entre muitos: tolera e segue com o que deu certo.
+    // Falha em TODOS os lotes: provavelmente rede fora do ar — melhor jogar o
+    // erro pra quem chamou decidir (ex: manter o que já tinha em cache) do
+    // que fingir que o resultado é "zero registros".
+    if (falhas === lotes.length) throw new Error('Falha ao buscar dados em lote (todos os lotes falharam)');
+  }
   return todas;
 }
 
-async function _clientesDoCobrador(campos) {
+// statusErro (opcional) é um "out param": se passado, ganha { houveErro: true }
+// quando alguma das buscas falhar — permite ao chamador distinguir "cliente
+// realmente não tem nada" de "a busca falhou e voltou vazia por engano".
+async function _clientesDoCobrador(campos, statusErro) {
   const sel = campos || 'id, codigo, nome, telefone, foto_casa, localidade_id';
 
   const buscarPorRota = async () => {
@@ -4153,7 +4164,10 @@ async function _clientesDoCobrador(campos) {
     const munIds = [...new Set(muns.map(m => m.municipio_id))];
     const { data, error: errRota } = await buscarTudoPaginado(() =>
       sb.from('clientes').select(sel).in('municipio_id', munIds).is('cobrador_id', null).order('id'));
-    if (errRota) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes por rota', { error_message: errRota.message });
+    if (errRota) {
+      Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes por rota', { error_message: errRota.message });
+      if (statusErro) statusErro.houveErro = true;
+    }
     return data || [];
   };
 
@@ -4161,7 +4175,10 @@ async function _clientesDoCobrador(campos) {
     buscarTudoPaginado(() => sb.from('clientes').select(sel).eq('cobrador_id', funcionarioLogado.id).order('id')),
     buscarPorRota(),
   ]);
-  if (errDir) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes diretos', { error_message: errDir.message });
+  if (errDir) {
+    Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes diretos', { error_message: errDir.message });
+    if (statusErro) statusErro.houveErro = true;
+  }
 
   const mapa = new Map();
   [...(diretos || []), ...porRota].forEach(c => mapa.set(c.id, c));
@@ -4574,113 +4591,177 @@ function selecionarCicloCobrador(chave) {
   carregarCaixaECiclos();
 }
 
+// ===== Cache local das fichas do cobrador (stale-while-revalidate) =====
+// Evita o cobrador esperar a rede toda vez que sai e entra no app: mostra
+// instantaneamente o que foi carregado da última vez, enquanto atualiza em
+// segundo plano. Versionado (v1) pra poder invalidar caches antigos se o
+// HTML gerado mudar de formato no futuro.
+function _chaveCacheFichas(cicloChave) {
+  return 'fichas_cache_v1_' + funcionarioLogado.id + '_' + cicloChave;
+}
+
+function lerCacheFichas(chave) {
+  try {
+    const bruto = localStorage.getItem(chave);
+    return bruto ? JSON.parse(bruto) : null;
+  } catch (e) { return null; }
+}
+
+function salvarCacheFichas(chave, html) {
+  try {
+    localStorage.setItem(chave, JSON.stringify({ html, timestamp: Date.now() }));
+  } catch (e) { /* localStorage indisponível (aba anônima, cota cheia etc.) — ignora */ }
+}
+
+function _fichasStatusHtml(timestamp, atualizando) {
+  const hora = new Date(timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#888;margin-bottom:.5rem;">'
+    + '<span>Atualizado às ' + hora + (atualizando ? ' · 🔄 atualizando...' : '') + '</span>'
+    + '<button onclick="atualizarFichasCobrador()" style="border:none;background:none;color:#185FA5;font-size:11px;font-weight:600;cursor:pointer;padding:2px 6px;">🔄 Atualizar</button>'
+    + '</div>';
+}
+
+function atualizarFichasCobrador() {
+  carregarCaixaECiclos();
+}
+
 async function renderCicloSelecionado(cicloChave) {
   const caixa = window._caixaCobradorAtiva;
   const conteudo = document.getElementById('secao-ciclo-conteudo');
-  conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:1rem;">Carregando fichas...</p>';
+  const chaveCache = _chaveCacheFichas(cicloChave);
+  const cache = lerCacheFichas(chaveCache);
 
-  const [{ data: localidades }, clientes, { data: visitas }] = await Promise.all([
-    sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome'),
-    _clientesDoCobrador(),
-    buscarTudoPaginado(() => sb.from('visitas_agendadas')
-      .select('parcela_id, data_agendada, concluida, criado_em')
-      .eq('cobrador_id', funcionarioLogado.id).eq('concluida', false)
-      .order('criado_em', { ascending: false })),
-  ]);
-  const clienteIds = clientes.map(c => c.id);
-  if (!clienteIds.length) {
-    conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Nenhum cliente na sua rota.</p>';
-    return;
+  if (cache) {
+    conteudo.innerHTML = _fichasStatusHtml(cache.timestamp, true) + cache.html;
+    assinarImagens(conteudo);
+  } else {
+    conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:1rem;">Carregando fichas...</p>';
   }
 
-  const parcelas = await buscarInLotes(clienteIds, lote => sb.from('parcelas')
-    .select('id, cliente_id, venda_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
-    .in('cliente_id', lote).eq('pago', false).neq('status', 'devolvida').order('id'));
-
-  const mapaRemarque = {};
-  (visitas||[]).forEach(v => { if (v.parcela_id && !mapaRemarque[v.parcela_id]) mapaRemarque[v.parcela_id] = v.data_agendada; });
-
-  const inicio = new Date(caixa.ciclo_inicio + 'T12:00:00');
-  const fim = new Date(caixa.ciclo_fim + 'T12:00:00');
-
-  const mapaCliente = {};
-  (clientes||[]).forEach(c => mapaCliente[c.id] = c);
-
-  const fichas = [];
-  (parcelas||[]).forEach(p => {
-    const remarque = mapaRemarque[p.id];
-    const venc = new Date(p.data_vencimento + 'T12:00:00');
-    let dataEf, tipo;
-
-    if (remarque) {
-      dataEf = new Date(remarque + 'T12:00:00');
-      tipo = 'remarcada';
-      if (dataEf < inicio || dataEf > fim) return;
-      if (cicloDoDia(dataEf.getDate()).chave !== cicloChave) return;
-    } else if (venc >= inicio) {
-      dataEf = venc;
-      tipo = 'normal';
-      if (dataEf < inicio || dataEf > fim) return;
-      if (cicloDoDia(dataEf.getDate()).chave !== cicloChave) return;
-    } else {
-      dataEf = venc;
-      tipo = 'atrasada';
+  try {
+    const statusErro = {};
+    const [{ data: localidades, error: errLoc }, clientes, { data: visitas, error: errVis }] = await Promise.all([
+      sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome'),
+      _clientesDoCobrador(undefined, statusErro),
+      buscarTudoPaginado(() => sb.from('visitas_agendadas')
+        .select('parcela_id, data_agendada, concluida, criado_em')
+        .eq('cobrador_id', funcionarioLogado.id).eq('concluida', false)
+        .order('criado_em', { ascending: false })),
+    ]);
+    // Sem isso, uma falha de rede aqui viraria "clientes: []" e a gente
+    // concluiria (errado) que o cobrador não tem ninguém pra cobrar,
+    // sobrescrevendo o cache bom com uma tela vazia incorreta.
+    if (errLoc || errVis || statusErro.houveErro) {
+      throw new Error('Falha ao buscar dados básicos da rota do cobrador');
+    }
+    const clienteIds = clientes.map(c => c.id);
+    if (!clienteIds.length) {
+      const semClientesHtml = '<p style="color:#888;text-align:center;padding:2rem;">Nenhum cliente na sua rota.</p>';
+      conteudo.innerHTML = _fichasStatusHtml(Date.now(), false) + semClientesHtml;
+      salvarCacheFichas(chaveCache, semClientesHtml);
+      return;
     }
 
-    const cli = mapaCliente[p.cliente_id];
-    if (!cli) return;
-    fichas.push({
-      cliente: cli, parcela: p, dataEf, venc,
-      atrasada: tipo === 'atrasada',
-      remarcada: tipo === 'remarcada',
-      rolada: false
-    });
-  });
+    const parcelas = await buscarInLotes(clienteIds, lote => sb.from('parcelas')
+      .select('id, cliente_id, venda_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
+      .in('cliente_id', lote).eq('pago', false).neq('status', 'devolvida').order('id'));
 
-  // Venda nova = nenhuma parcela cobrada E nenhuma visita registrada (cobrador ainda não mexeu)
-  const vendaIds = [...new Set(fichas.map(f => f.parcela.venda_id).filter(Boolean))];
-  const vendasInteragidas = new Set();
-  if (vendaIds.length) {
-    // 1) vendas com alguma parcela cobrada (total ou parcial)
-    const parcVendas = await buscarInLotes(vendaIds, lote => sb.from('parcelas')
-      .select('id, venda_id, pago, valor_pago')
-      .in('venda_id', lote).order('id'));
-    const parcelaToVenda = {};
-    parcVendas.forEach(p => {
-      parcelaToVenda[p.id] = p.venda_id;
-      if (p.pago || Number(p.valor_pago||0) > 0) vendasInteragidas.add(p.venda_id);
-    });
-    // 2) vendas onde o cobrador já registrou alguma visita ("não recebi" / remarcação)
-    const parcelaIds = parcVendas.map(p => p.id);
-    if (parcelaIds.length) {
-      const vis = await buscarInLotes(parcelaIds, lote => sb.from('visitas_agendadas')
-        .select('parcela_id')
-        .in('parcela_id', lote).order('parcela_id'));
-      vis.forEach(v => {
-        const vid = parcelaToVenda[v.parcela_id];
-        if (vid) vendasInteragidas.add(vid);
+    const mapaRemarque = {};
+    (visitas||[]).forEach(v => { if (v.parcela_id && !mapaRemarque[v.parcela_id]) mapaRemarque[v.parcela_id] = v.data_agendada; });
+
+    const inicio = new Date(caixa.ciclo_inicio + 'T12:00:00');
+    const fim = new Date(caixa.ciclo_fim + 'T12:00:00');
+
+    const mapaCliente = {};
+    (clientes||[]).forEach(c => mapaCliente[c.id] = c);
+
+    const fichas = [];
+    (parcelas||[]).forEach(p => {
+      const remarque = mapaRemarque[p.id];
+      const venc = new Date(p.data_vencimento + 'T12:00:00');
+      let dataEf, tipo;
+
+      if (remarque) {
+        dataEf = new Date(remarque + 'T12:00:00');
+        tipo = 'remarcada';
+        if (dataEf < inicio || dataEf > fim) return;
+        if (cicloDoDia(dataEf.getDate()).chave !== cicloChave) return;
+      } else if (venc >= inicio) {
+        dataEf = venc;
+        tipo = 'normal';
+        if (dataEf < inicio || dataEf > fim) return;
+        if (cicloDoDia(dataEf.getDate()).chave !== cicloChave) return;
+      } else {
+        dataEf = venc;
+        tipo = 'atrasada';
+      }
+
+      const cli = mapaCliente[p.cliente_id];
+      if (!cli) return;
+      fichas.push({
+        cliente: cli, parcela: p, dataEf, venc,
+        atrasada: tipo === 'atrasada',
+        remarcada: tipo === 'remarcada',
+        rolada: false
       });
+    });
+
+    // Venda nova = nenhuma parcela cobrada E nenhuma visita registrada (cobrador ainda não mexeu)
+    const vendaIds = [...new Set(fichas.map(f => f.parcela.venda_id).filter(Boolean))];
+    const vendasInteragidas = new Set();
+    if (vendaIds.length) {
+      // 1) vendas com alguma parcela cobrada (total ou parcial)
+      const parcVendas = await buscarInLotes(vendaIds, lote => sb.from('parcelas')
+        .select('id, venda_id, pago, valor_pago')
+        .in('venda_id', lote).order('id'));
+      const parcelaToVenda = {};
+      parcVendas.forEach(p => {
+        parcelaToVenda[p.id] = p.venda_id;
+        if (p.pago || Number(p.valor_pago||0) > 0) vendasInteragidas.add(p.venda_id);
+      });
+      // 2) vendas onde o cobrador já registrou alguma visita ("não recebi" / remarcação)
+      const parcelaIds = parcVendas.map(p => p.id);
+      if (parcelaIds.length) {
+        const vis = await buscarInLotes(parcelaIds, lote => sb.from('visitas_agendadas')
+          .select('parcela_id')
+          .in('parcela_id', lote).order('parcela_id'));
+        vis.forEach(v => {
+          const vid = parcelaToVenda[v.parcela_id];
+          if (vid) vendasInteragidas.add(vid);
+        });
+      }
     }
+    fichas.forEach(f => {
+      f.novaVenda = f.parcela.venda_id && !vendasInteragidas.has(f.parcela.venda_id);
+    });
+
+    if (!fichas.length) {
+      const semFichasHtml = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:40px;margin-bottom:.5rem;">📭</div><div style="font-size:14px;">Nenhuma ficha para cobrar nesta caixa.</div></div>';
+      conteudo.innerHTML = _fichasStatusHtml(Date.now(), false) + semFichasHtml;
+      salvarCacheFichas(chaveCache, semFichasHtml);
+      return;
+    }
+
+    let html = '';
+    (localidades||[]).forEach(loc => {
+      const fLoc = fichas.filter(f => f.cliente.localidade_id === loc.id);
+      if (fLoc.length) html += secaoFichasHtml('🏘️ ' + loc.nome, fLoc, '#185FA5', '#E6F1FB');
+    });
+    const semLoc = fichas.filter(f => !f.cliente.localidade_id);
+    if (semLoc.length) html += secaoFichasHtml('📋 Sem localidade', semLoc, '#888', '#f0f0f0');
+
+    conteudo.innerHTML = _fichasStatusHtml(Date.now(), false) + html;
+    assinarImagens(conteudo);
+    salvarCacheFichas(chaveCache, html);
+  } catch (e) {
+    Logger.error('cobrador', 'RENDER_CICLO_FICHAS', 'Falha ao atualizar fichas', { error_message: e?.message });
+    if (!cache) {
+      conteudo.innerHTML = '<p style="color:#A32D2D;text-align:center;padding:2rem;">Erro ao carregar fichas. Verifique sua conexão.</p>'
+        + '<button class="btn primario" style="display:block;margin:.5rem auto 0;" onclick="atualizarFichasCobrador()">🔄 Tentar novamente</button>';
+    }
+    // Se já tinha cache mostrado, mantém — o cobrador continua vendo os dados
+    // da última vez em vez de uma tela de erro por causa de uma falha pontual.
   }
-  fichas.forEach(f => {
-    f.novaVenda = f.parcela.venda_id && !vendasInteragidas.has(f.parcela.venda_id);
-  });
-
-  if (!fichas.length) {
-    conteudo.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:40px;margin-bottom:.5rem;">📭</div><div style="font-size:14px;">Nenhuma ficha para cobrar nesta caixa.</div></div>';
-    return;
-  }
-
-  let html = '';
-  (localidades||[]).forEach(loc => {
-    const fLoc = fichas.filter(f => f.cliente.localidade_id === loc.id);
-    if (fLoc.length) html += secaoFichasHtml('🏘️ ' + loc.nome, fLoc, '#185FA5', '#E6F1FB');
-  });
-  const semLoc = fichas.filter(f => !f.cliente.localidade_id);
-  if (semLoc.length) html += secaoFichasHtml('📋 Sem localidade', semLoc, '#888', '#f0f0f0');
-
-  conteudo.innerHTML = html;
-  assinarImagens(conteudo);
 }
 
 function secaoFichasHtml(titulo, fichas, cor, bg) {
