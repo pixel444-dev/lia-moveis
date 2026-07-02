@@ -593,6 +593,7 @@ tr:hover td{background:#fafafa;}
       <select id="ficha-metodo" onchange="trocarMetodoFicha()" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
         <option value="venda">Código da venda</option>
         <option value="cliente">Cliente (nome, código ou CPF)</option>
+        <option value="periodo">Período de vendas (várias fichas)</option>
       </select>
     </div>
     <div id="ficha-busca-venda-wrap" style="display:flex;gap:8px;">
@@ -603,8 +604,20 @@ tr:hover td{background:#fafafa;}
       <input id="ficha-busca-cliente" type="text" class="busca" placeholder="Nome, código ou CPF do cliente" style="max-width:300px;">
       <button class="btn primario" onclick="buscarClienteFicha()">Buscar cliente</button>
     </div>
+    <div id="ficha-busca-periodo-wrap" style="display:none;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <div class="campo" style="margin-bottom:0;">
+        <label style="font-size:12px;">De</label>
+        <input id="ficha-periodo-de" type="date" style="padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+      </div>
+      <div class="campo" style="margin-bottom:0;">
+        <label style="font-size:12px;">Até</label>
+        <input id="ficha-periodo-ate" type="date" style="padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+      </div>
+      <button class="btn primario" onclick="buscarVendasPeriodoFicha()">Buscar vendas do período</button>
+    </div>
   </div>
   <div id="ficha-resultado-clientes"></div>
+  <div id="ficha-resultado-periodo"></div>
   <div id="resultado-ficha"></div>
   <div id="preview-ficha"></div>
 </div>
@@ -6994,15 +7007,19 @@ async function imprimirCarne() {
 
 // ===== FICHA DO CLIENTE (frente: dados da venda / verso: dados do cliente) =====
 let _fichaAtual = null;
+let _vendasPeriodoAtual = [];
 
 function trocarMetodoFicha() {
   const metodo = document.getElementById('ficha-metodo').value;
   document.getElementById('ficha-busca-venda-wrap').style.display = metodo === 'venda' ? 'flex' : 'none';
   document.getElementById('ficha-busca-cliente-wrap').style.display = metodo === 'cliente' ? 'flex' : 'none';
+  document.getElementById('ficha-busca-periodo-wrap').style.display = metodo === 'periodo' ? 'flex' : 'none';
   document.getElementById('ficha-resultado-clientes').innerHTML = '';
+  document.getElementById('ficha-resultado-periodo').innerHTML = '';
   document.getElementById('resultado-ficha').innerHTML = '';
   document.getElementById('preview-ficha').innerHTML = '';
   _fichaAtual = null;
+  _vendasPeriodoAtual = [];
 }
 
 async function buscarVendaFicha() {
@@ -7071,7 +7088,7 @@ async function buscarVendaFichaPorId(vendaId) {
   await carregarFichaDaVenda(data);
 }
 
-async function carregarFichaDaVenda(venda) {
+async function montarFichaDeVenda(venda) {
   const cliente = venda.clientes || {};
   const [{ data: parcelas }, { data: itens }, locRes] = await Promise.all([
     sb.from('parcelas').select('*').eq('venda_id', venda.id).order('numero'),
@@ -7080,7 +7097,11 @@ async function carregarFichaDaVenda(venda) {
       ? sb.from('localidades').select('nome').eq('id', cliente.localidade_id).single()
       : Promise.resolve({ data: null }),
   ]);
-  _fichaAtual = { venda, cliente, parcelas: parcelas || [], itens: itens || [], localidadeNome: locRes?.data?.nome || '' };
+  return { venda, cliente, parcelas: parcelas || [], itens: itens || [], localidadeNome: locRes?.data?.nome || '' };
+}
+
+async function carregarFichaDaVenda(venda) {
+  _fichaAtual = await montarFichaDeVenda(venda);
   document.getElementById('resultado-ficha').innerHTML = `
     <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;">
       ✓ Venda encontrada — <strong>${_fichaAtual.cliente.nome || '—'}</strong> — ${venda.produto || '—'} — ${_fichaAtual.parcelas.length} parcela(s)
@@ -7129,6 +7150,79 @@ async function renderPreviewFicha() {
 
   document.getElementById('preview-ficha').innerHTML =
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' + frenteHtml + versoHtml + '</div>';
+}
+
+async function buscarVendasPeriodoFicha() {
+  const de = document.getElementById('ficha-periodo-de').value;
+  const ate = document.getElementById('ficha-periodo-ate').value;
+  if (!de || !ate) { alert('Selecione as duas datas do período!'); return; }
+  if (de > ate) { alert('A data inicial não pode ser depois da data final!'); return; }
+  document.getElementById('resultado-ficha').innerHTML = '';
+  document.getElementById('preview-ficha').innerHTML = '';
+  document.getElementById('ficha-resultado-periodo').innerHTML = '<p style="color:#888;padding:.5rem;">🔍 Buscando vendas do período...</p>';
+  const { data, error } = await sb.from('vendas')
+    .select('*, clientes(*), funcionarios(nome)')
+    .gte('data_venda', de)
+    .lte('data_venda', ate)
+    .neq('status', 'devolvida')
+    .order('data_venda');
+  _vendasPeriodoAtual = data || [];
+  if (error) {
+    document.getElementById('ficha-resultado-periodo').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Erro ao buscar vendas do período.</p>';
+    return;
+  }
+  if (!_vendasPeriodoAtual.length) {
+    document.getElementById('ficha-resultado-periodo').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhuma venda encontrada nesse período.</p>';
+    return;
+  }
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  document.getElementById('ficha-resultado-periodo').innerHTML = `
+    <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.75rem;margin-bottom:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;color:#555;">${_vendasPeriodoAtual.length} venda(s) encontrada(s) — desmarque as que não quer imprimir:</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" style="font-size:11px;" onclick="marcarTodasVendasPeriodo(true)">Marcar todas</button>
+          <button class="btn" style="font-size:11px;" onclick="marcarTodasVendasPeriodo(false)">Desmarcar todas</button>
+        </div>
+      </div>
+      <div style="max-height:340px;overflow-y:auto;">
+        ${_vendasPeriodoAtual.map((v, i) => `
+          <label style="display:flex;align-items:center;gap:10px;padding:.5rem .25rem;border-bottom:1px solid #f0f0f0;cursor:pointer;">
+            <input type="checkbox" class="ficha-periodo-check" data-idx="${i}" checked>
+            <div style="flex:1;">
+              <strong style="font-size:13px;">Venda #${v.codigo}</strong> — ${v.clientes?.nome || '—'}
+              <div style="font-size:11px;color:#888;">${v.produto || '—'} · ${new Date(v.data_venda + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
+            </div>
+            <span style="font-size:13px;font-weight:600;">${fmtMoeda(v.valor)}</span>
+          </label>`).join('')}
+      </div>
+      <button class="btn primario" style="width:100%;margin-top:.75rem;padding:12px;font-size:14px;" id="btn-imprimir-fichas-periodo" onclick="imprimirFichasPeriodo()">🖨️ Imprimir fichas selecionadas</button>
+      <div style="font-size:11px;color:#666;margin-top:6px;">💡 Cada ficha ocupa meia folha A4 (duas fichas por folha). Imprima em <strong>frente e verso, virando na borda longa</strong>, e corte cada folha ao meio.</div>
+    </div>`;
+}
+
+function marcarTodasVendasPeriodo(marcar) {
+  document.querySelectorAll('.ficha-periodo-check').forEach(cb => { cb.checked = marcar; });
+}
+
+async function imprimirFichasPeriodo() {
+  const idxsSelecionados = Array.from(document.querySelectorAll('.ficha-periodo-check'))
+    .filter(cb => cb.checked)
+    .map(cb => Number(cb.dataset.idx));
+  if (!idxsSelecionados.length) { alert('Selecione ao menos uma venda para imprimir.'); return; }
+  const btn = document.getElementById('btn-imprimir-fichas-periodo');
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = `Gerando ${idxsSelecionados.length} ficha(s)...`;
+  try {
+    const fichas = await Promise.all(idxsSelecionados.map(i => montarFichaDeVenda(_vendasPeriodoAtual[i])));
+    const de = document.getElementById('ficha-periodo-de').value;
+    const ate = document.getElementById('ficha-periodo-ate').value;
+    await gerarPdfFichas(fichas, `fichas_${de}_a_${ate}.pdf`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
 }
 
 function _fichaFmtData(d) {
