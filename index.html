@@ -7169,6 +7169,47 @@ async function gerarPdfFichas(fichas, nomeArquivo) {
     doc.setLineDashPattern([], 0);
   };
 
+  // Larguras de barras/espaços do Code 128 (índices 0–106; início B = 104, parada à parte)
+  const C128_LARGURAS = [
+    '212222','222122','222221','121223','121322','131222','122213','122312','132212','221213',
+    '221312','231212','112232','122132','122231','113222','123122','123221','223211','221132',
+    '221231','213212','223112','312131','311222','321122','321221','312212','322112','322211',
+    '212123','212321','232121','111323','131123','131321','112313','132113','132311','211313',
+    '231113','231311','112133','112331','132131','113123','113321','133121','313121','211331',
+    '231131','213113','213311','213131','311123','311321','331121','312113','312311','332111',
+    '314111','221411','431111','111224','111422','121124','121421','141122','141221','112214',
+    '112412','122114','122411','142112','142211','241211','221114','413111','241112','134111',
+    '111242','121142','121241','114212','124112','124211','411212','421112','421211','212141',
+    '214121','412121','111143','111341','131141','114113','114311','411113','411311','113141',
+    '114131','311141','411131','211412','211214','211232'
+  ];
+  const C128_PARADA = '2331112';
+
+  // Desenha um código de barras Code 128 (conjunto B) centralizado em xCentro
+  const desenharCodigoBarras = (texto, xCentro, yTopo, alturaMm, larguraMaxMm) => {
+    const valores = [104]; // início do conjunto B
+    for (const ch of String(texto)) {
+      const v = ch.charCodeAt(0) - 32;
+      if (v >= 0 && v <= 94) valores.push(v);
+    }
+    if (valores.length < 2) return;
+    let soma = valores[0];
+    for (let i = 1; i < valores.length; i++) soma += valores[i] * i;
+    valores.push(soma % 103);
+    const seqs = valores.map(v => C128_LARGURAS[v]).concat([C128_PARADA]);
+    const totalModulos = seqs.reduce((a, s) => a + [...s].reduce((b, c) => b + Number(c), 0), 0);
+    const mw = Math.min(0.5, larguraMaxMm / totalModulos);
+    let x = xCentro - (totalModulos * mw) / 2;
+    doc.setFillColor(0, 0, 0);
+    seqs.forEach(s => {
+      [...s].forEach((c, i) => {
+        const w = Number(c) * mw;
+        if (i % 2 === 0) doc.rect(x, yTopo, w, alturaMm, 'F');
+        x += w;
+      });
+    });
+  };
+
   // Texto em negrito que encolhe até caber no espaço disponível (nunca quebra linha)
   const textoAjustado = (texto, x, y, maxW, fs, opts) => {
     let size = fs;
@@ -7196,13 +7237,17 @@ async function gerarPdfFichas(fichas, nomeArquivo) {
     const { venda, cliente, parcelas, itens } = fi;
     doc.setTextColor(0);
 
-    // Linha do topo: Nome / Código / Nº
-    campo('Nome', cliente.nome, 8, 116, oy + 11, 9, 11);
-    campo('Código', cliente.codigo, 120, 156, oy + 11, 9, 11);
-    campo('Nº', venda.codigo, 160, 202, oy + 11, 9, 11);
+    // Linha do topo: Nome / Código à esquerda; código de barras da venda à direita
+    campo('Nome', cliente.nome, 8, 100, oy + 13, 9, 11);
+    campo('Código', cliente.codigo, 104, 146, oy + 13, 9, 11);
+    desenharCodigoBarras(venda.codigo, 176, oy + 5.5, 7.5, 48);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(0);
+    doc.text('Nº  ' + (venda.codigo || ''), 176, oy + 16.4, { align: 'center' });
 
     // Tabela de mercadorias: Quant. | Mercadorias | Valor (3 linhas)
-    const yT = oy + 16, hCab = 7, hLin = 7;
+    const yT = oy + 18.5, hCab = 7, hLin = 7;
     doc.setDrawColor(0);
     doc.setLineWidth(0.5);
     doc.rect(8, yT, 194, hCab + hLin * 3);
@@ -7250,7 +7295,7 @@ async function gerarPdfFichas(fichas, nomeArquivo) {
     // Grade de pagamentos: valor e vencimento de cada parcela em fonte grande;
     // Av e Ass. Cobr. ficam em branco para preencher na cobrança
     const yObs = oy + 128, hObs = 16.5;
-    const yPay = oy + 55.5, hCabP = 7;
+    const yPay = oy + 58, hCabP = 7;
     const preencher = (fCfg.mostrar_parcelas ?? true) && (parcelas || []).length;
     const nRows = preencher ? Math.max(parcelas.length, 8) : 8;
     const hRow = (yObs - 2.5 - yPay - hCabP) / nRows;
