@@ -7415,23 +7415,38 @@ async function gerarPdfFichas(fichas, nomeArquivo) {
     doc.setLineWidth(0.25);
     for (let i = 1; i < nRows; i++) doc.line(xCols, yPay + hCabP + hRow * i, 202, yPay + hCabP + hRow * i);
     // Valor e data das parcelas, grandes e em negrito, centralizados na célula.
-    // Parcela já paga: mostra o valor e a data reais do pagamento (em verde,
-    // como quitado); parcela em aberto: mostra o valor e o vencimento previstos.
+    // Quitada: valor e data reais do pagamento, em verde, com "PAGO" na coluna Av.
+    // Parcial: valor já recebido (ainda falta quitar), em âmbar, com "PARC." na Av
+    // e o vencimento continua na coluna Data Pg. (ainda é a referência de cobrança).
+    // Em aberto: valor e vencimento previstos, em preto, sem marca na Av.
     if (preencher) {
       const fsCell = Math.max(9, Math.min(14, hRow * 1.55));
       doc.setFont('helvetica', 'bold');
       parcelas.forEach((p, i) => {
         const yc = yPay + hCabP + hRow * i + hRow / 2 + fsCell * 0.125;
         const quitada = !!p.pago;
-        const valorCel = quitada ? (Number(p.valor_pago) || Number(p.valor)) : p.valor;
-        const dataCel = quitada ? (p.data_pagamento || p.data_vencimento) : p.data_vencimento;
+        const parcial = !quitada && Number(p.valor_pago) > 0;
+        let valorCel, dataCel, cor, tag;
+        if (quitada) {
+          valorCel = Number(p.valor_pago) || Number(p.valor);
+          dataCel = p.data_pagamento || p.data_vencimento;
+          cor = [27, 94, 32]; tag = 'PAGO';
+        } else if (parcial) {
+          valorCel = Number(p.valor_pago);
+          dataCel = p.data_vencimento;
+          cor = [154, 90, 7]; tag = 'PARC.';
+        } else {
+          valorCel = p.valor;
+          dataCel = p.data_vencimento;
+          cor = [0, 0, 0]; tag = '';
+        }
         doc.setFontSize(fsCell);
-        doc.setTextColor(quitada ? 27 : 0, quitada ? 94 : 0, quitada ? 32 : 0);
+        doc.setTextColor(cor[0], cor[1], cor[2]);
         doc.text(fmtMoeda(valorCel), (colValor[0] + colValor[1]) / 2, yc, { align: 'center' });
         doc.text(_fichaFmtData(dataCel), (colData[0] + colData[1]) / 2, yc, { align: 'center' });
-        if (quitada) {
+        if (tag) {
           doc.setFontSize(Math.min(9, fsCell * 0.75));
-          doc.text('PAGO', (colAv[0] + colAv[1]) / 2, yc, { align: 'center' });
+          doc.text(tag, (colAv[0] + colAv[1]) / 2, yc, { align: 'center' });
         }
       });
       doc.setTextColor(0);
