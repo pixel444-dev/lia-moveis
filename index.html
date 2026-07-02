@@ -7091,7 +7091,7 @@ async function buscarVendaFichaPorId(vendaId) {
 async function montarFichaDeVenda(venda) {
   const cliente = venda.clientes || {};
   const [{ data: parcelas }, { data: itens }, locRes] = await Promise.all([
-    sb.from('parcelas').select('*').eq('venda_id', venda.id).order('numero'),
+    sb.from('parcelas').select('*, funcionarios(nome)').eq('venda_id', venda.id).order('numero'),
     sb.from('venda_itens').select('produto, quantidade').eq('venda_id', venda.id),
     cliente.localidade_id
       ? sb.from('localidades').select('nome').eq('id', cliente.localidade_id).single()
@@ -7407,23 +7407,47 @@ async function gerarPdfFichas(fichas, nomeArquivo) {
     doc.line(colAss[0], yPay, colAss[0], yPay + hTab);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.text('Valor Pago', (colValor[0] + colValor[1]) / 2, yPay + 5, { align: 'center' });
+    doc.text('Valor Parcela', (colValor[0] + colValor[1]) / 2, yPay + 5, { align: 'center' });
     doc.text('Data Pg.', (colData[0] + colData[1]) / 2, yPay + 5, { align: 'center' });
     doc.text('Av', (colAv[0] + colAv[1]) / 2, yPay + 5, { align: 'center' });
     doc.text('Ass. Cobr.', (colAss[0] + colAss[1]) / 2, yPay + 5, { align: 'center' });
     doc.setDrawColor(80);
     doc.setLineWidth(0.25);
     for (let i = 1; i < nRows; i++) doc.line(xCols, yPay + hCabP + hRow * i, 202, yPay + hCabP + hRow * i);
-    // Valor e vencimento das parcelas, grandes e em negrito, centralizados na célula
+    // "Valor Parcela" e "Data Pg." são sempre o valor e o vencimento programados
+    // da parcela (o plano de pagamento), em fonte grande — a cor só sinaliza o
+    // status. "Av" recebe o valor efetivamente pago (parcial ou integral).
+    // "Ass. Cobr." recebe quem recebeu e a data da baixa, quando quitada.
     if (preencher) {
       const fsCell = Math.max(9, Math.min(14, hRow * 1.55));
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(fsCell);
+      const fsAv = Math.min(10, fsCell * 0.85);
+      const fsAss = Math.min(9, fsCell * 0.7);
       parcelas.forEach((p, i) => {
         const yc = yPay + hCabP + hRow * i + hRow / 2 + fsCell * 0.125;
+        const quitada = !!p.pago;
+        const parcial = !quitada && Number(p.valor_pago) > 0;
+        const cor = quitada ? [27, 94, 32] : parcial ? [154, 90, 7] : [0, 0, 0];
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(fsCell);
+        doc.setTextColor(cor[0], cor[1], cor[2]);
         doc.text(fmtMoeda(p.valor), (colValor[0] + colValor[1]) / 2, yc, { align: 'center' });
         doc.text(_fichaFmtData(p.data_vencimento), (colData[0] + colData[1]) / 2, yc, { align: 'center' });
+
+        if (quitada || parcial) {
+          const valorPagoReal = Number(p.valor_pago) || (quitada ? Number(p.valor) : 0);
+          doc.setTextColor(cor[0], cor[1], cor[2]);
+          textoAjustado(fmtMoeda(valorPagoReal), (colAv[0] + colAv[1]) / 2, yc, colAv[1] - colAv[0] - 2, fsAv, { align: 'center' });
+        }
+        if (quitada) {
+          const infoCobr = [p.funcionarios?.nome, _fichaFmtData(p.data_pagamento)].filter(Boolean).join(' · ');
+          if (infoCobr) {
+            doc.setTextColor(cor[0], cor[1], cor[2]);
+            textoAjustado(infoCobr, colAss[0] + 2, yc, colAss[1] - colAss[0] - 4, fsAss);
+          }
+        }
       });
+      doc.setTextColor(0);
     }
     // Rótulo vertical + ponto de referência do cliente
     doc.setFont('helvetica', 'bold');
