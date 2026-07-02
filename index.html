@@ -3960,13 +3960,12 @@ async function buscarVendasFiltro() {
     return;
   }
   const idsClientes = clientesEncontrados.map(c => c.id);
-  const { data, error } = await sb.from('vendas')
+  const vendasEncontradas = await buscarInLotes(idsClientes, lote => sb.from('vendas')
     .select('*, clientes(nome, codigo), funcionarios(nome)')
-    .in('cliente_id', idsClientes)
-    .order('data_venda', { ascending: false })
-    .limit(200);
-  if (error) { lista.innerHTML = 'Erro ao buscar.'; return; }
-  todasVendas = data || [];
+    .in('cliente_id', lote)
+    .order('data_venda', { ascending: false }));
+  vendasEncontradas.sort((a, b) => String(b.data_venda || '').localeCompare(String(a.data_venda || '')));
+  todasVendas = vendasEncontradas.slice(0, 200);
   renderVendas(todasVendas);
 }
 
@@ -4112,9 +4111,38 @@ async function carregarCobrancas() {
 
 // ===== INTERFACE COBRADOR =====
 
+// O Supabase devolve no máximo 1000 linhas por consulta — pagina até trazer tudo.
+// montarQuery deve devolver um builder NOVO a cada chamada (builders acumulam estado).
+async function buscarTudoPaginado(montarQuery) {
+  const LOTE = 1000;
+  let todas = [];
+  for (let offset = 0; ; offset += LOTE) {
+    const { data, error } = await montarQuery().range(offset, offset + LOTE - 1);
+    if (error) return { data: todas, error };
+    todas = todas.concat(data || []);
+    if (!data || data.length < LOTE) return { data: todas, error: null };
+  }
+}
+
+// .in() com centenas de IDs estoura o tamanho máximo da URL e a consulta falha
+// inteira — divide em lotes e concatena os resultados (cada lote também paginado).
+async function buscarInLotes(ids, montarQueryLote, tamLote = 100) {
+  let todas = [];
+  let falhas = 0;
+  for (let i = 0; i < ids.length; i += tamLote) {
+    const lote = ids.slice(i, i + tamLote);
+    const { data, error } = await buscarTudoPaginado(() => montarQueryLote(lote));
+    if (error) { falhas++; Logger.warn('cobrador', 'BUSCA_LOTES', 'Falha em um lote da consulta', { error_message: error.message }); }
+    todas = todas.concat(data || []);
+  }
+  if (falhas) Logger.error('cobrador', 'BUSCA_LOTES', `${falhas} lote(s) falharam — resultado pode estar incompleto`, {});
+  return todas;
+}
+
 async function _clientesDoCobrador(campos) {
   const sel = campos || 'id, codigo, nome, telefone, foto_casa, localidade_id';
-  const { data: diretos, error: errDir } = await sb.from('clientes').select(sel).eq('cobrador_id', funcionarioLogado.id);
+  const { data: diretos, error: errDir } = await buscarTudoPaginado(() =>
+    sb.from('clientes').select(sel).eq('cobrador_id', funcionarioLogado.id).order('id'));
   if (errDir) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes diretos', { error_message: errDir.message });
 
   let porRota = [];
@@ -4123,7 +4151,8 @@ async function _clientesDoCobrador(campos) {
     const { data: muns } = await sb.from('rotas_municipios').select('municipio_id').in('rota_id', rotas.map(r => r.id));
     if (muns && muns.length) {
       const munIds = [...new Set(muns.map(m => m.municipio_id))];
-      const { data, error: errRota } = await sb.from('clientes').select(sel).in('municipio_id', munIds).is('cobrador_id', null);
+      const { data, error: errRota } = await buscarTudoPaginado(() =>
+        sb.from('clientes').select(sel).in('municipio_id', munIds).is('cobrador_id', null).order('id'));
       if (errRota) Logger.warn('cobrador', '_clientesDoCobrador', 'Erro ao buscar clientes por rota', { error_message: errRota.message });
       porRota = data || [];
     }
@@ -4555,14 +4584,14 @@ async function renderCicloSelecionado(cicloChave) {
     return;
   }
 
-  const { data: parcelas } = await sb.from('parcelas')
+  const parcelas = await buscarInLotes(clienteIds, lote => sb.from('parcelas')
     .select('id, cliente_id, venda_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
-    .in('cliente_id', clienteIds).eq('pago', false).neq('status', 'devolvida');
+    .in('cliente_id', lote).eq('pago', false).neq('status', 'devolvida').order('id'));
 
-  const { data: visitas } = await sb.from('visitas_agendadas')
+  const { data: visitas } = await buscarTudoPaginado(() => sb.from('visitas_agendadas')
     .select('parcela_id, data_agendada, concluida, criado_em')
     .eq('cobrador_id', funcionarioLogado.id).eq('concluida', false)
-    .order('criado_em', { ascending: false });
+    .order('criado_em', { ascending: false }));
   const mapaRemarque = {};
   (visitas||[]).forEach(v => { if (v.parcela_id && !mapaRemarque[v.parcela_id]) mapaRemarque[v.parcela_id] = v.data_agendada; });
 
@@ -4608,21 +4637,21 @@ async function renderCicloSelecionado(cicloChave) {
   const vendasInteragidas = new Set();
   if (vendaIds.length) {
     // 1) vendas com alguma parcela cobrada (total ou parcial)
-    const { data: parcVendas } = await sb.from('parcelas')
+    const parcVendas = await buscarInLotes(vendaIds, lote => sb.from('parcelas')
       .select('id, venda_id, pago, valor_pago')
-      .in('venda_id', vendaIds);
+      .in('venda_id', lote).order('id'));
     const parcelaToVenda = {};
-    (parcVendas||[]).forEach(p => {
+    parcVendas.forEach(p => {
       parcelaToVenda[p.id] = p.venda_id;
       if (p.pago || Number(p.valor_pago||0) > 0) vendasInteragidas.add(p.venda_id);
     });
     // 2) vendas onde o cobrador já registrou alguma visita ("não recebi" / remarcação)
-    const parcelaIds = (parcVendas||[]).map(p => p.id);
+    const parcelaIds = parcVendas.map(p => p.id);
     if (parcelaIds.length) {
-      const { data: vis } = await sb.from('visitas_agendadas')
+      const vis = await buscarInLotes(parcelaIds, lote => sb.from('visitas_agendadas')
         .select('parcela_id')
-        .in('parcela_id', parcelaIds);
-      (vis||[]).forEach(v => {
+        .in('parcela_id', lote).order('parcela_id'));
+      vis.forEach(v => {
         const vid = parcelaToVenda[v.parcela_id];
         if (vid) vendasInteragidas.add(vid);
       });
@@ -4704,15 +4733,18 @@ async function carregarClientesPorLocalidade() {
     return;
   }
 
-  var parcelasRes = await sb.from('parcelas')
-    .select('cliente_id, valor, data_vencimento')
-    .in('cliente_id', clienteIds)
-    .eq('pago', false)
-    .neq('status', 'devolvida');
+  var parcelasPend = await buscarInLotes(clienteIds, function(lote) {
+    return sb.from('parcelas')
+      .select('cliente_id, valor, data_vencimento')
+      .in('cliente_id', lote)
+      .eq('pago', false)
+      .neq('status', 'devolvida')
+      .order('id');
+  });
 
   var mapaParcelas = {};
   var hoje = new Date();
-  (parcelasRes.data || []).forEach(function(p) {
+  parcelasPend.forEach(function(p) {
     if (!mapaParcelas[p.cliente_id]) mapaParcelas[p.cliente_id] = { total: 0, atrasadas: 0 };
     mapaParcelas[p.cliente_id].total++;
     if (new Date(p.data_vencimento + 'T12:00:00') < hoje) mapaParcelas[p.cliente_id].atrasadas++;
@@ -6117,22 +6149,22 @@ async function calcularPendentesRemarcados(caixaId) {
   const fimCx = new Date(caixaInfo.ciclo_fim + 'T23:59:59');
   const hojeCx = new Date(); hojeCx.setHours(12,0,0,0);
 
-  const { data: clientesCob } = await sb.from('clientes').select('id, nome').eq('cobrador_id', cobradorId);
+  const { data: clientesCob } = await buscarTudoPaginado(() =>
+    sb.from('clientes').select('id, nome').eq('cobrador_id', cobradorId).order('id'));
   const idsCli = (clientesCob||[]).map(c => c.id);
   const mapaNome = {}; (clientesCob||[]).forEach(c => mapaNome[c.id] = c.nome);
 
   let parcelasAbertas = [];
   if (idsCli.length) {
-    const { data } = await sb.from('parcelas')
+    parcelasAbertas = await buscarInLotes(idsCli, lote => sb.from('parcelas')
       .select('id, cliente_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
-      .in('cliente_id', idsCli).eq('pago', false).neq('status','devolvida');
-    parcelasAbertas = data || [];
+      .in('cliente_id', lote).eq('pago', false).neq('status','devolvida').order('id'));
   }
 
-  const { data: visitasCob } = await sb.from('visitas_agendadas')
+  const { data: visitasCob } = await buscarTudoPaginado(() => sb.from('visitas_agendadas')
     .select('parcela_id, cliente_id, motivo, observacao, data_agendada, concluida, criado_em')
     .eq('cobrador_id', cobradorId).eq('concluida', false)
-    .order('criado_em', { ascending: false });
+    .order('criado_em', { ascending: false }));
 
   const remarcados = (visitasCob||[]).filter(v => new Date(v.criado_em) >= iniCx);
   const parcelasRemarcadas = new Set(remarcados.map(v => v.parcela_id));
