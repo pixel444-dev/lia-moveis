@@ -1792,9 +1792,14 @@ async function _processarFotoBase(file, blobKey, previewId, wrapId, msgId) {
   }
 }
 
-function processarFoto(input) {
+async function processarFoto(input) {
   if (!input.files || !input.files[0]) return;
-  _processarFotoBase(input.files[0], '_fotoCasaBlob', 'foto-preview', 'foto-preview-wrap', 'msg-foto');
+  input.disabled = true;
+  try {
+    await _processarFotoBase(input.files[0], '_fotoCasaBlob', 'foto-preview', 'foto-preview-wrap', 'msg-foto');
+  } finally {
+    input.disabled = false;
+  }
 }
 
 function removerFoto() {
@@ -1809,9 +1814,14 @@ function removerFoto() {
   if (msg) msg.innerHTML = '';
 }
 
-function processarFotoVnc(input) {
+async function processarFotoVnc(input) {
   if (!input.files || !input.files[0]) return;
-  _processarFotoBase(input.files[0], '_vncFotoBlob', 'vnc-foto-preview', 'vnc-foto-preview-wrap', 'msg-foto-vnc');
+  input.disabled = true;
+  try {
+    await _processarFotoBase(input.files[0], '_vncFotoBlob', 'vnc-foto-preview', 'vnc-foto-preview-wrap', 'msg-foto-vnc');
+  } finally {
+    input.disabled = false;
+  }
 }
 
 function removerFotoVnc() {
@@ -4273,11 +4283,19 @@ async function validarGastoAlimentacao() {
 
 async function processarComprovanteGasto(input) {
   if (!input.files || !input.files[0]) return;
-  const blob = await comprimirArquivo(input.files[0]);
-  window._gastoComprovante = blob.dados;
-  window._gastoComprovanteExt = blob.ext;
-  document.getElementById('gasto-comprovante-preview').style.display = 'block';
-  document.getElementById('gasto-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF anexado' : 'Comprovante anexado';
+  input.disabled = true;
+  try {
+    const blob = await comprimirArquivo(input.files[0]);
+    window._gastoComprovante = blob.dados;
+    window._gastoComprovanteExt = blob.ext;
+    document.getElementById('gasto-comprovante-preview').style.display = 'block';
+    document.getElementById('gasto-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF anexado' : 'Comprovante anexado';
+  } catch (e) {
+    Logger.warn('cobrador', 'PROCESSAR_COMPROVANTE_GASTO', 'Erro ao processar comprovante', { msg: e.message });
+    alert('Erro ao processar o comprovante. Tente novamente ou tire a foto com menos resolução.');
+  } finally {
+    input.disabled = false;
+  }
 }
 
 function removerComprovanteGasto() {
@@ -4351,11 +4369,19 @@ function abrirRegistrarDeposito() {
 
 async function processarComprovanteDeposito(input) {
   if (!input.files || !input.files[0]) return;
-  const blob = await comprimirArquivo(input.files[0]);
-  window._depositoComprovante = blob.dados;
-  window._depositoComprovanteExt = blob.ext;
-  document.getElementById('deposito-comprovante-preview').style.display = 'block';
-  document.getElementById('deposito-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF anexado' : 'Comprovante anexado';
+  input.disabled = true;
+  try {
+    const blob = await comprimirArquivo(input.files[0]);
+    window._depositoComprovante = blob.dados;
+    window._depositoComprovanteExt = blob.ext;
+    document.getElementById('deposito-comprovante-preview').style.display = 'block';
+    document.getElementById('deposito-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF anexado' : 'Comprovante anexado';
+  } catch (e) {
+    Logger.warn('cobrador', 'PROCESSAR_COMPROVANTE_DEPOSITO', 'Erro ao processar comprovante', { msg: e.message });
+    alert('Erro ao processar o comprovante. Tente novamente ou tire a foto com menos resolução.');
+  } finally {
+    input.disabled = false;
+  }
 }
 
 function removerComprovanteDeposito() {
@@ -5704,6 +5730,7 @@ async function processarComprovante(input) {
   const iconeEl = document.getElementById('comprovante-icone');
   const imgPreview = document.getElementById('comprovante-img-preview');
 
+  input.disabled = true;
   try {
     if (ehPDF) {
       window._comprovanteBlob = file;
@@ -5742,6 +5769,8 @@ async function processarComprovante(input) {
   } catch (e) {
     Logger.error('cobrador', 'PROCESSAR_COMPROVANTE', 'Erro ao processar comprovante', { erro: e.message });
     alert('Erro ao processar o comprovante. Tente novamente.');
+  } finally {
+    input.disabled = false;
   }
 }
 
@@ -6425,12 +6454,20 @@ async function carregarConfigImpressao() {
 
 async function processarLogoConfig(input) {
   if (!input.files || !input.files[0]) return;
-  const blob = await comprimirArquivo(input.files[0]);
-  const url = await uploadArquivoComprovante('comprovantes', `config_logo_${Date.now()}.${blob.ext}`, blob.dados, blob.ext);
-  if (!url) { alert('Erro ao enviar a logo.'); return; }
-  document.getElementById('cfg-logo-url').value = url;
-  const prev = document.getElementById('cfg-logo-preview');
-  prev.src = url; prev.style.display = 'block';
+  input.disabled = true;
+  try {
+    const blob = await comprimirArquivo(input.files[0]);
+    const url = await uploadArquivoComprovante('comprovantes', `config_logo_${Date.now()}.${blob.ext}`, blob.dados, blob.ext);
+    if (!url) { alert('Erro ao enviar a logo.'); return; }
+    document.getElementById('cfg-logo-url').value = url;
+    const prev = document.getElementById('cfg-logo-preview');
+    prev.src = url; prev.style.display = 'block';
+  } catch (e) {
+    Logger.warn('config', 'PROCESSAR_LOGO', 'Erro ao processar logo', { msg: e.message });
+    alert('Erro ao processar a imagem. Tente novamente.');
+  } finally {
+    input.disabled = false;
+  }
 }
 
 async function salvarConfigImpressao() {
