@@ -1757,7 +1757,8 @@ async function _processarFotoBase(file, blobKey, previewId, wrapId, msgId) {
   const MAX_SIZE = 800;
   const QUALIDADE = 0.7;
   try {
-    const bitmap = await createImageBitmap(file);
+    // resizeWidth faz o navegador decodificar já reduzido, evitando estourar memória com fotos de câmeras de alta resolução
+    const bitmap = await createImageBitmap(file, { resizeWidth: 1600, resizeQuality: 'medium' });
     let w = bitmap.width, h = bitmap.height;
     if (w > MAX_SIZE || h > MAX_SIZE) {
       if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
@@ -4399,7 +4400,7 @@ async function confirmarDeposito() {
 async function comprimirArquivo(file) {
   if (file.type === 'application/pdf') return { dados: file, ext: 'pdf' };
   const MAX_SIZE = 1000;
-  const bitmap = await createImageBitmap(file);
+  const bitmap = await createImageBitmap(file, { resizeWidth: 1600, resizeQuality: 'medium' });
   let w = bitmap.width, h = bitmap.height;
   if (w > MAX_SIZE || h > MAX_SIZE) {
     if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
@@ -5712,7 +5713,7 @@ async function processarComprovante(input) {
       imgPreview.style.display = 'none';
     } else {
       const MAX_SIZE = 1000;
-      const bitmap = await createImageBitmap(file);
+      const bitmap = await createImageBitmap(file, { resizeWidth: 1600, resizeQuality: 'medium' });
       let w = bitmap.width, h = bitmap.height;
       if (w > MAX_SIZE || h > MAX_SIZE) {
         if (w > h) { h = Math.round(h * MAX_SIZE / w); w = MAX_SIZE; }
