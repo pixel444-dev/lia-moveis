@@ -1225,6 +1225,31 @@ const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ─── ESCAPE / ANTI-XSS ────────────────────────────────────────
+// Todo texto vindo do banco (nomes, endereços, produtos, etc.) é
+// preenchido por usuários e NUNCA pode ser injetado cru no HTML.
+// escHtml: para nós de texto e atributos entre aspas duplas.
+// escJs: para strings dentro de handlers inline, ex.: onclick="fn('...')".
+function escHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function escJs(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/[\r\n]+/g, ' ');
+}
+// ──────────────────────────────────────────────────────────────
+
 async function urlAssinada(bucket, valor, segundos = 3600) {
   if (!valor) return null;
   let path = valor;
@@ -1540,7 +1565,7 @@ async function iniciarSessao(user) {
   };
   const perfilLabel = { gestor: 'Gestor', vendedor: 'Vendedor', cobrador: 'Cobrador' }[perfilAtivo.perfil] || perfilAtivo.perfil;
   document.getElementById('info-usuario-logado').innerHTML =
-    `<div style="font-weight:500;color:#1a1a1a;">${funcionarioLogado.nome}</div><div style="color:#888;font-size:11px;">${perfilLabel}</div>`;
+    `<div style="font-weight:500;color:#1a1a1a;">${escHtml(funcionarioLogado.nome)}</div><div style="color:#888;font-size:11px;">${perfilLabel}</div>`;
   document.getElementById('tela-login').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('topbar-mobile').style.removeProperty('display');
@@ -1590,18 +1615,18 @@ async function carregarLogs(filtroLevel, filtroModulo) {
   el.innerHTML = !data.length
     ? '<p style="color:#888;padding:1rem;">Nenhum log encontrado.</p>'
     : data.map(function(l) {
-      const ctx = l.contexto ? '<details style="margin-top:6px;"><summary style="font-size:11px;color:#185FA5;cursor:pointer;">Ver contexto técnico</summary><pre style="font-size:10px;background:#f5f5f5;padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;white-space:pre-wrap;">' + JSON.stringify(l.contexto, null, 2) + '</pre></details>' : '';
+      const ctx = l.contexto ? '<details style="margin-top:6px;"><summary style="font-size:11px;color:#185FA5;cursor:pointer;">Ver contexto técnico</summary><pre style="font-size:10px;background:#f5f5f5;padding:8px;border-radius:6px;margin-top:4px;overflow-x:auto;white-space:pre-wrap;">' + escHtml(JSON.stringify(l.contexto, null, 2)) + '</pre></details>' : '';
       return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.875rem 1rem;margin-bottom:6px;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:4px;">'
         + '<div style="display:flex;align-items:center;gap:6px;">'
-        + '<span class="badge ' + (cores[l.level]||'cinza') + '">' + l.level.toUpperCase() + '</span>'
-        + '<span style="font-size:11px;font-weight:600;color:#555;">' + l.modulo + '</span>'
-        + '<span style="font-size:11px;color:#aaa;">→ ' + l.action + '</span>'
+        + '<span class="badge ' + (cores[l.level]||'cinza') + '">' + escHtml(String(l.level||'').toUpperCase()) + '</span>'
+        + '<span style="font-size:11px;font-weight:600;color:#555;">' + escHtml(l.modulo) + '</span>'
+        + '<span style="font-size:11px;color:#aaa;">→ ' + escHtml(l.action) + '</span>'
         + '</div>'
         + '<span style="font-size:11px;color:#aaa;">' + new Date(l.criado_em).toLocaleString('pt-BR') + '</span>'
         + '</div>'
-        + '<div style="font-size:13px;color:#1a1a1a;margin-bottom:4px;">' + l.mensagem + '</div>'
-        + '<div style="font-size:11px;color:#aaa;">ID: ' + l.request_id + ' · Perfil: ' + (l.user_perfil||'—') + '</div>'
+        + '<div style="font-size:13px;color:#1a1a1a;margin-bottom:4px;">' + escHtml(l.mensagem) + '</div>'
+        + '<div style="font-size:11px;color:#aaa;">ID: ' + escHtml(l.request_id) + ' · Perfil: ' + escHtml(l.user_perfil||'—') + '</div>'
         + ctx
         + '</div>';
     }).join('');
@@ -2103,7 +2128,7 @@ function _renderCobradores(lista) {
   if (!el) return;
   if (!lista.length) { el.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado.</p>'; return; }
   el.innerHTML = '<table class="dash-tabela"><thead><tr><th>Cobrador</th><th>Recebido</th><th>Em mãos</th></tr></thead><tbody>' +
-    lista.map(function(c) { return '<tr><td>' + c.nome + '</td><td>R$ ' + _brl(c.recebido) + '</td><td>R$ ' + _brl(c.em_maos) + '</td></tr>'; }).join('') +
+    lista.map(function(c) { return '<tr><td>' + escHtml(c.nome) + '</td><td>R$ ' + _brl(c.recebido) + '</td><td>R$ ' + _brl(c.em_maos) + '</td></tr>'; }).join('') +
     '</tbody></table>';
 }
 
@@ -2112,7 +2137,7 @@ function _renderVendedores(lista) {
   if (!el) return;
   if (!lista.length) { el.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado.</p>'; return; }
   el.innerHTML = '<table class="dash-tabela"><thead><tr><th>Vendedor</th><th>Qtd</th><th>Total</th></tr></thead><tbody>' +
-    lista.map(function(v) { return '<tr><td>' + v.nome + '</td><td>' + v.qtd + '</td><td>R$ ' + _brl(v.total) + '</td></tr>'; }).join('') +
+    lista.map(function(v) { return '<tr><td>' + escHtml(v.nome) + '</td><td>' + v.qtd + '</td><td>R$ ' + _brl(v.total) + '</td></tr>'; }).join('') +
     '</tbody></table>';
 }
 
@@ -2168,7 +2193,7 @@ async function trocarFiltroClientes() {
     campoPessoa.innerHTML = '<option value="">Carregando...</option>';
     const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', tipo).eq('ativo', true).order('nome');
     campoPessoa.innerHTML = `<option value="">Selecione o ${tipo === 'cobrador' ? 'cobrador' : 'vendedor'}...</option>` +
-      (data || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+      (data || []).map(f => `<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
   } else {
     campoPessoa.style.display = 'none';
     campoPessoa.innerHTML = '<option value="">Selecione...</option>';
@@ -2189,7 +2214,7 @@ async function carregarClientes() {
     const sel = document.getElementById('filtro-cobrador-clientes');
     const valorAtual = sel.value;
     sel.innerHTML = '<option value="">Todos os cobradores</option>' +
-      (cobradores || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+      (cobradores || []).map(f => `<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
     sel.value = valorAtual;
   }
   _configurarScrollClientes();
@@ -2272,7 +2297,7 @@ async function trocarFiltroGenerico(prefixo) {
     campoPessoa.innerHTML = '<option value="">Carregando...</option>';
     const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', tipo).eq('ativo', true).order('nome');
     campoPessoa.innerHTML = `<option value="">Selecione o ${tipo === 'cobrador' ? 'cobrador' : 'vendedor'}...</option>` +
-      (data || []).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+      (data || []).map(f => `<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
   } else {
     campoPessoa.style.display = 'none';
     campoPessoa.innerHTML = '<option value="">Selecione...</option>';
@@ -2293,8 +2318,8 @@ function buscarClientesComFiltro(prefixo, limite = 30) {
 function _htmlListaClientesGenerica(data, onClickFn) {
   return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.5rem;margin-bottom:1rem;">' +
     data.map(c => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="${onClickFn}('${c.id}')">
-        <div><strong style="font-size:13px;">${c.nome}</strong><div style="font-size:11px;color:#888;">${c.codigo||'—'} · ${c.cpf||'—'} · ${c.cidade||'—'}</div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="${onClickFn}('${escJs(c.id)}')">
+        <div><strong style="font-size:13px;">${escHtml(c.nome)}</strong><div style="font-size:11px;color:#888;">${escHtml(c.codigo||'—')} · ${escHtml(c.cpf||'—')} · ${escHtml(c.cidade||'—')}</div></div>
         <span style="font-size:12px;color:#185FA5;">Selecionar ›</span>
       </div>`).join('') +
     '</div>';
@@ -2305,8 +2330,8 @@ function _htmlListaVendasGenerica(vendas, onClickFn) {
   return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.5rem;margin-bottom:1rem;">' +
     '<div style="font-size:12px;color:#888;padding:.5rem .75rem;">Selecione a venda:</div>' +
     vendas.map(v => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="${onClickFn}('${v.id}','${v.codigo}')">
-        <div><strong style="font-size:13px;">Venda #${v.codigo}</strong><div style="font-size:11px;color:#888;">${v.produto||'—'} · ${new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR')}</div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="${onClickFn}('${escJs(v.id)}','${escJs(v.codigo)}')">
+        <div><strong style="font-size:13px;">Venda #${escHtml(v.codigo)}</strong><div style="font-size:11px;color:#888;">${escHtml(v.produto||'—')} · ${new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR')}</div></div>
         <span style="font-size:13px;font-weight:600;">${fmtMoeda(v.valor)}</span>
       </div>`).join('') +
     '</div>';
@@ -2316,22 +2341,22 @@ function renderClientes(lista) {
   const termo = (document.getElementById('busca-clientes').value || '').trim();
   if (!lista.length) {
     document.getElementById('lista-clientes').innerHTML = termo
-      ? '<p style="color:#888;padding:1rem;">Nenhum cliente encontrado para "' + termo + '".</p>'
+      ? '<p style="color:#888;padding:1rem;">Nenhum cliente encontrado para "' + escHtml(termo) + '".</p>'
       : '<p style="color:#888;padding:1rem;">Nenhum cliente cadastrado ainda.</p>';
     return;
   }
   const cardsHtml = lista.map(c => `
     <div class="card-linha">
       <div class="card-linha-header">
-        <span class="card-linha-nome" style="cursor:pointer;color:#185FA5;" onclick="verDetalhesCliente('${c.id}')">${c.nome}</span>
-        <span class="card-linha-codigo">${c.codigo||'—'}</span>
+        <span class="card-linha-nome" style="cursor:pointer;color:#185FA5;" onclick="verDetalhesCliente('${escJs(c.id)}')">${escHtml(c.nome)}</span>
+        <span class="card-linha-codigo">${escHtml(c.codigo||'—')}</span>
       </div>
-      <div class="card-linha-row"><span>CPF</span><span>${c.cpf||'—'}</span></div>
-      <div class="card-linha-row"><span>Celular</span><span>${c.telefone||'—'}</span></div>
-      <div class="card-linha-row"><span>Cidade</span><span>${c.cidade||'—'}</span></div>
+      <div class="card-linha-row"><span>CPF</span><span>${escHtml(c.cpf||'—')}</span></div>
+      <div class="card-linha-row"><span>Celular</span><span>${escHtml(c.telefone||'—')}</span></div>
+      <div class="card-linha-row"><span>Cidade</span><span>${escHtml(c.cidade||'—')}</span></div>
       <div class="card-linha-acoes">
-        <button class="btn" style="font-size:12px;" onclick="verDetalhesCliente('${c.id}')">Ver detalhes</button>
-        <button class="btn" style="font-size:12px;" onclick="editarCliente('${c.id}')">Editar</button>
+        <button class="btn" style="font-size:12px;" onclick="verDetalhesCliente('${escJs(c.id)}')">Ver detalhes</button>
+        <button class="btn" style="font-size:12px;" onclick="editarCliente('${escJs(c.id)}')">Editar</button>
       </div>
     </div>`).join('');
   document.getElementById('lista-clientes').innerHTML = `
@@ -2339,12 +2364,12 @@ function renderClientes(lista) {
       <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Celular</th><th>Cidade</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(c => `
         <tr>
-          <td><span class="codigo-badge">${c.codigo||'—'}</span></td>
-          <td style="cursor:pointer;color:#185FA5;" onclick="verDetalhesCliente('${c.id}')">${c.nome}</td>
-          <td>${c.cpf||'—'}</td>
-          <td>${c.telefone||'—'}</td>
-          <td>${c.cidade||'—'}</td>
-          <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarCliente('${c.id}')">Editar</button></td>
+          <td><span class="codigo-badge">${escHtml(c.codigo||'—')}</span></td>
+          <td style="cursor:pointer;color:#185FA5;" onclick="verDetalhesCliente('${escJs(c.id)}')">${escHtml(c.nome)}</td>
+          <td>${escHtml(c.cpf||'—')}</td>
+          <td>${escHtml(c.telefone||'—')}</td>
+          <td>${escHtml(c.cidade||'—')}</td>
+          <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarCliente('${escJs(c.id)}')">Editar</button></td>
         </tr>`).join('')}
       </tbody>
     </table></div>
@@ -2438,7 +2463,7 @@ function _mostrarDropdownCidade(inputId, dropdownId, ufId, municipioIdProp, iten
   }
   dd.innerHTML = itens.map(function(m) {
     var uf = m.estados && m.estados.uf ? m.estados.uf : '';
-    return '<div class="ac-item">' + m.nome + ' - ' + uf + '</div>';
+    return '<div class="ac-item">' + escHtml(m.nome) + ' - ' + uf + '</div>';
   }).join('');
   Array.from(dd.querySelectorAll('.ac-item')).forEach(function(el, i) {
     el.addEventListener('mousedown', function(e) {
@@ -2527,7 +2552,7 @@ async function carregarCobradoresSelect(elId) {
   const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
   const sel = document.getElementById(elId);
   sel.innerHTML = '<option value="">Selecione o cobrador...</option>' +
-    (data||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+    (data||[]).map(f => `<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
 }
 
 async function carregarMembrosEquipeSelect() {
@@ -2541,7 +2566,7 @@ async function carregarMembrosEquipeSelect() {
     .eq('equipe_id', equipeAtiva.id);
   sel.innerHTML = '<option value="">Selecione o vendedor *</option>' +
     (membros||[]).map(m =>
-      `<option value="${m.funcionarios.id}">${m.funcionarios.nome} ${m.papel === 'chefe' ? '(Chefe)' : '(Ajudante)'}</option>`
+      `<option value="${m.funcionarios.id}">${escHtml(m.funcionarios.nome)} ${m.papel === 'chefe' ? '(Chefe)' : '(Ajudante)'}</option>`
     ).join('');
 }
 
@@ -2549,7 +2574,7 @@ async function carregarVendedoresSelect(elId) {
   const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome');
   const sel = document.getElementById(elId);
   sel.innerHTML = '<option value="">Selecione o vendedor...</option>' +
-    (data||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+    (data||[]).map(f => `<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
 }
 
 async function salvarCliente() {
@@ -2653,13 +2678,13 @@ async function carregarFuncionarios() {
     <div class="tabela-wrap"><table>
       <thead><tr><th>Nome</th><th>Tipo</th><th>Rota</th><th>Telefone</th><th>Ativo</th><th>Ações</th></tr></thead>
       <tbody>${data.map(f => {
-        const nomeEsc = f.nome.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const nomeEsc = escJs(f.nome);
         return `
         <tr>
-          <td>${f.nome}</td>
+          <td>${escHtml(f.nome)}</td>
           <td><span class="badge ${f.tipo==='cobrador'?'azul':f.tipo==='gestor'?'roxo':'verde'}">${f.tipo}</span></td>
           <td>${f.rota||'—'}</td>
-          <td>${f.telefone||'—'}</td>
+          <td>${escHtml(f.telefone||'—')}</td>
           <td><span class="badge ${f.ativo?'verde':'cinza'}">${f.ativo?'Ativo':'Inativo'}</span></td>
           <td>
             <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarFuncionario('${f.id}')">Editar</button>
@@ -2742,7 +2767,7 @@ async function abrirTransferirClientes(id, nome) {
   document.getElementById('transf-info').textContent =
     (count || 0) + ' cliente' + (count === 1 ? '' : 's') + ' vinculado' + (count === 1 ? '' : 's') + ' diretamente a ' + nome + '.';
   document.getElementById('transf-cobrador-destino').innerHTML = '<option value="">Selecione...</option>' +
-    (cobradores || []).map(c => `<option value="${c.id}">${c.nome}</option>`).join('');
+    (cobradores || []).map(c => `<option value="${c.id}">${escHtml(c.nome)}</option>`).join('');
   document.getElementById('modal-transferir-clientes').style.display = 'flex';
 }
 
@@ -2757,7 +2782,7 @@ async function confirmarTransferirClientes() {
     .eq('cobrador_id', origemId)
     .select('id');
 
-  if (error) { msg.innerHTML = `<div class="msg erro">Erro ao transferir: ${error.message}</div>`; return; }
+  if (error) { msg.innerHTML = `<div class="msg erro">Erro ao transferir: ${escHtml(error.message)}</div>`; return; }
 
   fecharModal('modal-transferir-clientes');
   alert((data ? data.length : 0) + ' cliente(s) transferido(s) com sucesso!\n\nObs: clientes atribuídos por rota não são afetados — para esses, edite o cobrador da rota em "Rotas".');
@@ -2777,10 +2802,10 @@ async function carregarProdutos() {
     <div class="tabela-wrap"><table>
       <thead><tr><th>Nome</th><th>Preço sugerido</th><th>Status</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(p => {
-        const nomeEsc = p.nome.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const nomeEsc = escJs(p.nome);
         return `
         <tr>
-          <td>${p.nome}</td>
+          <td>${escHtml(p.nome)}</td>
           <td>${p.preco != null ? 'R$ ' + Number(p.preco).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'}</td>
           <td><span class="badge ${p.ativo?'verde':'cinza'}">${p.ativo?'Ativo':'Inativo'}</span></td>
           <td>
@@ -2823,7 +2848,7 @@ async function salvarProduto() {
   const { error } = id
     ? await sb.from('produtos').update(dados).eq('id', id)
     : await sb.from('produtos').insert({ ...dados, ativo: true });
-  if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${error.message}</div>`; return; }
+  if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(error.message)}</div>`; return; }
   fecharModal('modal-produto');
   carregarProdutos();
 }
@@ -2938,7 +2963,7 @@ async function buscarClientePorCPF() {
     if (perfilAtivo.perfil === 'vendedor' && info.qtd_atrasadas > 0) {
       window._dadosInadimplente = { clienteId: info.cliente_id, nomeCliente: info.nome, qtdAtrasadas: info.qtd_atrasadas, totalAtrasado: info.valor_atrasado };
       div.innerHTML = `
-        <div class="cliente-encontrado">✓ Cliente encontrado: <strong>${info.nome}</strong> — Código ${info.codigo||'—'}</div>
+        <div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>
         <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:12px 14px;margin-bottom:.75rem;">
           <div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:6px;">⚠️ Cliente inadimplente</div>
           <div style="font-size:12px;color:#A32D2D;margin-bottom:8px;">${info.qtd_atrasadas} parcela(s) em atraso — Total: R$ ${Number(info.valor_atrasado).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
@@ -2955,7 +2980,7 @@ async function buscarClientePorCPF() {
 
     if (perfilAtivo.perfil === 'gestor' && info.qtd_atrasadas > 0) {
       div.innerHTML = `
-        <div class="cliente-encontrado">✓ Cliente: <strong>${info.nome}</strong> — Código ${info.codigo||'—'}</div>
+        <div class="cliente-encontrado">✓ Cliente: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>
         <div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;color:#854F0B;">
           ⚠️ Atenção: cliente tem ${info.qtd_atrasadas} parcela(s) em atraso — R$ ${Number(info.valor_atrasado).toLocaleString('pt-BR',{minimumFractionDigits:2})}
         </div>`;
@@ -2964,7 +2989,7 @@ async function buscarClientePorCPF() {
       return;
     }
 
-    div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${info.nome}</strong> — Código ${info.codigo||'—'}</div>`;
+    div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>`;
     window._clienteInadimplente = false;
     await mostrarFormVenda();
   } else {
@@ -3147,7 +3172,7 @@ function novaLinhaItemVenda() {
   const div = document.createElement('div');
   div.className = 'item-venda-linha';
   div.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;';
-  const opcoes = fonte.map(f => `<option value="${f.nome}">${f.nome}${isVendedor ? ' (' + f.disponivel + ' disponível' + (f.disponivel > 1 ? 'is' : '') + ')' : ''}</option>`).join('');
+  const opcoes = fonte.map(f => `<option value="${escHtml(f.nome)}">${escHtml(f.nome)}${isVendedor ? ' (' + f.disponivel + ' disponível' + (f.disponivel > 1 ? 'is' : '') + ')' : ''}</option>`).join('');
   div.innerHTML = `
     <div style="flex:1;">
       <select class="iv-produto" onchange="onMudaItemVenda(this)" style="width:100%;padding:12px;font-size:15px;border-radius:10px;border:1px solid #ddd;">
@@ -3504,12 +3529,12 @@ async function abrirResumoVenda(info, opts) {
   document.getElementById('resumo-venda-conteudo').innerHTML = `
     <div style="background:#E6F1FB;border:1px solid #B8D4F0;border-radius:12px;padding:16px;margin-bottom:14px;">
       <div style="font-size:14px;font-weight:700;color:#185FA5;margin-bottom:10px;">👤 Dados do cliente</div>
-      <div style="font-size:15px;font-weight:700;color:#1a1a1a;margin-bottom:4px;">${info.cliente.nome || '—'}</div>
+      <div style="font-size:15px;font-weight:700;color:#1a1a1a;margin-bottom:4px;">${escHtml(info.cliente.nome || '—')}</div>
       <div style="font-size:13px;color:#555;line-height:1.8;">
-        🏷️ Código: <strong>${info.cliente.codigo || '—'}</strong><br>
-        🪪 CPF: ${info.cliente.cpf || '—'}<br>
-        📱 Telefone: ${info.cliente.telefone || '—'}<br>
-        📍 Cidade: ${info.cliente.cidade || '—'}
+        🏷️ Código: <strong>${escHtml(info.cliente.codigo || '—')}</strong><br>
+        🪪 CPF: ${escHtml(info.cliente.cpf || '—')}<br>
+        📱 Telefone: ${escHtml(info.cliente.telefone || '—')}<br>
+        📍 Cidade: ${escHtml(info.cliente.cidade || '—')}
       </div>
     </div>
 
@@ -3517,7 +3542,7 @@ async function abrirResumoVenda(info, opts) {
       <div style="font-size:14px;font-weight:700;color:#5B21B6;margin-bottom:10px;">🛒 Dados da venda</div>
       <div style="font-size:13px;color:#333;line-height:1.9;">
         🏷️ Código da venda: <strong>${info.vendaCodigo}</strong><br>
-        📦 Produto: ${info.produto || '—'}<br>
+        📦 Produto: ${escHtml(info.produto || '—')}<br>
         👨‍💼 Vendedor: ${info.vendedorNome || '—'}<br>
         📅 Data da venda: ${dataVendaFmt}<br>
         💳 Tipo: ${tipoLabel}
@@ -3819,7 +3844,7 @@ async function solicitarAutorizacaoInadimplente() {
   div.innerHTML += `
     <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:12px 14px;text-align:center;margin-top:.5rem;">
       <div style="font-size:12px;color:#555;margin-bottom:6px;">Informe este código ao gestor:</div>
-      <div style="font-size:36px;font-weight:700;color:#185FA5;letter-spacing:6px;">${codigo}</div>
+      <div style="font-size:36px;font-weight:700;color:#185FA5;letter-spacing:6px;">${escHtml(codigo)}</div>
       <div style="font-size:11px;color:#888;margin-top:6px;">Aguardando autorização...</div>
     </div>`;
   pollInterval = setInterval(async () => {
@@ -3860,8 +3885,8 @@ async function carregarAutorizacoesPendentes() {
     const hora = new Date(a.criado_em).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
     rows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #fde8b8;">'
       + '<div>'
-      + '<div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:2px;">' + tipoBadge + (isInadimplente ? ' ' + a.codigo : '') + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + descricaoLinha + ' · ' + hora + '</div>'
+      + '<div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:2px;">' + tipoBadge + (isInadimplente ? ' ' + escHtml(a.codigo) : '') + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + escHtml(descricaoLinha) + ' · ' + hora + '</div>'
       + '</div>'
       + '<div style="display:flex;gap:6px;">'
       + '<button class="btn" style="font-size:11px;padding:3px 10px;background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;" onclick="autorizarVenda(\'' + a.id + '\')">Autorizar</button>'
@@ -3899,13 +3924,13 @@ function renderVendas(lista) {
     document.getElementById('lista-vendas').innerHTML = lista.map(v => `
       <div style="background:#fff;border:1px solid #e0e0e0;border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.05);cursor:pointer;" onclick="${podeEditar?`abrirEditarVenda('${v.id}')`:`abrirResumoVendaPorId('${v.id}')`}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-          <span style="background:#f0f0f0;color:#555;padding:3px 10px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:600;">#${v.codigo||'—'}</span>
+          <span style="background:#f0f0f0;color:#555;padding:3px 10px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:600;">#${escHtml(v.codigo||'—')}</span>
           ${tipoBadge(v)}
         </div>
-        <div style="font-size:17px;font-weight:700;margin-bottom:6px;color:#1a1a1a;">👤 ${v.clientes?.nome||'—'}</div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:6px;color:#1a1a1a;">👤 ${escHtml(v.clientes?.nome||'—')}</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:#666;margin-bottom:10px;">
-          <span>📦 ${v.produto||'—'}</span>
-          <span>👨‍💼 ${v.funcionarios?.nome||'—'}</span>
+          <span>📦 ${escHtml(v.produto||'—')}</span>
+          <span>👨‍💼 ${escHtml(v.funcionarios?.nome||'—')}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:flex-end;">
           <div style="font-size:22px;font-weight:800;color:#3B6D11;">💰 R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
@@ -3913,8 +3938,8 @@ function renderVendas(lista) {
         </div>
         ${v.status!=='devolvida' && perfilAtivo.perfil==='gestor' ? `
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;" onclick="event.stopPropagation()">
-            <button class="btn" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">↩️ Devolver</button>
-            <button class="btn" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${v.codigo}')">❌ Cancelar</button>
+            <button class="btn" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${escJs(v.codigo)}','${escJs(v.produto||'')}')">↩️ Devolver</button>
+            <button class="btn" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${escJs(v.codigo)}')">❌ Cancelar</button>
           </div>` : ''}
       </div>`).join('');
     return;
@@ -3924,18 +3949,18 @@ function renderVendas(lista) {
       <thead><tr><th>Código</th><th>Data</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Tipo</th><th>Valor</th><th>Parcelas</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(v => `
         <tr style="cursor:pointer;" onclick="${podeEditar?`abrirEditarVenda('${v.id}')`:`abrirResumoVendaPorId('${v.id}')`}">
-          <td><span class="codigo-badge">${v.codigo||'—'}</span></td>
+          <td><span class="codigo-badge">${escHtml(v.codigo||'—')}</span></td>
           <td>${new Date(v.data_venda).toLocaleDateString('pt-BR')}</td>
-          <td>${v.clientes?.nome||'—'} <span style="font-size:10px;color:#aaa;">${v.clientes?.codigo?'#'+v.clientes.codigo:''}</span></td>
-          <td>${v.produto||'—'}</td>
-          <td>${v.funcionarios?.nome||'—'}</td>
+          <td>${escHtml(v.clientes?.nome||'—')} <span style="font-size:10px;color:#aaa;">${v.clientes?.codigo?'#'+v.clientes.codigo:''}</span></td>
+          <td>${escHtml(v.produto||'—')}</td>
+          <td>${escHtml(v.funcionarios?.nome||'—')}</td>
           <td>${tipoBadge(v)}</td>
           <td style="font-weight:700;color:#3B6D11;">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td>${v.num_parcelas ? v.num_parcelas+'x' : '—'}</td>
           <td onclick="event.stopPropagation()">
             ${v.status!=='devolvida' ? (perfilAtivo.perfil==='gestor' ? `
-              <button class="btn" style="font-size:11px;padding:5px 10px;color:#854F0B;border-color:#FAC775;border-radius:8px;" onclick="abrirDevolucao('${v.id}','${v.codigo}','${v.produto||''}')">↩️ Devolver</button>
-              <button class="btn" style="font-size:11px;padding:5px 10px;color:#A32D2D;border-color:#f5c6c6;border-radius:8px;margin-left:4px;" onclick="cancelarVenda('${v.id}','${v.codigo}')">❌ Cancelar</button>
+              <button class="btn" style="font-size:11px;padding:5px 10px;color:#854F0B;border-color:#FAC775;border-radius:8px;" onclick="abrirDevolucao('${v.id}','${escJs(v.codigo)}','${escJs(v.produto||'')}')">↩️ Devolver</button>
+              <button class="btn" style="font-size:11px;padding:5px 10px;color:#A32D2D;border-color:#f5c6c6;border-radius:8px;margin-left:4px;" onclick="cancelarVenda('${v.id}','${escJs(v.codigo)}')">❌ Cancelar</button>
             ` : '') : `<span style="font-size:11px;color:#A32D2D;font-weight:600;">Devolvida</span>`}
           </td>
         </tr>`).join('')}
@@ -3990,7 +4015,7 @@ async function abrirEditarVenda(vendaId) {
   document.getElementById('ev-venda-id').value = venda.id;
   document.getElementById('ev-codigo').textContent = venda.codigo || '';
   document.getElementById('ev-info-cliente').innerHTML =
-    `👤 <strong>${venda.clientes?.nome || '—'}</strong> ${venda.clientes?.codigo ? '#' + venda.clientes.codigo : ''}<br>
+    `👤 <strong>${escHtml(venda.clientes?.nome || '—')}</strong> ${venda.clientes?.codigo ? '#' + venda.clientes.codigo : ''}<br>
      💳 ${venda.tipo === 'avista' ? 'À vista' : venda.tipo === 'entrada' ? ('Crediário' + (venda.num_parcelas ? ' ' + venda.num_parcelas + 'x' : '')) : (venda.tipo || '—')}`;
   document.getElementById('ev-valor').value = venda.valor != null ? venda.valor : '';
   document.getElementById('ev-obs').value = venda.observacao || '';
@@ -4019,7 +4044,7 @@ function novaLinhaItemEditarVenda(produtoPreenchido, qtdPreenchida) {
   const div = document.createElement('div');
   div.className = 'item-editar-venda-linha';
   div.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;';
-  const opcoes = catalogo.map(p => `<option value="${p.nome}" ${p.nome === valorSelect ? 'selected' : ''}>${p.nome}</option>`).join('');
+  const opcoes = catalogo.map(p => `<option value="${escHtml(p.nome)}" ${p.nome === valorSelect ? 'selected' : ''}>${escHtml(p.nome)}</option>`).join('');
   div.innerHTML = `
     <div style="flex:1;">
       <select class="iev-produto" onchange="onMudaItemEditarVenda(this)" style="width:100%;padding:10px;font-size:14px;border-radius:8px;border:1px solid #ddd;">
@@ -4079,7 +4104,7 @@ async function salvarEdicaoVenda() {
   const valor = parseFloat(document.getElementById('ev-valor').value);
   if (!valor || valor <= 0) { msg.innerHTML = '<div class="msg erro">Informe um valor válido!</div>'; return; }
   const itensResult = coletarItensEdicaoVenda();
-  if (!itensResult.ok) { msg.innerHTML = `<div class="msg erro">${itensResult.erro}</div>`; return; }
+  if (!itensResult.ok) { msg.innerHTML = `<div class="msg erro">${escHtml(itensResult.erro)}</div>`; return; }
   const produto = itensResult.itens.map(i => i.quantidade > 1 ? `${i.quantidade}x ${i.produto}` : i.produto).join(', ');
   const vendedorId = document.getElementById('ev-vendedor').value || null;
   const observacao = document.getElementById('ev-obs').value.trim();
@@ -4565,9 +4590,9 @@ async function carregarVisitasHoje() {
     html += '<div onclick="verDetalhesCliente(\'' + cli.id + '\')" style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
       + foto
       + '<div style="flex:1;min-width:0;">'
-      + '<div style="font-size:14px;font-weight:600;color:#A32D2D;">' + (cli.nome||'—') + '</div>'
-      + '<div style="font-size:12px;color:#A32D2D;opacity:.8;">Motivo anterior: ' + (v.motivo||'—') + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + (cli.telefone||'—') + '</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#A32D2D;">' + escHtml((cli.nome||'—')) + '</div>'
+      + '<div style="font-size:12px;color:#A32D2D;opacity:.8;">Motivo anterior: ' + escHtml((v.motivo||'—')) + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + escHtml((cli.telefone||'—')) + '</div>'
       + '</div>'
       + '<span style="font-size:18px;color:#A32D2D;">›</span>'
       + '</div>';
@@ -4794,7 +4819,7 @@ async function renderCicloSelecionado(cicloChave) {
 function secaoFichasHtml(titulo, fichas, cor, bg) {
   return '<div style="margin-bottom:1rem;">'
     + '<div style="font-size:13px;font-weight:600;color:' + cor + ';margin-bottom:.75rem;display:flex;justify-content:space-between;align-items:center;">'
-    + '<span>' + titulo + '</span>'
+    + '<span>' + escHtml(titulo) + '</span>'
     + '<span style="font-size:11px;background:' + bg + ';color:' + cor + ';padding:2px 8px;border-radius:6px;">' + fichas.length + ' ficha(s)</span>'
     + '</div>'
     + fichas.map(f => fichaCardHtml(f)).join('')
@@ -4805,17 +4830,17 @@ function fichaCardHtml(f) {
   const c = f.cliente, p = f.parcela;
   const saldo = Number(p.valor) - Number(p.valor_pago || 0);
   const fotoHtml = c.foto_casa
-    ? '<img data-img-bucket="fotos-clientes" data-img-src="' + c.foto_casa + '" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+    ? '<img data-img-bucket="fotos-clientes" data-img-src="' + escHtml(c.foto_casa) + '" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
     : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
   const badgesHtml = (f.novaVenda ? '<span class="badge" style="font-size:10px;background:#E6F1FB;color:#185FA5;font-weight:600;">🆕 Nova venda</span>' : '')
     + (f.remarcada ? '<span class="badge" style="font-size:10px;background:#FAEEDA;color:#854F0B;">📅 Remarcada ' + f.dataEf.toLocaleDateString('pt-BR') + '</span>' : '')
     + (f.atrasada ? '<span class="badge vermelho" style="font-size:10px;">⚠️ ATRASADA — venceu ' + f.venc.toLocaleDateString('pt-BR') + '</span>' : '');
-  return '<div onclick="verDetalhesCliente(\'' + c.id + '\')"'
+  return '<div onclick="verDetalhesCliente(\'' + escJs(c.id) + '\')"'
     + ' style="background:' + (f.atrasada?'#FCEBEB':'#fff') + ';border:1px solid ' + (f.atrasada?'#f5c6c6':'#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
     + fotoHtml
     + '<div style="flex:1;min-width:0;">'
-    + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + c.nome + '</div>'
-    + '<div style="font-size:12px;color:#888;">Parcela ' + p.numero + '/' + p.total_parcelas + ' · ' + (c.telefone||'—') + '</div>'
+    + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(c.nome) + '</div>'
+    + '<div style="font-size:12px;color:#888;">Parcela ' + p.numero + '/' + p.total_parcelas + ' · ' + escHtml(c.telefone||'—') + '</div>'
     + '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">' + badgesHtml + '</div>'
     + '</div>'
     + '<div style="text-align:right;flex-shrink:0;">'
@@ -4869,7 +4894,7 @@ async function carregarClientesPorLocalidade() {
     if (!cliLoc.length) return;
     htmlLoc += '<div style="margin-bottom:1rem;">'
       + '<div style="font-size:13px;font-weight:600;color:#185FA5;margin-bottom:.75rem;display:flex;justify-content:space-between;align-items:center;">'
-      + '<span>🏘️ ' + loc.nome + '</span>'
+      + '<span>🏘️ ' + escHtml(loc.nome) + '</span>'
       + '<span style="font-size:11px;background:#E6F1FB;color:#185FA5;padding:2px 8px;border-radius:6px;">' + cliLoc.length + ' clientes</span>'
       + '</div>'
       + renderCardsClientesCobrador(cliLoc, mapaParcelas)
@@ -4898,13 +4923,13 @@ function renderCardsClientesCobrador(lista, mapaParcelas) {
     var info = mapaParcelas[c.id] || { total: 0, atrasadas: 0 };
     var borda = info.atrasadas > 0 ? '#f5c6c6' : '#e0e0e0';
     var foto = c.foto_casa
-      ? '<img data-img-bucket="fotos-clientes" data-img-src="' + c.foto_casa + '" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+      ? '<img data-img-bucket="fotos-clientes" data-img-src="' + escHtml(c.foto_casa) + '" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
       : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
-    return '<div onclick="verDetalhesCliente(\'' + c.id + '\')" style="background:#fff;border:1px solid ' + borda + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
+    return '<div onclick="verDetalhesCliente(\'' + escJs(c.id) + '\')" style="background:#fff;border:1px solid ' + borda + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
       + foto
       + '<div style="flex:1;min-width:0;">'
-      + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + c.nome + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + (c.telefone||'—') + '</div>'
+      + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(c.nome) + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + escHtml(c.telefone||'—') + '</div>'
       + '<div style="display:flex;gap:6px;margin-top:4px;">'
       + (info.atrasadas > 0 ? '<span class="badge vermelho" style="font-size:10px;">' + info.atrasadas + ' atrasada(s)</span>' : '')
       + '<span class="badge azul" style="font-size:10px;">' + info.total + ' parcela(s) em aberto</span>'
@@ -4946,13 +4971,13 @@ async function buscarClienteCobrador(termo) {
 
   res.innerHTML = data.map(function(c) {
     var foto = c.foto_casa
-      ? '<img src="' + c.foto_casa + '" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
+      ? '<img src="' + escHtml(c.foto_casa) + '" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
       : '<div style="width:44px;height:44px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">👤</div>';
-    return '<div onclick="verDetalhesCliente(\'' + c.id + '\')" style="display:flex;align-items:center;gap:10px;padding:.75rem 0;border-bottom:1px solid #f0f0f0;cursor:pointer;">'
+    return '<div onclick="verDetalhesCliente(\'' + escJs(c.id) + '\')" style="display:flex;align-items:center;gap:10px;padding:.75rem 0;border-bottom:1px solid #f0f0f0;cursor:pointer;">'
       + foto
       + '<div style="flex:1;min-width:0;">'
-      + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + c.nome + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + (c.cpf||'—') + ' · ' + (c.cidade||'—') + '</div>'
+      + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(c.nome) + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + escHtml(c.cpf||'—') + ' · ' + escHtml(c.cidade||'—') + '</div>'
       + '</div>'
       + '<span style="font-size:18px;color:#185FA5;">›</span>'
       + '</div>';
@@ -4971,11 +4996,11 @@ function _renderResultadoCobrancaVendas(vendaEncontrada) {
         '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
         '<span class="codigo-badge">' + v.codigo + '</span>' +
-        '<span style="font-size:13px;font-weight:600;">' + (v.clientes?.nome||'—') + '</span>' +
+        '<span style="font-size:13px;font-weight:600;">' + escHtml((v.clientes?.nome||'—')) + '</span>' +
         '</div>' +
-        '<div style="font-size:13px;color:#888;margin-bottom:8px;">📦 ' + (v.produto||'—') + '</div>' +
+        '<div style="font-size:13px;color:#888;margin-bottom:8px;">📦 ' + escHtml((v.produto||'—')) + '</div>' +
         '<button class="btn primario" style="width:100%;padding:10px;font-size:14px;" ' +
-        'onclick="verParcelasVenda(\'' + v.id + '\',\'' + (v.clientes?.id||'') + '\',\'' + (v.clientes?.nome||'').replace(/'/g,"\\'") + '\',\'' + v.codigo + '\')">Ver parcelas</button>' +
+        'onclick="verParcelasVenda(\'' + escJs(v.id) + '\',\'' + escJs(v.clientes?.id||'') + '\',\'' + escJs(v.clientes?.nome||'') + '\',\'' + escJs(v.codigo) + '\')">Ver parcelas</button>' +
         '</div>'
       ).join('') +
       '</div>';
@@ -4985,11 +5010,11 @@ function _renderResultadoCobrancaVendas(vendaEncontrada) {
         <thead><tr><th>Cód. Venda</th><th>Produto</th><th>Cliente</th><th>CPF</th><th></th></tr></thead>
         <tbody>${vendaEncontrada.map(v => `
           <tr>
-            <td><span class="codigo-badge">${v.codigo}</span></td>
-            <td>${v.produto||'—'}</td>
-            <td>${v.clientes?.nome||'—'}</td>
-            <td>${v.clientes?.cpf||'—'}</td>
-            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasVenda('${v.id}','${v.clientes?.id}','${v.clientes?.nome}','${v.codigo}')">Ver parcelas</button></td>
+            <td><span class="codigo-badge">${escHtml(v.codigo)}</span></td>
+            <td>${escHtml(v.produto||'—')}</td>
+            <td>${escHtml(v.clientes?.nome||'—')}</td>
+            <td>${escHtml(v.clientes?.cpf||'—')}</td>
+            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasVenda('${v.id}','${v.clientes?.id}','${escJs(v.clientes?.nome)}','${escJs(v.codigo)}')">Ver parcelas</button></td>
           </tr>`).join('')}
         </tbody>
       </table></div>`;
@@ -5004,12 +5029,12 @@ function _renderResultadoCobrancaClientes(lista) {
       lista.map(c =>
         '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-        '<span style="font-size:15px;font-weight:600;">' + c.nome + '</span>' +
+        '<span style="font-size:15px;font-weight:600;">' + escHtml(c.nome) + '</span>' +
         '<span class="codigo-badge">' + (c.codigo||'—') + '</span>' +
         '</div>' +
-        '<div style="font-size:13px;color:#888;margin-bottom:8px;">' + (c.cpf||'—') + ' · ' + (c.telefone||'—') + '</div>' +
+        '<div style="font-size:13px;color:#888;margin-bottom:8px;">' + escHtml((c.cpf||'—')) + ' · ' + escHtml((c.telefone||'—')) + '</div>' +
         '<button class="btn primario" style="width:100%;padding:10px;font-size:14px;" ' +
-        'onclick="verParcelasCliente(\'' + c.id + '\',\'' + c.nome.replace(/'/g,"\\'") + '\')">Ver parcelas</button>' +
+        'onclick="verParcelasCliente(\'' + escJs(c.id) + '\',\'' + escJs(c.nome) + '\')">Ver parcelas</button>' +
         '</div>'
       ).join('') +
       '</div>';
@@ -5019,11 +5044,11 @@ function _renderResultadoCobrancaClientes(lista) {
         <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Celular</th><th></th></tr></thead>
         <tbody>${lista.map(c => `
           <tr>
-            <td><span class="codigo-badge">${c.codigo||'—'}</span></td>
-            <td>${c.nome}</td>
-            <td>${c.cpf||'—'}</td>
-            <td>${c.telefone||'—'}</td>
-            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasCliente('${c.id}','${c.nome}')">Ver parcelas</button></td>
+            <td><span class="codigo-badge">${escHtml(c.codigo||'—')}</span></td>
+            <td>${escHtml(c.nome)}</td>
+            <td>${escHtml(c.cpf||'—')}</td>
+            <td>${escHtml(c.telefone||'—')}</td>
+            <td><button class="btn primario" style="font-size:11px;padding:3px 10px;" onclick="verParcelasCliente('${c.id}','${escJs(c.nome)}')">Ver parcelas</button></td>
           </tr>`).join('')}
         </tbody>
       </table></div>`;
@@ -5068,16 +5093,16 @@ function renderParcelasEmAbertoMobile(parcelas, showVendaCodigo) {
     const badgeClass = atrasada ? 'vermelho' : valorPago > 0 ? 'amarelo' : 'azul';
     const badgeLabel = atrasada ? 'Atrasada' : valorPago > 0 ? 'Parcial' : 'Em aberto';
     const produto = (p.vendas && p.vendas.produto) ? p.vendas.produto : '';
-    const produtoSafe = produto.replace(/'/g, "\\'");
+    const produtoSafe = escJs(produto);
     let html = '<div style="background:' + bg + ';border:1px solid ' + border + ';border-radius:12px;padding:1rem;margin-bottom:8px;">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
     html += '<span style="font-size:15px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>';
     html += '<span class="badge ' + badgeClass + '">' + badgeLabel + '</span>';
     html += '</div>';
     if (showVendaCodigo && p.vendas && p.vendas.codigo) {
-      html += '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + p.vendas.codigo + '</span></div>';
+      html += '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + escHtml(p.vendas.codigo) + '</span></div>';
     }
-    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📦 ' + (produto || '—') + '</div>';
+    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📦 ' + escHtml(produto || '—') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:10px;">📅 Vence: ' + vencimento.toLocaleDateString('pt-BR') + '</div>';
     html += '<div style="font-size:18px;font-weight:700;color:' + (atrasada ? '#A32D2D' : '#1a1a1a') + ';margin-bottom:10px;">';
     html += 'R$ ' + Number(saldo).toLocaleString('pt-BR', {minimumFractionDigits:2});
@@ -5095,18 +5120,18 @@ async function renderParcelasPageasMobile(parcelas) {
   const partes = [];
   for (const p of parcelas) {
     const produto = (p.vendas && p.vendas.produto) ? p.vendas.produto : '';
-    const produtoSafe = produto.replace(/'/g, "\\'");
+    const produtoSafe = escJs(produto);
     const codigoVenda = (p.vendas && p.vendas.codigo) ? p.vendas.codigo : '';
     const formaBadge = p.forma_pagamento ? '<span class="badge ' + (p.forma_pagamento === 'pix' ? 'azul' : 'verde') + '">' + p.forma_pagamento.toUpperCase() + '</span>' : '—';
     let html = '<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:12px;padding:1rem;margin-bottom:8px;">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
     html += '<span style="font-size:15px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>';
     html += '<span class="badge verde">Paga</span></div>';
-    if (codigoVenda) html += '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + codigoVenda + '</span></div>';
-    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📦 ' + (produto || '—') + '</div>';
+    if (codigoVenda) html += '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + escHtml(codigoVenda) + '</span></div>';
+    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📦 ' + escHtml(produto || '—') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📅 Venceu: ' + new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">✅ Recebido: ' + (p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—') + '</div>';
-    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">👤 ' + (p.funcionarios && p.funcionarios.nome ? p.funcionarios.nome : '—') + '</div>';
+    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">👤 ' + escHtml(p.funcionarios && p.funcionarios.nome ? p.funcionarios.nome : '—') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">💳 ' + formaBadge + '</div>';
     if (p.comprovante_pix) {
       const comprovanteUrl = await urlAssinada('comprovantes', p.comprovante_pix);
@@ -5114,9 +5139,9 @@ async function renderParcelasPageasMobile(parcelas) {
     }
     html += '<div style="font-size:18px;font-weight:700;color:#3B6D11;margin-bottom:10px;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>';
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-    html += '<button class="btn" style="flex:1;padding:10px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa(\'' + p.id + '\',\'' + p.cliente_id + '\',\'' + codigoVenda + '\')">Cancelar baixa</button>';
+    html += '<button class="btn" style="flex:1;padding:10px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa(\'' + escJs(p.id) + '\',\'' + escJs(p.cliente_id) + '\',\'' + escJs(codigoVenda) + '\')">Cancelar baixa</button>';
     html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="verDetalhesParcela(\'' + p.id + '\')">Ver detalhes</button>';
-    html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="abrirEditarParcela(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + p.valor + '\',\'' + p.data_vencimento + '\',\'' + produtoSafe + '\',true,\'' + p.cliente_id + '\',\'' + codigoVenda + '\')">Editar</button>';
+    html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="abrirEditarParcela(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + p.valor + '\',\'' + p.data_vencimento + '\',\'' + produtoSafe + '\',true,\'' + p.cliente_id + '\',\'' + escJs(codigoVenda) + '\')">Editar</button>';
     html += '</div></div>';
     partes.push(html);
   }
@@ -5150,7 +5175,7 @@ async function verDetalhesParcela(parcelaId) {
     '<div style="display:flex;flex-direction:column;gap:.5rem;">'
     + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
     + '<div style="font-size:10px;color:#888;">CLIENTE</div>'
-    + '<div style="font-size:14px;font-weight:600;">' + (p.clientes?.nome || '—') + '</div>'
+    + '<div style="font-size:14px;font-weight:600;">' + escHtml((p.clientes?.nome || '—')) + '</div>'
     + '</div>'
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
     + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
@@ -5162,7 +5187,7 @@ async function verDetalhesParcela(parcelaId) {
     + '</div>'
     + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
     + '<div style="font-size:10px;color:#888;">PRODUTO</div>'
-    + '<div style="font-size:13px;">' + (p.vendas?.produto || '—') + '</div>'
+    + '<div style="font-size:13px;">' + escHtml((p.vendas?.produto || '—')) + '</div>'
     + '</div>'
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
     + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
@@ -5182,7 +5207,7 @@ async function verDetalhesParcela(parcelaId) {
     + '</div>'
     + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
     + '<div style="font-size:10px;color:#888;">COBRADOR</div>'
-    + '<div style="font-size:13px;">' + (p.funcionarios?.nome || '—') + '</div>'
+    + '<div style="font-size:13px;">' + escHtml((p.funcionarios?.nome || '—')) + '</div>'
     + '</div>'
     + comprovanteHtml
     + '</div>';
@@ -5220,8 +5245,8 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
           <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
           <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
           <td>
-            <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${p.vendas?.produto||''}')">Dar baixa</button>
-            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${p.vendas?.produto||''}')">Editar</button>
+            <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${escJs(p.vendas?.produto||'')}')">Dar baixa</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}')">Editar</button>
           </td>
         </tr>`;
       }).join('')}
@@ -5245,8 +5270,8 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
   }
   document.getElementById('lista-parcelas-cliente').innerHTML = `
     <div style="margin-bottom:1rem;">
-      <div data-nome-cliente="${nomeCliente}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
-        Venda ${codigoVenda} — ${nomeCliente} — ${emAberto.length} parcela(s) em aberto
+      <div data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
+        Venda ${escHtml(codigoVenda)} — ${escHtml(nomeCliente)} — ${emAberto.length} parcela(s) em aberto
       </div>
       ${emAbertoHtml}${pagasHtml}
     </div>`;
@@ -5274,15 +5299,15 @@ async function verParcelasCliente(clienteId, nomeCliente) {
         const valorPago = p.valor_pago || 0;
         const saldo = p.valor - valorPago;
         return `<tr style="background:${atrasada?'#FCEBEB':valorPago>0?'#FAEEDA':''}">
-          <td><span class="codigo-badge">${p.vendas?.codigo||'—'}</span></td>
-          <td>${p.vendas?.produto||'—'}</td>
+          <td><span class="codigo-badge">${escHtml(p.vendas?.codigo||'—')}</span></td>
+          <td>${escHtml(p.vendas?.produto||'—')}</td>
           <td>${p.numero}/${p.total_parcelas}</td>
           <td style="color:${atrasada?'#A32D2D':'#1a1a1a'};font-weight:${atrasada?'500':'400'}">${vencimento.toLocaleDateString('pt-BR')}</td>
           <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
           <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
           <td>
-            <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${p.vendas?.produto||''}')">Dar baixa</button>
-            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${p.vendas?.produto||''}')">Editar</button>
+            <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${escJs(p.vendas?.produto||'')}')">Dar baixa</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}')">Editar</button>
           </td>
         </tr>`;
       }).join('')}
@@ -5295,18 +5320,18 @@ async function verParcelasCliente(clienteId, nomeCliente) {
       <div class="tabela-wrap"><table>
         <thead><tr><th>Venda</th><th>Parcela</th><th>Vencimento</th><th>Recebido em</th><th>Cobrador</th><th>Forma</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
         <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
-          <td><span class="codigo-badge">${p.vendas?.codigo||'—'}</span></td>
+          <td><span class="codigo-badge">${escHtml(p.vendas?.codigo||'—')}</span></td>
           <td>${p.numero}/${p.total_parcelas}</td>
           <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
           <td>${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</td>
-          <td>${p.funcionarios?.nome||'—'}</td>
+          <td>${escHtml(p.funcionarios?.nome||'—')}</td>
           <td>${p.forma_pagamento ? '<span class="badge '+(p.forma_pagamento==='pix'?'azul':'verde')+'">'+p.forma_pagamento.toUpperCase()+'</span>' : '—'}${p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
           <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td><span class="badge verde">Paga</span></td>
           <td>
-            <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${p.vendas?.codigo||''}')">Cancelar baixa</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${escJs(p.vendas?.codigo||'')}')">Cancelar baixa</button>
             <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button>
-            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${p.vendas?.produto||''}',true,'${p.cliente_id}','${p.vendas?.codigo||''}')">Editar</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}',true,'${p.cliente_id}','${escJs(p.vendas?.codigo||'')}')">Editar</button>
           </td>
         </tr>`).join('')}</tbody>
       </table></div>`;
@@ -5314,7 +5339,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
   }
   document.getElementById('lista-parcelas-cliente').innerHTML = `
     <div style="margin-bottom:1rem;">
-      <div data-nome-cliente="${nomeCliente}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${nomeCliente} — ${emAberto.length} parcela(s) em aberto</div>
+      <div data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${escHtml(nomeCliente)} — ${emAberto.length} parcela(s) em aberto</div>
       ${emAbertoHtml}${pagasHtml}
     </div>`;
 }
@@ -5329,7 +5354,7 @@ async function abrirBaixa(parcelaId, numero, total, valor, produto) {
   document.getElementById('baixa-data').value = new Date().toISOString().split('T')[0];
   document.getElementById('baixa-forma').value = 'dinheiro';
   document.getElementById('info-parcela-baixa').innerHTML = `
-    <strong>Parcela ${numero}/${total}</strong> — ${produto}<br>
+    <strong>Parcela ${escHtml(numero)}/${escHtml(total)}</strong> — ${escHtml(produto)}<br>
     <span style="color:#185FA5;">Valor: R$ ${Number(valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>`;
   await carregarCobradoresSelect('baixa-cobrador');
   document.getElementById('modal-baixa').style.display = 'flex';
@@ -5446,12 +5471,12 @@ function renderLocalidades(lista, mapaContagem) {
 
   container.innerHTML = lista.map(function(l) {
     var qtd = mapaContagem[l.id] || 0;
-    var nomeEsc = l.nome.replace(/'/g, "\\'");
+    var nomeEsc = escJs(l.nome);
     return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="verClientesLocalidade(\'' + l.id + '\',\'' + nomeEsc + '\')">'
       + '<div style="display:flex;align-items:center;gap:12px;flex:1;">'
       + '<div style="width:42px;height:42px;background:#E6F1FB;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">🏘️</div>'
       + '<div>'
-      + '<div style="font-size:15px;font-weight:600;color:#1a1a1a;">' + l.nome + '</div>'
+      + '<div style="font-size:15px;font-weight:600;color:#1a1a1a;">' + escHtml(l.nome) + '</div>'
       + '<div style="font-size:12px;color:#888;">' + qtd + ' cliente(s) vinculado(s)</div>'
       + '</div>'
       + '</div>'
@@ -5526,7 +5551,7 @@ async function carregarSelectLocalidades(localidadeAtual, clienteCobradorId) {
 
   sel.innerHTML = '<option value="">Sem localidade (lista geral)</option>' +
     (data || []).map(function(l) {
-      return '<option value="' + l.id + '"' + (l.id === localidadeAtual ? ' selected' : '') + '>' + l.nome + '</option>';
+      return '<option value="' + l.id + '"' + (l.id === localidadeAtual ? ' selected' : '') + '>' + escHtml(l.nome) + '</option>';
     }).join('');
 }
 
@@ -5572,11 +5597,11 @@ async function verClientesLocalidade(localidadeId, nomeLocalidade) {
   lista.innerHTML = data.map(function(c) {
     return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;" onclick="fecharModal(\'modal-clientes-localidade\');verDetalhesCliente(\'' + c.id + '\')">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
-      + '<div style="font-size:15px;font-weight:600;">' + c.nome + '</div>'
+      + '<div style="font-size:15px;font-weight:600;">' + escHtml(c.nome) + '</div>'
       + '<span class="codigo-badge">' + (c.codigo||'—') + '</span>'
       + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + (c.cpf||'—') + ' · ' + (c.telefone||'—') + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + (c.endereco||'') + (c.cidade ? ' · ' + c.cidade : '') + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + escHtml((c.cpf||'—')) + ' · ' + escHtml((c.telefone||'—')) + '</div>'
+      + '<div style="font-size:12px;color:#888;">' + escHtml((c.endereco||'')) + (c.cidade ? ' · ' + escHtml(c.cidade) : '') + '</div>'
       + '</div>';
   }).join('');
 }
@@ -5614,14 +5639,14 @@ async function verParcelasDoCliente() {
       const atrasada = venc < hoje;
       const saldo = Number(p.valor) - Number(p.valor_pago || 0);
       const saldoFmt = saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-      const nomeEsc = nome.replace(/'/g, "\\'");
-      const prodEsc = ((p.vendas && p.vendas.produto) || '').replace(/'/g, "\\'");
+      const nomeEsc = escJs(nome);
+      const prodEsc = escJs((p.vendas && p.vendas.produto) || '');
       html += '<div style="background:' + (atrasada ? '#FCEBEB' : '#fff') + ';border:1px solid ' + (atrasada ? '#f5c6c6' : '#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
         + '<span style="font-size:14px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>'
         + '<span class="badge ' + (atrasada ? 'vermelho' : 'azul') + '">' + (atrasada ? 'Atrasada' : 'Em aberto') + '</span>'
         + '</div>'
-        + '<div style="font-size:12px;color:#888;margin-bottom:4px;">📦 ' + ((p.vendas && p.vendas.produto) || '—') + '</div>'
+        + '<div style="font-size:12px;color:#888;margin-bottom:4px;">📦 ' + escHtml((p.vendas && p.vendas.produto) || '—') + '</div>'
         + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📅 Vence: ' + venc.toLocaleDateString('pt-BR') + '</div>'
         + '<div style="font-size:20px;font-weight:700;color:' + (atrasada ? '#A32D2D' : '#1a1a1a') + ';margin-bottom:10px;">R$ ' + saldoFmt + '</div>'
         + '<div style="display:flex;gap:8px;">'
@@ -5643,7 +5668,7 @@ async function verParcelasDoCliente() {
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
         + '<span style="font-size:14px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>'
         + '<span class="badge verde">Paga</span></div>'
-        + '<div style="font-size:12px;color:#555;margin-bottom:2px;">📦 ' + ((p.vendas && p.vendas.produto) || '—') + '</div>'
+        + '<div style="font-size:12px;color:#555;margin-bottom:2px;">📦 ' + escHtml((p.vendas && p.vendas.produto) || '—') + '</div>'
         + '<div style="font-size:12px;color:#555;margin-bottom:2px;">✅ Recebido: ' + (p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—') + '</div>'
         + '<div style="font-size:12px;color:#555;margin-bottom:6px;">' + ((p.forma_pagamento || '').toUpperCase() || '—') + '</div>'
         + '<div style="font-size:16px;font-weight:700;color:#3B6D11;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
@@ -6099,7 +6124,7 @@ async function abrirGerenciarCaixa() {
     .eq('tipo', 'cobrador').eq('ativo', true).order('nome');
 
   document.getElementById('gc-cobrador').innerHTML = '<option value="">Selecione o cobrador...</option>'
-    + (data || []).map(function(f) { return '<option value="' + f.id + '">' + f.nome + '</option>'; }).join('');
+    + (data || []).map(function(f) { return '<option value="' + f.id + '">' + escHtml(f.nome) + '</option>'; }).join('');
 
   document.getElementById('modal-gerenciar-caixa').style.display = 'flex';
 }
@@ -6227,11 +6252,11 @@ async function carregarPrestacaoContas() {
   let html = '';
   for (const caixa of caixas) {
     const resumo = await calcularResumoCaixa(caixa.id);
-    const nomeEsc = (caixa.funcionarios?.nome || '').replace(/'/g, "\\'");
+    const nomeEsc = escJs(caixa.funcionarios?.nome || '');
     html += '<div onclick="abrirDetalhePrestacao(\'' + caixa.id + '\',\'' + nomeEsc + '\')"'
       + ' style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:10px;cursor:pointer;">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
-      + '<div style="font-size:16px;font-weight:600;">' + (caixa.funcionarios?.nome || '—') + '</div>'
+      + '<div style="font-size:16px;font-weight:600;">' + escHtml((caixa.funcionarios?.nome || '—')) + '</div>'
       + '<span class="badge ' + (caixa.status === 'aberto' ? 'azul' : 'amarelo') + '">'
       + (caixa.status === 'aberto' ? 'Aberta' : 'Aguardando') + '</span>'
       + '</div>'
@@ -6361,11 +6386,11 @@ async function montarHistoricoHtml(caixas) {
       const ciclos = calcularCiclosDaCaixa(caixa.ciclo_inicio, caixa.ciclo_fim);
       const labelCiclos = ciclos.map(c => c.label.replace('Ciclo dia ','')).join(', ');
       const dataAut = caixa.autorizado_em ? new Date(caixa.autorizado_em).toLocaleDateString('pt-BR') : '—';
-      const nomeSafe = (caixa.funcionarios?.nome||'').replace(/'/g,'');
+      const nomeSafe = escJs(caixa.funcionarios?.nome||'');
       cardsHtml += '<div onclick="verDetalheHistorico(\'' + caixa.id + '\',\'' + nomeSafe + '\')"'
         + ' style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1rem;margin-bottom:8px;cursor:pointer;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-        + '<div style="font-size:14px;font-weight:600;">' + (caixa.funcionarios?.nome||'—') + '</div>'
+        + '<div style="font-size:14px;font-weight:600;">' + escHtml((caixa.funcionarios?.nome||'—')) + '</div>'
         + '<span class="badge verde" style="font-size:10px;">Autorizada ' + dataAut + '</span>'
         + '</div>'
         + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📦 Ciclos: ' + labelCiclos + '</div>'
@@ -6397,7 +6422,7 @@ async function carregarHistoricoCaixas() {
   if (selEl.options.length <= 1) {
     const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo','cobrador').order('nome');
     selEl.innerHTML = '<option value="">Todos os cobradores</option>'
-      + (cobradores||[]).map(c => '<option value="' + c.id + '">' + c.nome + '</option>').join('');
+      + (cobradores||[]).map(c => '<option value="' + c.id + '">' + escHtml(c.nome) + '</option>').join('');
   }
 
   let query = sb.from('caixa_cobrador')
@@ -6531,7 +6556,7 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
   const baixasHtml = (baixas||[]).length
     ? (baixas||[]).map(b =>
         '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
-        + '<div><div style="font-size:13px;font-weight:500;">' + (b.clientes?.nome||'—') + '</div>'
+        + '<div><div style="font-size:13px;font-weight:500;">' + escHtml((b.clientes?.nome||'—')) + '</div>'
         + '<div style="font-size:11px;color:#888;">Venda ' + (b.parcelas?.vendas?.codigo||'—')
         + ' · Parc. ' + (b.parcelas?.numero||'') + '/' + (b.parcelas?.total_parcelas||'')
         + ' · ' + (b.forma_pagamento||'').toUpperCase() + '</div>'
@@ -6545,7 +6570,7 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
   const gastosHtml = gastos.length
     ? gastos.map(g =>
         '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
-        + '<div style="flex:1;"><div style="font-size:13px;font-weight:500;">' + (g.descricao||'Gasto') + (g.categoria ? ' · ' + g.categoria : '') + '</div>'
+        + '<div style="flex:1;"><div style="font-size:13px;font-weight:500;">' + escHtml((g.descricao||'Gasto')) + (g.categoria ? ' · ' + escHtml(g.categoria) : '') + '</div>'
         + '<div style="font-size:11px;color:#888;">' + new Date(g.criado_em).toLocaleDateString('pt-BR') + '</div></div>'
         + (g.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + g.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:36px;height:36px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="font-size:14px;font-weight:600;color:#854F0B;">R$ ' + Number(g.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
@@ -6604,7 +6629,7 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
     + '<div id="hist-sec-pend" style="display:none;margin-bottom:1rem;">'
     + ((caixa.snapshot_pendentes||[]).length ? (caixa.snapshot_pendentes||[]).map(function(p) {
         return '<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
-          + '<div><div style="font-size:13px;font-weight:500;">' + p.nome + '</div>'
+          + '<div><div style="font-size:13px;font-weight:500;">' + escHtml(p.nome) + '</div>'
           + '<div style="font-size:11px;color:#A32D2D;">Parcela ' + p.numero + '/' + p.total + ' · vence ' + new Date(p.venc+'T12:00:00').toLocaleDateString('pt-BR') + '</div></div>'
           + '<div style="font-size:14px;font-weight:600;color:#A32D2D;">R$ ' + Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
           + '</div>';
@@ -6617,8 +6642,8 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
     + '<div id="hist-sec-rem" style="display:none;margin-bottom:1rem;">'
     + ((caixa.snapshot_remarcados||[]).length ? (caixa.snapshot_remarcados||[]).map(function(v) {
         return '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
-          + '<div style="font-size:13px;font-weight:500;">' + v.nome + '</div>'
-          + '<div style="font-size:11px;color:#854F0B;">Motivo: ' + rotuloMotivo(v.motivo) + ' · Próxima visita: ' + new Date(v.data+'T12:00:00').toLocaleDateString('pt-BR') + '</div>'
+          + '<div style="font-size:13px;font-weight:500;">' + escHtml(v.nome) + '</div>'
+          + '<div style="font-size:11px;color:#854F0B;">Motivo: ' + escHtml(rotuloMotivo(v.motivo)) + ' · Próxima visita: ' + new Date(v.data+'T12:00:00').toLocaleDateString('pt-BR') + '</div>'
           + (v.obs ? '<div style="font-size:11px;color:#888;">' + v.obs + '</div>' : '')
           + '</div>';
       }).join('') : '<p style="font-size:12px;color:#888;">Nenhum remarcado.</p>')
@@ -6661,14 +6686,14 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
       baixasHtml += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;">'
         + '<div>'
-        + '<div style="font-size:13px;font-weight:500;">' + (b.clientes?.nome || '—') + '</div>'
+        + '<div style="font-size:13px;font-weight:500;">' + escHtml((b.clientes?.nome || '—')) + '</div>'
         + '<div style="font-size:11px;color:#888;">Venda ' + (b.parcelas?.vendas?.codigo || '—')
         + ' · Parcela ' + (b.parcelas?.numero || '') + '/' + (b.parcelas?.total_parcelas || '')
         + ' · ' + ((b.forma_pagamento || '').toUpperCase()) + '</div>'
         + '</div>'
         + '<div style="text-align:right;">'
         + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">' + fmtR(b.valor_recebido) + '</div>'
-        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + (b.clientes?.nome || '').replace(/'/g, "\\'") + '\')">Corrigir</button>'
+        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\')">Corrigir</button>'
         + '</div></div></div>';
     });
   }
@@ -6679,7 +6704,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     gastos.forEach(function(g) {
       gastosHtml += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">'
         + '<div style="flex:1;">'
-        + '<div style="font-size:13px;font-weight:500;">' + (g.descricao || 'Gasto') + '</div>'
+        + '<div style="font-size:13px;font-weight:500;">' + escHtml((g.descricao || 'Gasto')) + '</div>'
         + '<div style="font-size:11px;color:#888;">' + fmtD(g.criado_em) + '</div>'
         + '</div>'
         + (g.foto_comprovante ? '<img src="' + g.foto_comprovante + '" onclick="window.open(\'' + g.foto_comprovante + '\',\'_blank\')" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
@@ -6746,8 +6771,8 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     + (remarcados.length ? remarcados.map(function(v) {
         return '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
           + '<div style="font-size:13px;font-weight:500;">' + (mapaNome[v.cliente_id]||'—') + '</div>'
-          + '<div style="font-size:11px;color:#854F0B;">Motivo: ' + rotuloMotivo(v.motivo) + ' · Próxima visita: ' + new Date(v.data_agendada+'T12:00:00').toLocaleDateString('pt-BR') + '</div>'
-          + (v.observacao ? '<div style="font-size:11px;color:#888;">' + v.observacao + '</div>' : '')
+          + '<div style="font-size:11px;color:#854F0B;">Motivo: ' + escHtml(rotuloMotivo(v.motivo)) + ' · Próxima visita: ' + new Date(v.data_agendada+'T12:00:00').toLocaleDateString('pt-BR') + '</div>'
+          + (v.observacao ? '<div style="font-size:11px;color:#888;">' + escHtml(v.observacao) + '</div>' : '')
           + '</div>';
       }).join('') : '<p style="font-size:12px;color:#888;">Nenhum remarcado.</p>')
     + '</div>'
@@ -6960,7 +6985,7 @@ function abrirDevolucao(vendaId, codigo, produto) {
   document.getElementById('dev-observacao').value = '';
   document.querySelector('input[name="motivo-dev"][value="cliente"]').checked = true;
   document.getElementById('info-venda-devolucao').innerHTML = `
-    <strong>Venda ${codigo}</strong> — ${produto}<br>
+    <strong>Venda ${escHtml(codigo)}</strong> — ${escHtml(produto)}<br>
     <span style="color:#854F0B;">Todas as parcelas serão marcadas como devolvidas.</span>`;
   document.getElementById('modal-devolucao').style.display = 'flex';
 }
@@ -7051,7 +7076,7 @@ async function buscarVendaCarne(codigoParam) {
     .order('numero');
   document.getElementById('resultado-carne').innerHTML = `
     <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;">
-      ✓ Venda encontrada — <strong>${data.clientes?.nome}</strong> — ${data.produto} — ${parcelas?.length||0} parcelas
+      ✓ Venda encontrada — <strong>${escHtml(data.clientes?.nome)}</strong> — ${escHtml(data.produto)} — ${parcelas?.length||0} parcelas
       <button class="btn primario" style="margin-left:12px;font-size:12px;" onclick="imprimirCarne()">🖨️ Imprimir carnê</button>
     </div>`;
   if (!parcelas || !parcelas.length) {
@@ -7065,10 +7090,10 @@ async function buscarVendaCarne(codigoParam) {
       <div class="carne-item ${p.pago?'carne-pago':p.status==='devolvida'?'carne-devolvido':''}">
         <div class="carne-header">
           <span class="carne-empresa">Lia Móveis</span>
-          <span class="carne-codigo">Venda #${data.codigo}</span>
+          <span class="carne-codigo">Venda #${escHtml(data.codigo)}</span>
         </div>
-        <div class="carne-cliente"><strong>${data.clientes?.nome}</strong></div>
-        <div class="carne-produto">${data.produto}</div>
+        <div class="carne-cliente"><strong>${escHtml(data.clientes?.nome)}</strong></div>
+        <div class="carne-produto">${escHtml(data.produto)}</div>
         <div class="carne-linha">
           <div class="carne-campo">
             <div class="carne-label">Parcela</div>
@@ -7416,7 +7441,7 @@ async function selecionarClienteFicha(clienteId) {
     '<div style="font-size:12px;color:#888;padding:.5rem .75rem;">Selecione a venda que aparecerá na frente da ficha:</div>' +
     vendas.map(v => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .75rem;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="buscarVendaFichaPorId('${v.id}')">
-        <div><strong style="font-size:13px;">Venda #${v.codigo}</strong><div style="font-size:11px;color:#888;">${v.produto||'—'} · ${new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR')}</div></div>
+        <div><strong style="font-size:13px;">Venda #${escHtml(v.codigo)}</strong><div style="font-size:11px;color:#888;">${escHtml(v.produto||'—')} · ${new Date(v.data_venda+'T12:00:00').toLocaleDateString('pt-BR')}</div></div>
         <span style="font-size:13px;font-weight:600;">${fmtMoeda(v.valor)}</span>
       </div>`).join('') +
     '</div>';
@@ -7447,7 +7472,7 @@ async function carregarFichaDaVenda(venda) {
   _fichaAtual = await montarFichaDeVenda(venda);
   document.getElementById('resultado-ficha').innerHTML = `
     <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:1rem;font-size:13px;">
-      ✓ Venda encontrada — <strong>${_fichaAtual.cliente.nome || '—'}</strong> — ${venda.produto || '—'} — ${_fichaAtual.parcelas.length} parcela(s)
+      ✓ Venda encontrada — <strong>${escHtml(_fichaAtual.cliente.nome || '—')}</strong> — ${escHtml(venda.produto || '—')} — ${_fichaAtual.parcelas.length} parcela(s)
       <button class="btn primario" style="margin-left:12px;font-size:12px;" onclick="imprimirFicha()">🖨️ Imprimir ficha</button>
       <div style="font-size:11px;color:#666;margin-top:6px;">💡 Cada ficha ocupa meia folha A4 (duas fichas por folha). Imprima em <strong>frente e verso, virando na borda longa</strong>, e corte a folha ao meio na linha tracejada.</div>
     </div>`;
@@ -7466,11 +7491,11 @@ async function renderPreviewFicha() {
   const frenteHtml = `
     <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;">
       <div style="font-size:11px;color:#888;letter-spacing:.04em;margin-bottom:.5rem;">FRENTE — DADOS DA VENDA</div>
-      <div style="font-size:15px;font-weight:700;margin-bottom:.5rem;">Venda #${venda.codigo}</div>
-      <div style="font-size:13px;color:#555;margin-bottom:4px;">Cliente: <strong>${cliente.nome || '—'}</strong></div>
-      <div style="font-size:13px;color:#555;margin-bottom:4px;">Produto: ${venda.produto || '—'}</div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:.5rem;">Venda #${escHtml(venda.codigo)}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Cliente: <strong>${escHtml(cliente.nome || '—')}</strong></div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Produto: ${escHtml(venda.produto || '—')}</div>
       <div style="font-size:13px;color:#555;margin-bottom:4px;">Data da venda: ${venda.data_venda ? new Date(venda.data_venda + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</div>
-      <div style="font-size:13px;color:#555;margin-bottom:4px;">Vendedor: ${venda.funcionarios?.nome || '—'}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Vendedor: ${escHtml(venda.funcionarios?.nome || '—')}</div>
       <div style="font-size:13px;color:#555;margin-bottom:4px;">Valor total: ${fmtMoeda(venda.valor)}</div>
       ${venda.entrada > 0 ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">Entrada: ${fmtMoeda(venda.entrada)}</div>` : ''}
       <div style="font-size:13px;color:#555;margin-bottom:4px;">Parcelas: ${parcelas.length} · Em aberto: ${emAberto.length} (${fmtMoeda(totalAberto)})</div>
@@ -7480,12 +7505,12 @@ async function renderPreviewFicha() {
     <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1.25rem;">
       <div style="font-size:11px;color:#888;letter-spacing:.04em;margin-bottom:.5rem;">VERSO — DADOS DO CLIENTE</div>
       ${(f.mostrar_foto ?? true) && cliente.foto_casa ? '<div style="font-size:12px;color:#185FA5;margin-bottom:6px;">📷 Foto da casa incluída</div>' : ''}
-      <div style="font-size:15px;font-weight:700;margin-bottom:.5rem;">${cliente.nome || '—'}</div>
-      <div style="font-size:13px;color:#555;margin-bottom:4px;">Código: ${cliente.codigo || '—'}</div>
-      ${(f.mostrar_cpf ?? true) ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">CPF: ${cliente.cpf || '—'}</div>` : ''}
-      <div style="font-size:13px;color:#555;margin-bottom:4px;">Celular: ${cliente.telefone || '—'}</div>
-      <div style="font-size:13px;color:#555;margin-bottom:4px;">Endereço: ${[cliente.endereco, cliente.bairro, cliente.cidade].filter(Boolean).join(', ') || '—'}</div>
-      <div style="font-size:13px;color:#555;margin-bottom:4px;">Referência: ${cliente.referencia || '—'}</div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:.5rem;">${escHtml(cliente.nome || '—')}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Código: ${escHtml(cliente.codigo || '—')}</div>
+      ${(f.mostrar_cpf ?? true) ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">CPF: ${escHtml(cliente.cpf || '—')}</div>` : ''}
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Celular: ${escHtml(cliente.telefone || '—')}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Endereço: ${escHtml([cliente.endereco, cliente.bairro, cliente.cidade].filter(Boolean).join(', ') || '—')}</div>
+      <div style="font-size:13px;color:#555;margin-bottom:4px;">Referência: ${escHtml(cliente.referencia || '—')}</div>
       ${(f.mostrar_localizacao ?? true) && cliente.latitude && cliente.longitude ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">Localização: ${Number(cliente.latitude).toFixed(4)}, ${Number(cliente.longitude).toFixed(4)}</div>` : ''}
       ${(f.mostrar_parcelas ?? true) ? `<div style="font-size:13px;color:#555;margin-bottom:4px;">Resumo de parcelas: ${emAberto.length} em aberto (${fmtMoeda(totalAberto)})</div>` : ''}
       ${f.texto_rodape ? `<div style="font-size:11px;color:#888;margin-top:.75rem;border-top:1px solid #eee;padding-top:.5rem;">${f.texto_rodape}</div>` : ''}
@@ -7533,8 +7558,8 @@ async function buscarVendasPeriodoFicha() {
           <label style="display:flex;align-items:center;gap:10px;padding:.5rem .25rem;border-bottom:1px solid #f0f0f0;cursor:pointer;">
             <input type="checkbox" class="ficha-periodo-check" data-idx="${i}" checked>
             <div style="flex:1;">
-              <strong style="font-size:13px;">Venda #${v.codigo}</strong> — ${v.clientes?.nome || '—'}
-              <div style="font-size:11px;color:#888;">${v.produto || '—'} · ${new Date(v.data_venda + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
+              <strong style="font-size:13px;">Venda #${escHtml(v.codigo)}</strong> — ${escHtml(v.clientes?.nome || '—')}
+              <div style="font-size:11px;color:#888;">${escHtml(v.produto || '—')} · ${new Date(v.data_venda + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
             </div>
             <span style="font-size:13px;font-weight:600;">${fmtMoeda(v.valor)}</span>
           </label>`).join('')}
@@ -8074,7 +8099,7 @@ async function importarClientes() {
     html += '</div>';
     if (avisos.length) {
       html += '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:12px 16px;margin-top:8px;font-size:12px;line-height:1.6;">';
-      html += '<strong>⚠️ Avisos (' + avisos.length + '):</strong><br>' + avisos.join('<br>');
+      html += '<strong>⚠️ Avisos (' + avisos.length + '):</strong><br>' + avisos.map(escHtml).join('<br>');
       html += '</div>';
     }
     log.innerHTML = html;
@@ -8257,7 +8282,7 @@ async function importarParcelas() {
     html += '</div>';
     if (avisos.length) {
       html += '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:12px 16px;margin-top:8px;font-size:12px;line-height:1.6;">';
-      html += '<strong>⚠️ Avisos (' + avisos.length + '):</strong><br>' + avisos.join('<br>');
+      html += '<strong>⚠️ Avisos (' + avisos.length + '):</strong><br>' + avisos.map(escHtml).join('<br>');
       html += '</div>';
     }
     log.innerHTML = html;
@@ -8407,7 +8432,7 @@ function renderEquipes(semanas, equipes) {
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;">
             <div>
               <div style="font-size:14px;font-weight:600;">${eq.caminhoes?.identificacao||'—'} <span style="font-size:12px;color:#888;font-weight:400;">${eq.caminhoes?.placa||''}</span></div>
-              <div style="font-size:12px;color:#555;margin-top:2px;">Chefe: <strong>${chefe?.funcionarios?.nome||'—'}</strong>${ajudantes.length?' · '+ajudantes.map(a=>a.funcionarios?.nome).join(', '):''}</div>
+              <div style="font-size:12px;color:#555;margin-top:2px;">Chefe: <strong>${escHtml(chefe?.funcionarios?.nome||'—')}</strong>${ajudantes.length?' · '+ajudantes.map(a=>a.funcionarios?.nome).join(', '):''}</div>
               ${eq.rota?`<div style="font-size:12px;color:#888;margin-top:2px;">Rota: ${eq.rota}</div>`:''}
               <div style="font-size:12px;color:#888;margin-top:2px;">Saída: ${eq.data_saida?new Date(eq.data_saida+'T12:00:00').toLocaleDateString('pt-BR'):'—'}${eq.data_retorno?' · Retorno prev.: '+new Date(eq.data_retorno+'T12:00:00').toLocaleDateString('pt-BR'):''}</div>
             </div>
@@ -8554,7 +8579,7 @@ async function carregarEquipeVendedor() {
       const isEu = m.funcionario_id === funcionarioLogado.id;
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.75rem 0;border-bottom:1px solid #f0f0f0;">'
         + '<div>'
-        + '<div style="font-size:14px;font-weight:500;">' + (m.funcionarios?.nome||'—') + (isEu ? ' <span class="badge azul" style="font-size:10px;">Você</span>' : '') + '</div>'
+        + '<div style="font-size:14px;font-weight:500;">' + escHtml((m.funcionarios?.nome||'—')) + (isEu ? ' <span class="badge azul" style="font-size:10px;">Você</span>' : '') + '</div>'
         + '<div style="font-size:12px;color:#888;">' + (m.papel === 'chefe' ? 'Chefe de equipe' : 'Ajudante') + '</div>'
         + '</div>'
         + '<div style="text-align:right;">'
@@ -8571,7 +8596,7 @@ async function carregarEquipeVendedor() {
         const v = vendidoPorMembro[m.funcionario_id] || 0;
         const isEu = m.funcionario_id === funcionarioLogado.id;
         return `<tr${isEu?' style="background:#f6f9ff;"':''}>
-          <td>${m.funcionarios?.nome||'—'}${isEu?' <span class="badge azul" style="font-size:10px;">Você</span>':''}</td>
+          <td>${escHtml(m.funcionarios?.nome||'—')}${isEu?' <span class="badge azul" style="font-size:10px;">Você</span>':''}</td>
           <td>${m.papel==='chefe'?'Chefe de equipe':'Ajudante'}</td>
           <td>R$ ${v.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
         </tr>`;
@@ -8590,7 +8615,7 @@ async function carregarEquipeVendedor() {
         const rowStyle = disponivel <= 0 ? 'background:#fde8e8;' : disponivel === 1 ? 'background:#FAEEDA;' : '';
         const corDisp = disponivel <= 0 ? '#A32D2D' : disponivel === 1 ? '#854F0B' : '#185FA5';
         return `<tr style="${rowStyle}">
-          <td>${e.produto}</td>
+          <td>${escHtml(e.produto)}</td>
           <td>${e.quantidade_saida}</td>
           <td>${vendidoProd}</td>
           <td><strong style="color:${corDisp};">${disponivel}</strong></td>
@@ -8614,9 +8639,9 @@ async function carregarEquipeVendedor() {
           + '<span class="codigo-badge">' + (v.codigo||'—') + '</span>'
           + tipoBadge
           + '</div>'
-          + '<div style="font-size:15px;font-weight:600;margin-bottom:2px;">' + (v.clientes && v.clientes.nome ? v.clientes.nome : '—') + '</div>'
-          + '<div style="font-size:13px;color:#888;margin-bottom:2px;">📦 ' + (v.produto||'—') + '</div>'
-          + '<div style="font-size:12px;color:#185FA5;margin-bottom:6px;">👤 ' + (v.funcionarios && v.funcionarios.nome ? v.funcionarios.nome : '—') + '</div>'
+          + '<div style="font-size:15px;font-weight:600;margin-bottom:2px;">' + escHtml(v.clientes && v.clientes.nome ? v.clientes.nome : '—') + '</div>'
+          + '<div style="font-size:13px;color:#888;margin-bottom:2px;">📦 ' + escHtml(v.produto||'—') + '</div>'
+          + '<div style="font-size:12px;color:#185FA5;margin-bottom:6px;">👤 ' + escHtml(v.funcionarios && v.funcionarios.nome ? v.funcionarios.nome : '—') + '</div>'
           + '<div style="display:flex;justify-content:space-between;">'
           + '<div style="font-size:16px;font-weight:700;color:#3B6D11;">' + valorFmt + '</div>'
           + '<div style="font-size:12px;color:#aaa;">' + dataFmt + '</div>'
@@ -8628,10 +8653,10 @@ async function carregarEquipeVendedor() {
         + '<tbody>' + vendasEquipe.map(function(v) {
           return '<tr style="cursor:pointer;" onclick="abrirResumoVendaPorId(\'' + v.id + '\')">'
             + '<td><span class="codigo-badge">' + (v.codigo||'—') + '</span></td>'
-            + '<td>' + (v.clientes && v.clientes.nome ? v.clientes.nome : '—') + '</td>'
-            + '<td>' + (v.produto||'—') + '</td>'
-            + '<td>' + (v.funcionarios && v.funcionarios.nome ? v.funcionarios.nome : '—') + '</td>'
-            + '<td>' + (v.tipo||'—') + '</td>'
+            + '<td>' + escHtml(v.clientes && v.clientes.nome ? v.clientes.nome : '—') + '</td>'
+            + '<td>' + escHtml(v.produto||'—') + '</td>'
+            + '<td>' + escHtml(v.funcionarios && v.funcionarios.nome ? v.funcionarios.nome : '—') + '</td>'
+            + '<td>' + escHtml(v.tipo||'—') + '</td>'
             + '<td>R$ ' + Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</td>'
             + '<td>' + (v.data_venda ? new Date(v.data_venda).toLocaleDateString('pt-BR') : '—') + '</td>'
             + '</tr>';
@@ -8666,7 +8691,7 @@ async function toggleDetalhesEquipe(equipeId) {
         <tbody>${estoque.map(e => {
           const v = e.quantidade_voltou;
           const diff = v!=null ? e.quantidade_saida - v : null;
-          return `<tr><td>${e.produto}</td><td>${e.quantidade_saida}</td><td>${v!=null?v:'—'}</td><td>${diff!=null?`<strong style="color:${diff>0?'#185FA5':'#888'}">${diff}</strong>`:'—'}</td></tr>`;
+          return `<tr><td>${escHtml(e.produto)}</td><td>${e.quantidade_saida}</td><td>${v!=null?v:'—'}</td><td>${diff!=null?`<strong style="color:${diff>0?'#185FA5':'#888'}">${diff}</strong>`:'—'}</td></tr>`;
         }).join('')}</tbody>
       </table></div></div>`;
   }
@@ -8676,7 +8701,7 @@ async function toggleDetalhesEquipe(equipeId) {
   if (vendas?.length) {
     html += `<div class="tabela-wrap"><table>
       <thead><tr><th>Código</th><th>Cliente</th><th>Produto</th><th>Valor</th></tr></thead>
-      <tbody>${vendas.map(v=>`<tr><td><span class="codigo-badge">${v.codigo||'—'}</span></td><td>${v.clientes?.nome||'—'}</td><td>${v.produto||'—'}</td><td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr>`).join('')}</tbody>
+      <tbody>${vendas.map(v=>`<tr><td><span class="codigo-badge">${escHtml(v.codigo||'—')}</span></td><td>${escHtml(v.clientes?.nome||'—')}</td><td>${escHtml(v.produto||'—')}</td><td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr>`).join('')}</tbody>
     </table></div>`;
   } else {
     html += '<p style="color:#888;font-size:13px;">Nenhuma venda registrada para esta equipe.</p>';
@@ -8703,7 +8728,7 @@ async function abrirNovaEquipe() {
       const df=new Date(s.data_fim+'T12:00:00').toLocaleDateString('pt-BR');
       return `<option value="${s.id}">Semana ${s.numero} (${di} — ${df})</option>`;
     }).join('');
-  const optsVend = (vendedores||[]).map(f=>`<option value="${f.id}">${f.nome}</option>`).join('');
+  const optsVend = (vendedores||[]).map(f=>`<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
   document.getElementById('equipe-chefe').innerHTML = '<option value="">Selecione...</option>'+optsVend;
   document.getElementById('equipe-ajudantes').innerHTML = optsVend;
   document.getElementById('modal-nova-equipe').style.display = 'flex';
@@ -8778,7 +8803,7 @@ function adicionarLinhaEstoque(produto, qtd) {
     <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
       <select class="item-produto-select" onchange="onMudaProdutoEstoque(this)" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
         <option value="">Selecione o produto...</option>
-        ${catalogo.map(p => `<option value="${p.nome}" ${p.nome === valorSelect ? 'selected' : ''}>${p.nome}</option>`).join('')}
+        ${catalogo.map(p => `<option value="${escHtml(p.nome)}" ${p.nome === valorSelect ? 'selected' : ''}>${escHtml(p.nome)}</option>`).join('')}
         <option value="__outro__" ${valorSelect === '__outro__' ? 'selected' : ''}>Outro (digitar manualmente)</option>
       </select>
       <div style="display:flex;gap:6px;align-items:center;">
@@ -8853,7 +8878,7 @@ async function abrirEncerrarEquipe(equipeId) {
   } else {
     listaEstoque.innerHTML = estoque.map(e => `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;">
-        <div style="flex:1;font-weight:500;">${e.produto}</div>
+        <div style="flex:1;font-weight:500;">${escHtml(e.produto)}</div>
         <div style="color:#888;font-size:12px;white-space:nowrap;">Saiu: <strong>${e.quantidade_saida}</strong></div>
         <input type="number" data-estoque-id="${e.id}" placeholder="Voltou" min="0" max="${e.quantidade_saida}"
           style="width:80px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
@@ -8912,7 +8937,7 @@ async function carregarEquipesParaVenda() {
   sel.innerHTML = '<option value="">Sem equipe / venda direta</option>' +
     (equipes||[]).map(e=>{
       const chefe = e.equipe_membros?.find(m=>m.papel==='chefe');
-      return `<option value="${e.id}">${e.caminhoes?.identificacao||'—'} — ${chefe?.funcionarios?.nome||'—'}</option>`;
+      return `<option value="${e.id}">${e.caminhoes?.identificacao||'—'} — ${escHtml(chefe?.funcionarios?.nome||'—')}</option>`;
     }).join('');
 }
 
@@ -8933,7 +8958,7 @@ async function carregarUsuarios() {
       <thead><tr><th>Funcionário</th><th>Perfil</th><th>Status</th><th>Ações</th></tr></thead>
       <tbody>${lista.map(u => `
         <tr>
-          <td>${u.funcionarios?.nome||'—'}</td>
+          <td>${escHtml(u.funcionarios?.nome||'—')}</td>
           <td><span class="badge ${u.perfil==='gestor'?'azul':u.perfil==='vendedor'?'verde':'amarelo'}">${u.perfil}</span></td>
           <td><span class="badge ${u.ativo?'verde':'cinza'}">${u.ativo?'Ativo':'Inativo'}</span></td>
           <td>
@@ -8948,7 +8973,7 @@ async function carregarUsuarios() {
 async function carregarFuncionariosSelectUsuario(funcionarioSelecionadoId) {
   const { data: funcs } = await sb.from('funcionarios').select('id, nome').eq('ativo', true).order('nome');
   document.getElementById('usuario-funcionario').innerHTML = '<option value="">Nenhum</option>' +
-    (funcs||[]).map(f => `<option value="${f.id}">${f.nome}</option>`).join('');
+    (funcs||[]).map(f => `<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
   document.getElementById('usuario-funcionario').value = funcionarioSelecionadoId || '';
 }
 
@@ -8991,7 +9016,7 @@ async function salvarUsuario() {
     { id: uuid, perfil, funcionario_id: funcionarioId, ativo },
     { onConflict: 'id' }
   );
-  if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${error.message}</div>`; return; }
+  if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(error.message)}</div>`; return; }
   fecharModal('modal-usuario');
   carregarUsuarios();
 }
@@ -9052,10 +9077,10 @@ function renderRotas(lista) {
   const tableRows = lista.map(function(r) {
     var qtd = (r.rotas_municipios || []).length;
     var cobrador = r.funcionarios ? r.funcionarios.nome : '—';
-    var nomeEsc = r.nome.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    var nomeEsc = escJs(r.nome);
     return '<tr>' +
-      '<td><strong>' + r.nome + '</strong></td>' +
-      '<td>' + cobrador + '</td>' +
+      '<td><strong>' + escHtml(r.nome) + '</strong></td>' +
+      '<td>' + escHtml(cobrador) + '</td>' +
       '<td>' + qtd + ' município' + (qtd !== 1 ? 's' : '') + '</td>' +
       '<td><label class="sw" title="' + (r.ativa ? 'Desativar' : 'Ativar') + '">' +
         '<input type="checkbox" ' + (r.ativa ? 'checked' : '') + ' onchange="toggleRotaAtiva(\'' + r.id + '\',this.checked)">' +
@@ -9070,13 +9095,13 @@ function renderRotas(lista) {
   const cards = lista.map(function(r) {
     var qtd = (r.rotas_municipios || []).length;
     var cobrador = r.funcionarios ? r.funcionarios.nome : '—';
-    var nomeEsc = r.nome.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    var nomeEsc = escJs(r.nome);
     return '<div class="card-linha">' +
       '<div class="card-linha-header">' +
-        '<span class="card-linha-nome">' + r.nome + '</span>' +
+        '<span class="card-linha-nome">' + escHtml(r.nome) + '</span>' +
         '<span class="badge ' + (r.ativa ? 'verde' : '') + '">' + (r.ativa ? 'Ativa' : 'Inativa') + '</span>' +
       '</div>' +
-      '<div class="card-linha-row"><span>Cobrador</span><span>' + cobrador + '</span></div>' +
+      '<div class="card-linha-row"><span>Cobrador</span><span>' + escHtml(cobrador) + '</span></div>' +
       '<div class="card-linha-row"><span>Municípios</span><span>' + qtd + '</span></div>' +
       '<div class="card-linha-acoes">' +
         '<label class="sw"><input type="checkbox" ' + (r.ativa ? 'checked' : '') + ' onchange="toggleRotaAtiva(\'' + r.id + '\',this.checked)"><span class="sw-s"></span></label>' +
@@ -9104,7 +9129,7 @@ async function abrirModalRota(rotaId) {
 
   const { data: cobs } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
   document.getElementById('rota-cobrador').innerHTML = '<option value="">Selecione o cobrador...</option>' +
-    (cobs || []).map(function(c) { return '<option value="' + c.id + '">' + c.nome + '</option>'; }).join('');
+    (cobs || []).map(function(c) { return '<option value="' + c.id + '">' + escHtml(c.nome) + '</option>'; }).join('');
 
   if (rotaId) {
     document.getElementById('modal-rota-titulo').textContent = 'Editar rota';
@@ -9140,7 +9165,7 @@ function _renderChipsRota() {
     return;
   }
   wrap.innerHTML = window._rotaMunicipios.map(function(m, i) {
-    return '<span class="chip">' + m.nome + ' - ' + m.uf +
+    return '<span class="chip">' + escHtml(m.nome) + ' - ' + m.uf +
       ' <span class="chip-x" onclick="removerMunicipioRota(' + i + ')">×</span></span>';
   }).join('');
 }
@@ -9167,7 +9192,7 @@ function rotaMunInput() {
     }
     ddI.innerHTML = itens.map(function(m) {
       var uf = m.estados && m.estados.uf ? m.estados.uf : '';
-      return '<div class="ac-item">' + m.nome + ' - ' + uf + '</div>';
+      return '<div class="ac-item">' + escHtml(m.nome) + ' - ' + uf + '</div>';
     }).join('');
     Array.from(ddI.querySelectorAll('.ac-item')).forEach(function(el, i) {
       el.addEventListener('mousedown', function(e) {
