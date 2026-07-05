@@ -9,6 +9,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="js/vendor/capacitor-core.js"></script>
+<script src="js/vendor/capacitor-community-sqlite.js"></script>
+<script src="js/db-local.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#1a1a1a;}
@@ -1225,6 +1228,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (window.innerWidth <= 768) fecharMenu();
     });
   });
+  if (window.DbLocal) DbLocal.initDbLocal();
 });
 
 const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
@@ -1685,6 +1689,8 @@ async function iniciarSessao(user, dadosPrefetched) {
   document.getElementById('topbar-mobile').style.removeProperty('display');
   document.getElementById('msg-login').innerHTML = '';
   reiniciarTimerInatividade();
+  // Autoteste temporário do banco local (fase 1 - offline first). Remover na fase 2.
+  if (window.DbLocal) setTimeout(function() { DbLocal.testarDbLocal(); }, 2000);
   if (perfilAtivo.perfil === 'cobrador') {
     aplicarPermissoes(perfilAtivo.perfil);
     carregarDashboard();
