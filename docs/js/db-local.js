@@ -40,6 +40,9 @@
 
         await db.open();
 
+        // Cada CREATE TABLE roda em sua própria chamada — evita depender do
+        // parser nativo de statements múltiplos separados por ";" para
+        // confirmar que cada tabela foi de fato criada.
         await db.execute(
           'CREATE TABLE IF NOT EXISTS cache_registros (' +
           'tabela TEXT NOT NULL, ' +
@@ -47,7 +50,9 @@
           'dados TEXT NOT NULL, ' +
           'atualizado_em TEXT NOT NULL, ' +
           'PRIMARY KEY (tabela, registro_id)' +
-          ');' +
+          ');'
+        );
+        await db.execute(
           'CREATE TABLE IF NOT EXISTS fila_operacoes (' +
           'id TEXT PRIMARY KEY, ' +
           'tipo TEXT NOT NULL, ' +
@@ -57,7 +62,9 @@
           'erro_msg TEXT, ' +
           'criado_em TEXT NOT NULL, ' +
           'sincronizado_em TEXT' +
-          ');' +
+          ');'
+        );
+        await db.execute(
           'CREATE TABLE IF NOT EXISTS fotos_pendentes (' +
           'id TEXT PRIMARY KEY, ' +
           'operacao_id TEXT NOT NULL, ' +
@@ -67,6 +74,19 @@
           "status TEXT NOT NULL DEFAULT 'pendente'" +
           ');'
         );
+
+        // Confirma de fato (não só assume) que as 3 tabelas existem antes de
+        // declarar sucesso — se alguma não aparecer aqui, cai no catch abaixo
+        // e o banco local fica desativado (app segue 100% online).
+        var TABELAS_ESPERADAS = ['cache_registros', 'fila_operacoes', 'fotos_pendentes'];
+        var verificacao = await db.query("SELECT name FROM sqlite_master WHERE type='table'");
+        var nomesEncontrados = ((verificacao && verificacao.values) || []).map(function (linha) { return linha.name; });
+        console.log('[DB LOCAL] Tabelas existentes:', nomesEncontrados);
+
+        var faltando = TABELAS_ESPERADAS.filter(function (t) { return nomesEncontrados.indexOf(t) === -1; });
+        if (faltando.length) {
+          throw new Error('CREATE TABLE não surtiu efeito — faltando: ' + faltando.join(', '));
+        }
 
         console.log('[DB LOCAL] Banco local "' + DB_NAME + '" inicializado.');
       } catch (err) {
