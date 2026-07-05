@@ -323,6 +323,12 @@ tr:hover td{background:#fafafa;}
       <button class="btn-login" onclick="submitCodigo2FA()">Verificar</button>
       <button style="width:100%;margin-top:.5rem;background:none;border:1px solid #ddd;padding:10px;border-radius:8px;font-size:13px;color:#666;cursor:pointer;" onclick="cancelarLogin2FA()">Sair e voltar ao login</button>
     </div>
+    <div id="login-2fa-setup-step" style="display:none;">
+      <div style="font-size:15px;font-weight:700;color:#0C447C;margin-bottom:.5rem;text-align:center;">Ative a verificação em duas etapas</div>
+      <div style="font-size:13px;color:#555;margin-bottom:1.25rem;text-align:center;">Por segurança, contas de gestor precisam ter o 2FA ativado para continuar.</div>
+      <div id="login-2fa-setup-conteudo" style="font-size:13px;color:#888;text-align:center;">Aguarde...</div>
+      <button style="width:100%;margin-top:1rem;background:none;border:1px solid #ddd;padding:10px;border-radius:8px;font-size:13px;color:#666;cursor:pointer;" onclick="cancelarCadastro2FAObrigatorio()">Sair e voltar ao login</button>
+    </div>
     <div style="margin-top:2rem;padding-top:1rem;border-top:1px solid #f0f0f0;text-align:center;">
       <div style="font-size:10px;color:#ccc;">Criado por Gabriel Sistemas</div>
       <div style="font-size:10px;color:#ccc;">WhatsApp (88) 9 9936-2227</div>
@@ -1396,7 +1402,7 @@ async function entrar() {
     setTimeout(() => { const el = document.getElementById('login-codigo-2fa'); if (el) el.focus(); }, 80);
     return;
   }
-  await iniciarSessao(data.user);
+  await checarObrigatoriedade2FAeEntrar(data.user);
 }
 
 async function precisaDesafio2FA() {
@@ -1431,7 +1437,7 @@ async function submitCodigo2FA() {
   msg.innerHTML = '';
   const user = window._userPendente2FA;
   window._userPendente2FA = null;
-  await iniciarSessao(user);
+  await checarObrigatoriedade2FAeEntrar(user);
 }
 
 async function cancelarLogin2FA() {
@@ -1441,6 +1447,105 @@ async function cancelarLogin2FA() {
   document.getElementById('login-form-step').style.display = 'block';
   document.getElementById('login-codigo-2fa').value = '';
   document.getElementById('msg-2fa').innerHTML = '';
+  document.getElementById('msg-login').innerHTML = '';
+}
+
+// === 2FA obrigatório para gestores ===
+// Depois de autenticar (senha, e o desafio 2FA se já havia um fator ativo),
+// verifica o perfil antes de liberar o acesso: gestor sem nenhum fator TOTP
+// verificado é obrigado a cadastrar o 2FA agora, sem opção de pular.
+async function checarObrigatoriedade2FAeEntrar(user) {
+  const { data: dados, error } = await sb.rpc('meus_dados_login');
+  const d = Array.isArray(dados) ? dados[0] : dados;
+  if (error || !d?.perfil) {
+    await sb.auth.signOut();
+    document.getElementById('tela-login').style.display = 'flex';
+    document.getElementById('msg-login').innerHTML = '<div class="msg erro">Perfil não encontrado. Contate o administrador.</div>';
+    return;
+  }
+  if (d?.ativo === false) {
+    await sb.auth.signOut();
+    document.getElementById('tela-login').style.display = 'flex';
+    document.getElementById('msg-login').innerHTML = '<div class="msg erro">Usuário desativado. Contate o administrador.</div>';
+    return;
+  }
+  if (d.perfil === 'gestor') {
+    const { data: fatores } = await sb.auth.mfa.listFactors();
+    const temFator = (fatores?.all || []).some(f => f.status === 'verified');
+    if (!temFator) {
+      window._userPendente2FASetup = user;
+      window._dadosLoginPendente = d;
+      document.getElementById('login-form-step').style.display = 'none';
+      document.getElementById('login-2fa-step').style.display = 'none';
+      document.getElementById('msg-login').innerHTML = '';
+      await iniciarCadastro2FAObrigatorio();
+      return;
+    }
+  }
+  await iniciarSessao(user, d);
+}
+
+async function iniciarCadastro2FAObrigatorio() {
+  const conteudoEl = document.getElementById('login-2fa-setup-conteudo');
+  document.getElementById('login-2fa-setup-step').style.display = 'block';
+  conteudoEl.innerHTML = '<span style="color:#888;">Gerando QR Code...</span>';
+
+  const { data: fatores } = await sb.auth.mfa.listFactors();
+  const pendentes = (fatores?.all || []).filter(f => f.status !== 'verified');
+  for (const f of pendentes) { await sb.auth.mfa.unenroll({ factorId: f.id }); }
+
+  const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Autenticador-' + Date.now() });
+  if (error) { conteudoEl.innerHTML = '<div class="msg erro">Erro ao iniciar 2FA: ' + escHtml(error.message) + '</div>'; return; }
+
+  const factorId = data.id;
+  conteudoEl.innerHTML =
+    '<div style="display:flex;flex-direction:column;gap:1rem;text-align:left;">'
+    + '<div>'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:.5rem;">1. Escaneie o QR Code</div>'
+    + '<div style="font-size:12px;color:#555;margin-bottom:.75rem;">Abra o app autenticador (Google Authenticator, Authy, etc.) e escaneie o código abaixo.</div>'
+    + '<img src="' + data.totp.qr_code + '" style="width:180px;height:180px;border:1px solid #e0e0e0;border-radius:8px;display:block;margin:0 auto;">'
+    + '</div>'
+    + '<div>'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:.25rem;">Não consegue escanear? Insira manualmente:</div>'
+    + '<code style="display:block;background:#f5f5f5;padding:8px 12px;border-radius:6px;font-size:12px;letter-spacing:.05em;word-break:break-all;color:#1a1a1a;">' + escHtml(data.totp.secret) + '</code>'
+    + '</div>'
+    + '<div>'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:.5rem;">2. Digite o código de 6 dígitos gerado</div>'
+    + '<div style="display:flex;gap:8px;align-items:center;justify-content:center;">'
+    + '<input id="login-2fa-setup-codigo" type="text" inputmode="numeric" maxlength="6" placeholder="000000" style="width:140px;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:22px;letter-spacing:.2em;text-align:center;" onkeydown="if(event.key===\'Enter\')confirmarCadastro2FAObrigatorio(\'' + factorId + '\')">'
+    + '<button class="btn primario" onclick="confirmarCadastro2FAObrigatorio(\'' + factorId + '\')">Confirmar</button>'
+    + '</div>'
+    + '<div id="msg-2fa-setup-obrigatorio" style="margin-top:.5rem;text-align:center;"></div>'
+    + '</div>'
+    + '</div>';
+
+  setTimeout(() => { const inp = document.getElementById('login-2fa-setup-codigo'); if (inp) inp.focus(); }, 100);
+}
+
+async function confirmarCadastro2FAObrigatorio(factorId) {
+  const codigo = (document.getElementById('login-2fa-setup-codigo')?.value || '').replace(/\D/g, '');
+  const msgEl = document.getElementById('msg-2fa-setup-obrigatorio');
+  if (codigo.length !== 6) { if (msgEl) msgEl.innerHTML = '<div class="msg erro">Digite os 6 dígitos.</div>'; return; }
+
+  const { data: ch, error: e1 } = await sb.auth.mfa.challenge({ factorId });
+  if (e1) { if (msgEl) msgEl.innerHTML = '<div class="msg erro">Erro: ' + escHtml(e1.message) + '</div>'; return; }
+  const { error: e2 } = await sb.auth.mfa.verify({ factorId, challengeId: ch.id, code: codigo });
+  if (e2) { if (msgEl) msgEl.innerHTML = '<div class="msg erro">Código incorreto. Tente novamente.</div>'; return; }
+
+  const user = window._userPendente2FASetup;
+  const dadosLogin = window._dadosLoginPendente;
+  window._userPendente2FASetup = null;
+  window._dadosLoginPendente = null;
+  document.getElementById('login-2fa-setup-step').style.display = 'none';
+  await iniciarSessao(user, dadosLogin);
+}
+
+async function cancelarCadastro2FAObrigatorio() {
+  await sb.auth.signOut();
+  window._userPendente2FASetup = null;
+  window._dadosLoginPendente = null;
+  document.getElementById('login-2fa-setup-step').style.display = 'none';
+  document.getElementById('login-form-step').style.display = 'block';
   document.getElementById('msg-login').innerHTML = '';
 }
 
@@ -1474,7 +1579,9 @@ async function carregarPaginaSeguranca() {
 
   if (verificado) {
     statusEl.innerHTML = '<span class="badge verde" style="font-size:13px;padding:6px 12px;">✅ 2FA ativo</span>';
-    configurarEl.innerHTML = '<button class="btn" style="margin-top:.5rem;color:#A32D2D;border-color:#f5c6c6;" onclick="desativar2FA(\'' + verificado.id + '\')">Desativar 2FA</button>';
+    configurarEl.innerHTML = perfilAtivo?.perfil === 'gestor'
+      ? '<div style="font-size:12px;color:#888;margin-top:.5rem;">Obrigatório para contas de gestor.</div>'
+      : '<button class="btn" style="margin-top:.5rem;color:#A32D2D;border-color:#f5c6c6;" onclick="desativar2FA(\'' + verificado.id + '\')">Desativar 2FA</button>';
   } else {
     statusEl.innerHTML = '<span class="badge cinza" style="font-size:13px;padding:6px 12px;">⚪ 2FA inativo</span>';
     configurarEl.innerHTML = '<button class="btn primario" style="margin-top:.5rem;" onclick="iniciarCadastro2FA()">Ativar verificação em duas etapas</button>';
@@ -1531,26 +1638,33 @@ async function confirmarCadastro2FA(factorId) {
 }
 
 async function desativar2FA(factorId) {
+  if (perfilAtivo?.perfil === 'gestor') {
+    alert('Contas de gestor exigem verificação em duas etapas e não podem desativá-la.');
+    return;
+  }
   if (!confirm('Desativar a verificação em duas etapas? Sua conta ficará menos segura.')) return;
   const { error } = await sb.auth.mfa.unenroll({ factorId });
   if (error) { alert('Erro ao desativar: ' + error.message); return; }
   carregarPaginaSeguranca();
 }
 
-async function iniciarSessao(user) {
-  const { data: dados, error } = await sb.rpc('meus_dados_login');
-  const d = Array.isArray(dados) ? dados[0] : dados;
-  if (error || !d?.perfil) {
-    await sb.auth.signOut();
-    document.getElementById('tela-login').style.display = 'flex';
-    document.getElementById('msg-login').innerHTML = '<div class="msg erro">Perfil não encontrado. Contate o administrador.</div>';
-    return;
-  }
-  if (d?.ativo === false) {
-    await sb.auth.signOut();
-    document.getElementById('tela-login').style.display = 'flex';
-    document.getElementById('msg-login').innerHTML = '<div class="msg erro">Usuário desativado. Contate o administrador.</div>';
-    return;
+async function iniciarSessao(user, dadosPrefetched) {
+  let d = dadosPrefetched;
+  if (!d) {
+    const { data: dados, error } = await sb.rpc('meus_dados_login');
+    d = Array.isArray(dados) ? dados[0] : dados;
+    if (error || !d?.perfil) {
+      await sb.auth.signOut();
+      document.getElementById('tela-login').style.display = 'flex';
+      document.getElementById('msg-login').innerHTML = '<div class="msg erro">Perfil não encontrado. Contate o administrador.</div>';
+      return;
+    }
+    if (d?.ativo === false) {
+      await sb.auth.signOut();
+      document.getElementById('tela-login').style.display = 'flex';
+      document.getElementById('msg-login').innerHTML = '<div class="msg erro">Usuário desativado. Contate o administrador.</div>';
+      return;
+    }
   }
   perfilAtivo = {
     id: user.id,
