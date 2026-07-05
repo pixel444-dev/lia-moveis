@@ -1,0 +1,186 @@
+// ─── DB LOCAL (SQLite offline) ────────────────────────────────
+// Só roda dentro do app Android/iOS instalado (Capacitor nativo).
+// Na versão web (GitHub Pages) fica inerte e o sistema segue 100% online.
+(function () {
+  'use strict';
+
+  var DB_NAME = 'ascend_offline';
+  var db = null;
+  var sqliteConn = null;
+  var initPromise = null;
+
+  function ehPlataformaNativa() {
+    return typeof Capacitor !== 'undefined'
+      && typeof Capacitor.getPlatform === 'function'
+      && Capacitor.getPlatform() !== 'web';
+  }
+
+  function initDbLocal() {
+    if (!ehPlataformaNativa()) return Promise.resolve();
+    if (initPromise) return initPromise;
+
+    initPromise = (async function () {
+      try {
+        if (typeof capacitorCapacitorSQLite === 'undefined') {
+          throw new Error('Plugin @capacitor-community/sqlite não carregado.');
+        }
+        var CapacitorSQLite = capacitorCapacitorSQLite.CapacitorSQLite;
+        var SQLiteConnection = capacitorCapacitorSQLite.SQLiteConnection;
+        sqliteConn = new SQLiteConnection(CapacitorSQLite);
+
+        var jaConectado = false;
+        try {
+          var r = await sqliteConn.isConnection(DB_NAME, false);
+          jaConectado = !!(r && r.result);
+        } catch (e) { jaConectado = false; }
+
+        db = jaConectado
+          ? await sqliteConn.retrieveConnection(DB_NAME, false)
+          : await sqliteConn.createConnection(DB_NAME, false, 'no-encryption', 1, false);
+
+        await db.open();
+
+        await db.execute(
+          'CREATE TABLE IF NOT EXISTS cache_registros (' +
+          'tabela TEXT NOT NULL, ' +
+          'registro_id TEXT NOT NULL, ' +
+          'dados TEXT NOT NULL, ' +
+          'atualizado_em TEXT NOT NULL, ' +
+          'PRIMARY KEY (tabela, registro_id)' +
+          ');' +
+          'CREATE TABLE IF NOT EXISTS fila_operacoes (' +
+          'id TEXT PRIMARY KEY, ' +
+          'tipo TEXT NOT NULL, ' +
+          'payload TEXT NOT NULL, ' +
+          "status TEXT NOT NULL DEFAULT 'pendente', " +
+          'tentativas INTEGER NOT NULL DEFAULT 0, ' +
+          'erro_msg TEXT, ' +
+          'criado_em TEXT NOT NULL, ' +
+          'sincronizado_em TEXT' +
+          ');' +
+          'CREATE TABLE IF NOT EXISTS fotos_pendentes (' +
+          'id TEXT PRIMARY KEY, ' +
+          'operacao_id TEXT NOT NULL, ' +
+          'caminho_local TEXT NOT NULL, ' +
+          'bucket TEXT NOT NULL, ' +
+          'nome_destino TEXT NOT NULL, ' +
+          "status TEXT NOT NULL DEFAULT 'pendente'" +
+          ');'
+        );
+
+        console.log('[DB LOCAL] Banco local "' + DB_NAME + '" inicializado.');
+      } catch (err) {
+        console.error('[DB LOCAL] Falha ao inicializar banco local — seguindo 100% online.', err);
+        db = null;
+      }
+    })();
+
+    return initPromise;
+  }
+
+  function getDb() {
+    if (!db) console.warn('[DB LOCAL] Banco local indisponível (não inicializado ou falhou). Operação ignorada.');
+    return db;
+  }
+
+  // Assume que cada registro tem "id" (padrão Supabase); usa "codigo" como
+  // alternativa para tabelas que só expõem esse campo. Revisar na fase 2,
+  // quando o cache for de fato ligado às telas.
+  async function salvarNoCache(tabela, registros) {
+    var conexao = getDb();
+    if (!conexao || !Array.isArray(registros)) return;
+    var agora = new Date().toISOString();
+    for (var i = 0; i < registros.length; i++) {
+      var registro = registros[i];
+      var registroId = registro && (registro.id != null ? registro.id : registro.codigo);
+      if (registroId == null) continue;
+      await conexao.run(
+        'INSERT OR REPLACE INTO cache_registros (tabela, registro_id, dados, atualizado_em) VALUES (?, ?, ?, ?)',
+        [tabela, String(registroId), JSON.stringify(registro), agora]
+      );
+    }
+  }
+
+  async function lerDoCache(tabela) {
+    var conexao = getDb();
+    if (!conexao) return [];
+    var res = await conexao.query('SELECT dados FROM cache_registros WHERE tabela = ?', [tabela]);
+    return ((res && res.values) || []).map(function (linha) { return JSON.parse(linha.dados); });
+  }
+
+  async function enfileirarOperacao(tipo, payload) {
+    var conexao = getDb();
+    if (!conexao) return null;
+    var id = crypto.randomUUID();
+    await conexao.run(
+      "INSERT INTO fila_operacoes (id, tipo, payload, status, tentativas, criado_em) VALUES (?, ?, ?, 'pendente', 0, ?)",
+      [id, tipo, JSON.stringify(payload), new Date().toISOString()]
+    );
+    return id;
+  }
+
+  async function listarOperacoesPendentes() {
+    var conexao = getDb();
+    if (!conexao) return [];
+    var res = await conexao.query(
+      "SELECT * FROM fila_operacoes WHERE status IN ('pendente', 'erro') ORDER BY criado_em ASC"
+    );
+    return (res && res.values) || [];
+  }
+
+  async function atualizarStatusOperacao(id, status, erroMsg) {
+    var conexao = getDb();
+    if (!conexao) return;
+    if (status === 'sincronizado') {
+      await conexao.run(
+        'UPDATE fila_operacoes SET status = ?, erro_msg = ?, sincronizado_em = ? WHERE id = ?',
+        [status, erroMsg || null, new Date().toISOString(), id]
+      );
+    } else {
+      await conexao.run(
+        'UPDATE fila_operacoes SET status = ?, erro_msg = ? WHERE id = ?',
+        [status, erroMsg || null, id]
+      );
+    }
+  }
+
+  async function salvarFotoPendente(operacaoId, caminhoLocal, bucket, nomeDestino) {
+    var conexao = getDb();
+    if (!conexao) return null;
+    var id = crypto.randomUUID();
+    await conexao.run(
+      "INSERT INTO fotos_pendentes (id, operacao_id, caminho_local, bucket, nome_destino, status) VALUES (?, ?, ?, ?, ?, 'pendente')",
+      [id, operacaoId, caminhoLocal, bucket, nomeDestino]
+    );
+    return id;
+  }
+
+  async function listarFotosPendentes(operacaoId) {
+    var conexao = getDb();
+    if (!conexao) return [];
+    var res = await conexao.query('SELECT * FROM fotos_pendentes WHERE operacao_id = ?', [operacaoId]);
+    return (res && res.values) || [];
+  }
+
+  async function testarDbLocal() {
+    try {
+      await enfileirarOperacao('teste', { mensagem: 'teste de conexão', hora: new Date().toISOString() });
+      var pendentes = await listarOperacoesPendentes();
+      console.log('[DB LOCAL] Teste OK - ' + pendentes.length + ' operações pendentes na fila');
+    } catch (err) {
+      console.error('[DB LOCAL] Teste falhou.', err);
+    }
+  }
+
+  window.DbLocal = {
+    initDbLocal: initDbLocal,
+    salvarNoCache: salvarNoCache,
+    lerDoCache: lerDoCache,
+    enfileirarOperacao: enfileirarOperacao,
+    listarOperacoesPendentes: listarOperacoesPendentes,
+    atualizarStatusOperacao: atualizarStatusOperacao,
+    salvarFotoPendente: salvarFotoPendente,
+    listarFotosPendentes: listarFotosPendentes,
+    testarDbLocal: testarDbLocal
+  };
+})();
