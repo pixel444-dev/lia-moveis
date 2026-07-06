@@ -864,10 +864,14 @@ tr:hover td{background:#fafafa;}
 
     <div style="background:#E6F1FB;border:1px solid #B8D4F0;border-radius:12px;padding:16px;margin-bottom:16px;">
       <div style="font-size:14px;font-weight:700;color:#185FA5;margin-bottom:12px;">👤 Passo 1 — Identificar o cliente</div>
-      <div class="campo" style="margin-bottom:0;">
+      <div class="campo" style="margin-bottom:10px;">
         <label style="font-size:13px;">CPF do cliente *</label>
+        <input id="venda-cpf-busca" type="text" placeholder="000.000.000-00" style="width:100%;padding:14px 14px;font-size:16px;border-radius:10px;">
+      </div>
+      <div class="campo" style="margin-bottom:0;">
+        <label style="font-size:13px;">ou código do cliente</label>
         <div style="display:flex;gap:8px;">
-          <input id="venda-cpf-busca" type="text" placeholder="000.000.000-00" style="flex:1;padding:14px 14px;font-size:16px;border-radius:10px;">
+          <input id="venda-codigo-busca" type="text" placeholder="Ex: 12345" style="flex:1;padding:14px 14px;font-size:16px;border-radius:10px;">
           <button class="btn primario" onclick="buscarClientePorCPF()" style="padding:14px 20px;font-size:15px;border-radius:10px;white-space:nowrap;">🔍 Buscar</button>
         </div>
         <div id="btn-sem-cpf-wrap" style="display:none;margin-top:10px;">
@@ -3013,6 +3017,7 @@ async function abrirNovaVenda() {
     return;
   }
   document.getElementById('venda-cpf-busca').value = '';
+  document.getElementById('venda-codigo-busca').value = '';
   document.getElementById('resultado-busca-cliente').innerHTML = '';
   document.getElementById('venda-cliente-id').value = '';
   document.getElementById('form-novo-cliente-venda').style.display = 'none';
@@ -3049,8 +3054,18 @@ async function iniciarVendaAvista() {
 
 async function buscarClientePorCPF() {
   _sairModoVendaAvista();
-  const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
   const div = document.getElementById('resultado-busca-cliente');
+  const codigoBusca = document.getElementById('venda-codigo-busca').value.trim();
+
+  if (codigoBusca) {
+    const { data: clientePorCodigo, error: errCodigo } = await sb.from('clientes')
+      .select('cpf').eq('codigo', codigoBusca).maybeSingle();
+    if (errCodigo) { alert(errCodigo.message || 'Erro ao buscar cliente pelo código.'); return; }
+    if (!clientePorCodigo) { div.innerHTML = '<div class="cliente-nao-encontrado">Nenhum cliente encontrado com esse código.</div>'; return; }
+    document.getElementById('venda-cpf-busca').value = clientePorCodigo.cpf || '';
+  }
+
+  const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
 
   if (perfilAtivo.perfil === 'gestor' && cpf.length === 0) {
     div.innerHTML = '<div class="cliente-nao-encontrado">CPF não informado — preencha os dados do cliente abaixo.</div>';
