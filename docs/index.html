@@ -3487,131 +3487,138 @@ function atualizarPreviewParcelas() {
 }
 
 async function salvarVenda() {
-  if (perfilAtivo.perfil === 'vendedor' && !equipeAtiva) {
-    alert('Você não está em nenhuma equipe ativa. Venda bloqueada.');
-    return;
-  }
-  if (window._clienteInadimplente) { alert('Cliente inadimplente! Solicite autorização do gestor antes de registrar a venda.'); return; }
-  const clienteId = document.getElementById('venda-cliente-id').value;
-  if (!clienteId) { alert('Selecione o cliente!'); return; }
-  const tipo = document.getElementById('venda-tipo').value;
-  if (!tipo) { alert('Selecione o tipo de venda!'); return; }
-  const valor = parseFloat(document.getElementById('venda-valor').value);
-  if (!valor || valor <= 0) { alert('Digite o valor da venda!'); return; }
-  const itensVenda = coletarItensVenda();
-  if (!itensVenda.ok) { alert(itensVenda.erro); return; }
-  const produto = itensVenda.itens.map(i => i.quantidade > 1 ? `${i.quantidade}x ${i.produto}` : i.produto).join(', ');
-  const vendedorId = document.getElementById('venda-vendedor').value || null;
-  if (!vendedorId && perfilAtivo.perfil !== 'gestor') { alert('Selecione o vendedor responsável pela venda!'); return; }
-  if (tipo === 'entrada') {
-    const parcelas = parseInt(document.getElementById('venda-parcelas').value);
-    const dataPrimeira = document.getElementById('venda-data-primeira').value;
-    if (!parcelas || parcelas < 1) { alert('Selecione o número de parcelas!'); return; }
-    if (parcelas > 12) { alert('Máximo de 12 parcelas!'); return; }
-    if (!dataPrimeira) { alert('Informe a data da primeira parcela!'); return; }
-    const hoje = new Date(); hoje.setHours(0,0,0,0);
-    const dataParc = new Date(dataPrimeira + 'T12:00:00');
-    const diffDias = Math.round((dataParc - hoje) / (1000 * 60 * 60 * 24));
-    if (perfilAtivo.perfil === 'vendedor' && diffDias < 0) { alert('A data da primeira parcela não pode ser no passado!'); return; }
-    if (perfilAtivo.perfil === 'vendedor' && diffDias > 70) { alert('A data da primeira parcela não pode ser mais de 70 dias a partir de hoje!'); return; }
-  }
-  const equipeId = perfilAtivo.perfil === 'vendedor'
-    ? (equipeAtiva?.id || null)
-    : (document.getElementById('venda-equipe').value || null);
-  const dados = {
-    codigo: document.getElementById('venda-codigo').value,
-    cliente_id: clienteId,
-    vendedor_id: vendedorId,
-    tipo, produto, valor,
-    num_parcelas: tipo === 'entrada' ? parseInt(document.getElementById('venda-parcelas').value) || null : null,
-entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada').value) || 0 : 0,
-    observacao: document.getElementById('venda-obs').value.trim(),
-    equipe_id: equipeId,
-  };
-  let venda = null, error = null;
-  for (let tentativa = 0; tentativa < 3; tentativa++) {
-    const res = await sb.from('vendas').insert(dados).select().single();
-    venda = res.data; error = res.error;
-    if (!error) break;
-    if (error.code !== '23505') break;
-    Logger.warn('vendas', 'SALVAR_VENDA', 'Colisão 23505 na tentativa ' + (tentativa + 1), { codigo_colidido: dados.codigo });
-    dados.codigo = await gerarCodigoVenda();
-  }
-  if (error) {
-    Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao inserir venda no banco', { supabase_code: error.code, supabase_msg: error.message, tipo: dados.tipo, equipe_id: dados.equipe_id, ultimo_codigo: dados.codigo });
-    alert('Erro ao registrar venda! Contate o suporte.'); return;
-  }
-  Logger.info('vendas', 'SALVAR_VENDA', 'Venda registrada com sucesso', { codigo: dados.codigo, tipo: dados.tipo, num_parcelas: dados.num_parcelas });
-  const parcelasResumo = [];
-  if (tipo === 'entrada' && dados.num_parcelas) {
-    const entradaValor = parseFloat(document.getElementById('venda-entrada').value) || 0;
-    const saldo = valor - entradaValor;
-    const vlrParcela = saldo / dados.num_parcelas;
-    const dataPrimeira = document.getElementById('venda-data-primeira').value;
-    for (let i = 0; i < dados.num_parcelas; i++) {
-      const dt = new Date(dataPrimeira + 'T12:00:00');
-      dt.setMonth(dt.getMonth() + i);
-      parcelasResumo.push({
-        venda_id: venda.id,
-        cliente_id: clienteId,
-        numero: i + 1,
-        total_parcelas: dados.num_parcelas,
-        valor: vlrParcela,
-        data_vencimento: dt.toISOString().split('T')[0],
-        pago: false,
-        status: 'aberta',
-        cobrador_id: null,
-      });
+  const btn = document.getElementById('btn-salvar-venda');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Processando...'; }
+  try {
+    if (perfilAtivo.perfil === 'vendedor' && !equipeAtiva) {
+      alert('Você não está em nenhuma equipe ativa. Venda bloqueada.');
+      return;
     }
-    await sb.from('parcelas').insert(parcelasResumo);
-  }
-  // Atualizar totais da equipe
-  if (dados.equipe_id) {
-    const { data: vendasEquipe } = await sb.from('vendas')
-      .select('valor, tipo, entrada')
-      .eq('equipe_id', dados.equipe_id)
-      .neq('status', 'devolvida');
-    const ve = vendasEquipe || [];
-    const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(ve);
-    await sb.from('equipes').update({
-      total_avista: totalCaixa,
-      total_credito: totalCredito,
-      total_valor: totalGeral,
-      total_vendas: ve.length,
-    }).eq('id', dados.equipe_id);
-  }
-  fecharModalVenda();
-  // Registra os itens da venda (produto + quantidade)
-  const { error: errItens } = await sb.from('venda_itens').insert(
-    itensVenda.itens.map(i => ({ venda_id: venda.id, produto: i.produto, quantidade: i.quantidade }))
-  );
-  if (errItens) Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao salvar itens da venda', { supabase_code: errItens.code });
-  // For vendedor: decrement equipe_estoque por item vendido
-  if (perfilAtivo.perfil === 'vendedor' && equipeAtiva?.id) {
-    const { data: estoqueItems } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
-    for (const it of itensVenda.itens) {
-      const item = (estoqueItems || []).find(e => e.produto.trim().toLowerCase() === it.produto.trim().toLowerCase());
-      if (item) {
-        await sb.from('equipe_estoque').update({ quantidade_voltou: (item.quantidade_voltou || 0) + it.quantidade }).eq('id', item.id);
+    if (window._clienteInadimplente) { alert('Cliente inadimplente! Solicite autorização do gestor antes de registrar a venda.'); return; }
+    const clienteId = document.getElementById('venda-cliente-id').value;
+    if (!clienteId) { alert('Selecione o cliente!'); return; }
+    const tipo = document.getElementById('venda-tipo').value;
+    if (!tipo) { alert('Selecione o tipo de venda!'); return; }
+    const valor = parseFloat(document.getElementById('venda-valor').value);
+    if (!valor || valor <= 0) { alert('Digite o valor da venda!'); return; }
+    const itensVenda = coletarItensVenda();
+    if (!itensVenda.ok) { alert(itensVenda.erro); return; }
+    const produto = itensVenda.itens.map(i => i.quantidade > 1 ? `${i.quantidade}x ${i.produto}` : i.produto).join(', ');
+    const vendedorId = document.getElementById('venda-vendedor').value || null;
+    if (!vendedorId && perfilAtivo.perfil !== 'gestor') { alert('Selecione o vendedor responsável pela venda!'); return; }
+    if (tipo === 'entrada') {
+      const parcelas = parseInt(document.getElementById('venda-parcelas').value);
+      const dataPrimeira = document.getElementById('venda-data-primeira').value;
+      if (!parcelas || parcelas < 1) { alert('Selecione o número de parcelas!'); return; }
+      if (parcelas > 12) { alert('Máximo de 12 parcelas!'); return; }
+      if (!dataPrimeira) { alert('Informe a data da primeira parcela!'); return; }
+      const hoje = new Date(); hoje.setHours(0,0,0,0);
+      const dataParc = new Date(dataPrimeira + 'T12:00:00');
+      const diffDias = Math.round((dataParc - hoje) / (1000 * 60 * 60 * 24));
+      if (perfilAtivo.perfil === 'vendedor' && diffDias < 0) { alert('A data da primeira parcela não pode ser no passado!'); return; }
+      if (perfilAtivo.perfil === 'vendedor' && diffDias > 70) { alert('A data da primeira parcela não pode ser mais de 70 dias a partir de hoje!'); return; }
+    }
+    const equipeId = perfilAtivo.perfil === 'vendedor'
+      ? (equipeAtiva?.id || null)
+      : (document.getElementById('venda-equipe').value || null);
+    const dados = {
+      codigo: document.getElementById('venda-codigo').value,
+      cliente_id: clienteId,
+      vendedor_id: vendedorId,
+      tipo, produto, valor,
+      num_parcelas: tipo === 'entrada' ? parseInt(document.getElementById('venda-parcelas').value) || null : null,
+entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada').value) || 0 : 0,
+      observacao: document.getElementById('venda-obs').value.trim(),
+      equipe_id: equipeId,
+    };
+    let venda = null, error = null;
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      const res = await sb.from('vendas').insert(dados).select().single();
+      venda = res.data; error = res.error;
+      if (!error) break;
+      if (error.code !== '23505') break;
+      Logger.warn('vendas', 'SALVAR_VENDA', 'Colisão 23505 na tentativa ' + (tentativa + 1), { codigo_colidido: dados.codigo });
+      dados.codigo = await gerarCodigoVenda();
+    }
+    if (error) {
+      Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao inserir venda no banco', { supabase_code: error.code, supabase_msg: error.message, tipo: dados.tipo, equipe_id: dados.equipe_id, ultimo_codigo: dados.codigo });
+      alert('Erro ao registrar venda! Contate o suporte.'); return;
+    }
+    Logger.info('vendas', 'SALVAR_VENDA', 'Venda registrada com sucesso', { codigo: dados.codigo, tipo: dados.tipo, num_parcelas: dados.num_parcelas });
+    const parcelasResumo = [];
+    if (tipo === 'entrada' && dados.num_parcelas) {
+      const entradaValor = parseFloat(document.getElementById('venda-entrada').value) || 0;
+      const saldo = valor - entradaValor;
+      const vlrParcela = saldo / dados.num_parcelas;
+      const dataPrimeira = document.getElementById('venda-data-primeira').value;
+      for (let i = 0; i < dados.num_parcelas; i++) {
+        const dt = new Date(dataPrimeira + 'T12:00:00');
+        dt.setMonth(dt.getMonth() + i);
+        parcelasResumo.push({
+          venda_id: venda.id,
+          cliente_id: clienteId,
+          numero: i + 1,
+          total_parcelas: dados.num_parcelas,
+          valor: vlrParcela,
+          data_vencimento: dt.toISOString().split('T')[0],
+          pago: false,
+          status: 'aberta',
+          cobrador_id: null,
+        });
+      }
+      await sb.from('parcelas').insert(parcelasResumo);
+    }
+    // Atualizar totais da equipe
+    if (dados.equipe_id) {
+      const { data: vendasEquipe } = await sb.from('vendas')
+        .select('valor, tipo, entrada')
+        .eq('equipe_id', dados.equipe_id)
+        .neq('status', 'devolvida');
+      const ve = vendasEquipe || [];
+      const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(ve);
+      await sb.from('equipes').update({
+        total_avista: totalCaixa,
+        total_credito: totalCredito,
+        total_valor: totalGeral,
+        total_vendas: ve.length,
+      }).eq('id', dados.equipe_id);
+    }
+    fecharModalVenda();
+    // Registra os itens da venda (produto + quantidade)
+    const { error: errItens } = await sb.from('venda_itens').insert(
+      itensVenda.itens.map(i => ({ venda_id: venda.id, produto: i.produto, quantidade: i.quantidade }))
+    );
+    if (errItens) Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao salvar itens da venda', { supabase_code: errItens.code });
+    // For vendedor: decrement equipe_estoque por item vendido
+    if (perfilAtivo.perfil === 'vendedor' && equipeAtiva?.id) {
+      const { data: estoqueItems } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
+      for (const it of itensVenda.itens) {
+        const item = (estoqueItems || []).find(e => e.produto.trim().toLowerCase() === it.produto.trim().toLowerCase());
+        if (item) {
+          await sb.from('equipe_estoque').update({ quantidade_voltou: (item.quantidade_voltou || 0) + it.quantidade }).eq('id', item.id);
+        }
       }
     }
+    carregarDashboard();
+    const [{ data: clienteResumo }, vendedorResumo] = await Promise.all([
+      sb.from('clientes').select('nome, codigo, cpf, telefone, cidade').eq('id', clienteId).single(),
+      vendedorId ? sb.from('funcionarios').select('nome').eq('id', vendedorId).single().then(r => r.data) : Promise.resolve(null),
+    ]);
+    await abrirResumoVenda({
+      cliente: clienteResumo || {},
+      vendaCodigo: dados.codigo,
+      produto: dados.produto,
+      vendedorNome: vendedorResumo?.nome || '—',
+      dataVenda: venda?.data_venda,
+      tipo: dados.tipo,
+      valor: dados.valor,
+      entrada: dados.entrada,
+      parcelas: dados.tipo === 'entrada' ? parcelasResumo : [],
+    });
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Finalizar venda'; }
   }
-  carregarDashboard();
-  const [{ data: clienteResumo }, vendedorResumo] = await Promise.all([
-    sb.from('clientes').select('nome, codigo, cpf, telefone, cidade').eq('id', clienteId).single(),
-    vendedorId ? sb.from('funcionarios').select('nome').eq('id', vendedorId).single().then(r => r.data) : Promise.resolve(null),
-  ]);
-  await abrirResumoVenda({
-    cliente: clienteResumo || {},
-    vendaCodigo: dados.codigo,
-    produto: dados.produto,
-    vendedorNome: vendedorResumo?.nome || '—',
-    dataVenda: venda?.data_venda,
-    tipo: dados.tipo,
-    valor: dados.valor,
-    entrada: dados.entrada,
-    parcelas: dados.tipo === 'entrada' ? parcelasResumo : [],
-  });
 }
 
 async function abrirResumoVenda(info, opts) {
@@ -4219,41 +4226,48 @@ function coletarItensEdicaoVenda() {
 }
 
 async function salvarEdicaoVenda() {
-  const vendaId = document.getElementById('ev-venda-id').value;
-  const msg = document.getElementById('msg-editar-venda');
-  const valor = parseFloat(document.getElementById('ev-valor').value);
-  if (!valor || valor <= 0) { msg.innerHTML = '<div class="msg erro">Informe um valor válido!</div>'; return; }
-  const itensResult = coletarItensEdicaoVenda();
-  if (!itensResult.ok) { msg.innerHTML = `<div class="msg erro">${escHtml(itensResult.erro)}</div>`; return; }
-  const produto = itensResult.itens.map(i => i.quantidade > 1 ? `${i.quantidade}x ${i.produto}` : i.produto).join(', ');
-  const vendedorId = document.getElementById('ev-vendedor').value || null;
-  const observacao = document.getElementById('ev-obs').value.trim();
+  const btn = document.getElementById('btn-salvar-edicao-venda');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+  try {
+    const vendaId = document.getElementById('ev-venda-id').value;
+    const msg = document.getElementById('msg-editar-venda');
+    const valor = parseFloat(document.getElementById('ev-valor').value);
+    if (!valor || valor <= 0) { msg.innerHTML = '<div class="msg erro">Informe um valor válido!</div>'; return; }
+    const itensResult = coletarItensEdicaoVenda();
+    if (!itensResult.ok) { msg.innerHTML = `<div class="msg erro">${escHtml(itensResult.erro)}</div>`; return; }
+    const produto = itensResult.itens.map(i => i.quantidade > 1 ? `${i.quantidade}x ${i.produto}` : i.produto).join(', ');
+    const vendedorId = document.getElementById('ev-vendedor').value || null;
+    const observacao = document.getElementById('ev-obs').value.trim();
 
-  const { data: vendaAtual, error: errVenda } = await sb.from('vendas')
-    .update({ produto, valor, vendedor_id: vendedorId, observacao })
-    .eq('id', vendaId).select('equipe_id').single();
-  if (errVenda) { msg.innerHTML = `<div class="msg erro">Erro ao salvar: ${errVenda.message}</div>`; return; }
+    const { data: vendaAtual, error: errVenda } = await sb.from('vendas')
+      .update({ produto, valor, vendedor_id: vendedorId, observacao })
+      .eq('id', vendaId).select('equipe_id').single();
+    if (errVenda) { msg.innerHTML = `<div class="msg erro">Erro ao salvar: ${errVenda.message}</div>`; return; }
 
-  await sb.from('venda_itens').delete().eq('venda_id', vendaId);
-  await sb.from('venda_itens').insert(itensResult.itens.map(i => ({ venda_id: vendaId, produto: i.produto, quantidade: i.quantidade })));
+    await sb.from('venda_itens').delete().eq('venda_id', vendaId);
+    await sb.from('venda_itens').insert(itensResult.itens.map(i => ({ venda_id: vendaId, produto: i.produto, quantidade: i.quantidade })));
 
-  if (vendaAtual?.equipe_id) {
-    const { data: vendasEquipe } = await sb.from('vendas')
-      .select('valor, tipo, entrada')
-      .eq('equipe_id', vendaAtual.equipe_id)
-      .neq('status', 'devolvida');
-    const ve = vendasEquipe || [];
-    const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(ve);
-    await sb.from('equipes').update({
-      total_avista: totalCaixa,
-      total_credito: totalCredito,
-      total_valor: totalGeral,
-      total_vendas: ve.length,
-    }).eq('id', vendaAtual.equipe_id);
+    if (vendaAtual?.equipe_id) {
+      const { data: vendasEquipe } = await sb.from('vendas')
+        .select('valor, tipo, entrada')
+        .eq('equipe_id', vendaAtual.equipe_id)
+        .neq('status', 'devolvida');
+      const ve = vendasEquipe || [];
+      const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(ve);
+      await sb.from('equipes').update({
+        total_avista: totalCaixa,
+        total_credito: totalCredito,
+        total_valor: totalGeral,
+        total_vendas: ve.length,
+      }).eq('id', vendaAtual.equipe_id);
+    }
+
+    fecharModal('modal-editar-venda');
+    carregarVendas();
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar alterações'; }
   }
-
-  fecharModal('modal-editar-venda');
-  carregarVendas();
 }
 
 async function carregarCobrancas() {
@@ -9614,7 +9628,7 @@ async function gerarProximoMes() {
     <div id="msg-editar-venda"></div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-editar-venda')">Cancelar</button>
-      <button class="btn primario" onclick="salvarEdicaoVenda()">Salvar alterações</button>
+      <button class="btn primario" id="btn-salvar-edicao-venda" onclick="salvarEdicaoVenda()">Salvar alterações</button>
     </div>
   </div>
 </div>
