@@ -380,6 +380,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-sep">Vendas</div>
       <div class="nav-item" id="nav-vendas" data-page="vendas" onclick="pg('vendas',this)"><span class="nav-ico">🛒</span>Vendas</div>
       <div class="nav-item" id="nav-equipes" data-page="equipes" onclick="pg('equipes',this)"><span class="nav-ico">🚚</span>Equipes / Semanas</div>
+      <div class="nav-item" id="nav-caminhoes" data-page="caminhoes" onclick="pg('caminhoes',this)"><span class="nav-ico">🚛</span>Caminhões</div>
       <div class="nav-item" id="nav-estoque" data-page="estoque" onclick="pg('estoque',this)"><span class="nav-ico">🏭</span>Estoque</div>
       <div class="nav-item" id="nav-meses" data-page="meses" onclick="pg('meses',this)"><span class="nav-ico">📅</span>Meses / Ciclos</div>
       <div class="nav-item" id="nav-caixa-vendedores" data-page="caixa-vendedores" onclick="pg('caixa-vendedores',this)"><span class="nav-ico">💵</span>Caixa em campo</div>
@@ -528,6 +529,14 @@ tr:hover td{background:#fafafa;}
       </div>
       <div id="info-mes-equipes" style="margin-bottom:1rem;font-size:13px;color:#666;"></div>
       <div id="lista-equipes"></div>
+    </div>
+
+    <div class="page" id="page-caminhoes">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">🚛 Caminhões</div>
+        <button class="btn primario" onclick="abrirNovoCaminhao()">+ Novo caminhão</button>
+      </div>
+      <div id="lista-caminhoes">Carregando...</div>
     </div>
 
     <div class="page" id="page-estoque">
@@ -1820,6 +1829,7 @@ function aplicarPermissoes(perfil) {
     meses:               gestor,
     funcionarios:        gestor,
     produtos:            gestor,
+    caminhoes:           gestor,
     estoque:             gestor,
     usuarios:            gestor,
     importacao:          gestor,
@@ -1882,6 +1892,7 @@ function pg(nome, el) {
   if (nome === 'config-impressao') carregarConfigImpressao();
   if (nome === 'seguranca') carregarPaginaSeguranca();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarEquipes(); });
+  if (nome === 'caminhoes') carregarCaminhoes();
   if (nome === 'estoque') carregarEstoquePagina();
   if (nome === 'usuarios') carregarUsuarios();
 }
@@ -3052,9 +3063,167 @@ function precoSugeridoProduto(nome) {
 // ===== ESTOQUE (CD / CAMINHÕES) =====
 
 async function carregarCaminhoesCatalogo() {
-  const { data } = await sb.from('caminhoes').select('id, identificacao, placa').order('identificacao');
+  const { data } = await sb.from('caminhoes').select('id, identificacao, placa').eq('ativo', true).order('identificacao');
   window._caminhoesCatalogo = data || [];
   return window._caminhoesCatalogo;
+}
+
+// ===== CADASTRO DE CAMINHÕES =====
+
+async function carregarCaminhoes() {
+  const el = document.getElementById('lista-caminhoes');
+  const { data, error } = await sb.from('caminhoes').select('*').order('ativo', { ascending: false }).order('identificacao');
+  if (error) { el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar caminhões.</p>'; return; }
+  const lista = data || [];
+  if (!lista.length) { el.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum caminhão cadastrado.</p>'; return; }
+  el.innerHTML = `<div class="tabela-wrap"><table>
+    <thead><tr><th>Foto</th><th>Identificação</th><th>Placa</th><th>Status</th><th>Ações</th></tr></thead>
+    <tbody>${lista.map(c => {
+      const nomeEsc = escJs(c.identificacao);
+      return `
+      <tr>
+        <td>${c.foto_url ? `<img data-img-bucket="fotos-caminhoes" data-img-src="${escHtml(c.foto_url)}" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;">` : '—'}</td>
+        <td>${escHtml(c.identificacao)}</td>
+        <td>${escHtml(c.placa || '—')}</td>
+        <td><span class="badge ${c.ativo ? 'verde' : 'cinza'}">${c.ativo ? 'Ativo' : 'Inativo'}</span></td>
+        <td>
+          <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="editarCaminhao('${c.id}')">Editar</button>
+          <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="toggleAtivoCaminhao('${c.id}',${c.ativo})">${c.ativo ? 'Desativar' : 'Ativar'}</button>
+          <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;color:#C0392B;border-color:#C0392B;" onclick="excluirCaminhao('${c.id}','${nomeEsc}')">Excluir</button>
+        </td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+  assinarImagens(el);
+}
+
+function abrirNovoCaminhao() {
+  document.getElementById('caminhao-id').value = '';
+  document.getElementById('caminhao-identificacao').value = '';
+  document.getElementById('caminhao-placa').value = '';
+  document.getElementById('msg-caminhao').innerHTML = '';
+  document.getElementById('modal-caminhao-titulo').textContent = 'Novo caminhão';
+  window._caminhaoFotoUrlAtual = null;
+  removerFotoCaminhao();
+  document.getElementById('modal-caminhao').style.display = 'flex';
+}
+
+async function editarCaminhao(id) {
+  const { data } = await sb.from('caminhoes').select('*').eq('id', id).single();
+  if (!data) return;
+  document.getElementById('caminhao-id').value = data.id;
+  document.getElementById('caminhao-identificacao').value = data.identificacao || '';
+  document.getElementById('caminhao-placa').value = data.placa || '';
+  document.getElementById('msg-caminhao').innerHTML = '';
+  document.getElementById('modal-caminhao-titulo').textContent = 'Editar caminhão';
+  removerFotoCaminhao();
+  window._caminhaoFotoUrlAtual = data.foto_url || null;
+  if (data.foto_url) {
+    const signed = await urlAssinada('fotos-caminhoes', data.foto_url);
+    if (signed) {
+      document.getElementById('caminhao-foto-preview').src = signed;
+      document.getElementById('caminhao-foto-preview-wrap').style.display = 'block';
+    }
+  }
+  document.getElementById('modal-caminhao').style.display = 'flex';
+}
+
+async function processarFotoCaminhao(input) {
+  if (!input.files || !input.files[0]) return;
+  input.disabled = true;
+  try {
+    await _processarFotoBase(input.files[0], '_caminhaoFotoBlob', 'caminhao-foto-preview', 'caminhao-foto-preview-wrap', 'msg-foto-caminhao');
+    window._caminhaoFotoRemovida = false;
+  } finally {
+    input.disabled = false;
+  }
+}
+
+function removerFotoCaminhao() {
+  const preview = document.getElementById('caminhao-foto-preview');
+  if (preview && preview.src && preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
+  window._caminhaoFotoBlob = null;
+  window._caminhaoFotoRemovida = !!window._caminhaoFotoUrlAtual;
+  document.getElementById('caminhao-foto').value = '';
+  preview.src = '';
+  document.getElementById('caminhao-foto-preview-wrap').style.display = 'none';
+  const msg = document.getElementById('msg-foto-caminhao');
+  if (msg) msg.innerHTML = '';
+}
+
+async function uploadFotoCaminhao(caminhaoId) {
+  if (!window._caminhaoFotoBlob) return null;
+  const path = `caminhoes/${caminhaoId}.webp`;
+  const { error } = await sb.storage.from('fotos-caminhoes').upload(path, window._caminhaoFotoBlob, {
+    contentType: 'image/webp', upsert: true,
+  });
+  if (error) {
+    Logger.error('caminhoes', 'UPLOAD_FOTO', 'Falha ao fazer upload da foto', { supabase_code: error.code });
+    alert(`Foto não foi salva: ${error.message}\n\nVerifique as políticas de acesso do bucket fotos-caminhoes no Supabase.`);
+    return null;
+  }
+  const { data } = sb.storage.from('fotos-caminhoes').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+async function salvarCaminhao() {
+  const msg = document.getElementById('msg-caminhao');
+  const id = document.getElementById('caminhao-id').value;
+  const identificacao = document.getElementById('caminhao-identificacao').value.trim();
+  const placa = document.getElementById('caminhao-placa').value.trim();
+  if (!identificacao) { msg.innerHTML = '<div class="msg erro">Digite a identificação do caminhão!</div>'; return; }
+
+  const dados = { identificacao, placa: placa || null };
+  if (window._caminhaoFotoRemovida && !window._caminhaoFotoBlob) dados.foto_url = null;
+
+  let caminhaoId = id;
+  if (id) {
+    const { error } = await sb.from('caminhoes').update(dados).eq('id', id);
+    if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(error.message)}</div>`; return; }
+  } else {
+    const { data: novo, error } = await sb.from('caminhoes').insert({ ...dados, ativo: true }).select().single();
+    if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(error.message)}</div>`; return; }
+    caminhaoId = novo.id;
+  }
+
+  if (window._caminhaoFotoBlob && caminhaoId) {
+    const fotoUrl = await uploadFotoCaminhao(caminhaoId);
+    if (fotoUrl) await sb.from('caminhoes').update({ foto_url: fotoUrl }).eq('id', caminhaoId);
+  }
+
+  fecharModal('modal-caminhao');
+  carregarCaminhoes();
+}
+
+async function toggleAtivoCaminhao(id, ativo) {
+  if (ativo) {
+    const { data: estoque } = await sb.from('caminhao_estoque').select('quantidade').eq('caminhao_id', id).gt('quantidade', 0);
+    if (estoque && estoque.length) {
+      alert('Este caminhão ainda tem produtos no estoque. Devolva o estoque para o CD antes de desativar.');
+      return;
+    }
+  }
+  await sb.from('caminhoes').update({ ativo: !ativo }).eq('id', id);
+  carregarCaminhoes();
+}
+
+async function excluirCaminhao(id, nome) {
+  if (!confirm('Excluir o caminhão "' + nome + '"?\nEsta ação não pode ser desfeita.')) return;
+  const { data: estoque } = await sb.from('caminhao_estoque').select('quantidade').eq('caminhao_id', id).gt('quantidade', 0);
+  if (estoque && estoque.length) {
+    alert('Este caminhão ainda tem produtos no estoque. Devolva o estoque para o CD antes de excluir.');
+    return;
+  }
+  const { error } = await sb.from('caminhoes').delete().eq('id', id);
+  if (error) {
+    if (error.code === '23503') {
+      alert('Não é possível excluir: este caminhão tem equipes ou histórico vinculado a ele. Use "Desativar" em vez de excluir.');
+    } else {
+      alert('Erro ao excluir: ' + error.message);
+    }
+    return;
+  }
+  carregarCaminhoes();
 }
 
 async function carregarEstoquePagina() {
@@ -9212,7 +9381,7 @@ function renderEquipes(semanas, equipes) {
         html += `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1rem;margin-bottom:.75rem;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;">
             <div>
-              <div style="font-size:14px;font-weight:600;">${eq.caminhoes?.identificacao||'—'} <span style="font-size:12px;color:#888;font-weight:400;">${eq.caminhoes?.placa||''}</span></div>
+              <div style="font-size:14px;font-weight:600;">${escHtml(eq.caminhoes?.identificacao||'—')} <span style="font-size:12px;color:#888;font-weight:400;">${escHtml(eq.caminhoes?.placa||'')}</span></div>
               <div style="font-size:12px;color:#555;margin-top:2px;">Chefe: <strong>${escHtml(chefe?.funcionarios?.nome||'—')}</strong>${ajudantes.length?' · '+ajudantes.map(a=>a.funcionarios?.nome).join(', '):''}</div>
               ${eq.rota?`<div style="font-size:12px;color:#888;margin-top:2px;">Rota: ${eq.rota}</div>`:''}
               <div style="font-size:12px;color:#888;margin-top:2px;">Saída: ${eq.data_saida?new Date(eq.data_saida+'T12:00:00').toLocaleDateString('pt-BR'):'—'}${eq.data_retorno?' · Retorno prev.: '+new Date(eq.data_retorno+'T12:00:00').toLocaleDateString('pt-BR'):''}</div>
@@ -9301,7 +9470,7 @@ async function carregarEquipeVendedor() {
 
   // Cabeçalho da equipe
   html += `<div class="card-metrica" style="margin-bottom:1rem;">
-    <div style="font-size:15px;font-weight:600;margin-bottom:4px;">${equipe.caminhoes?.identificacao||'—'} <span style="font-size:12px;color:#888;font-weight:400;">${equipe.caminhoes?.placa||''}</span></div>
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px;">${escHtml(equipe.caminhoes?.identificacao||'—')} <span style="font-size:12px;color:#888;font-weight:400;">${escHtml(equipe.caminhoes?.placa||'')}</span></div>
     ${equipe.rota ? `<div style="font-size:13px;color:#666;margin-top:2px;">Rota: ${equipe.rota}</div>` : ''}
     <div style="margin-top:6px;"><span class="badge azul">${papelLabel}</span></div>
   </div>`;
@@ -9491,12 +9660,12 @@ async function abrirNovaEquipe() {
   document.getElementById('equipe-data-saida').value = new Date().toISOString().split('T')[0];
   document.getElementById('equipe-data-retorno').value = '';
   document.getElementById('msg-equipe').innerHTML = '';
-  const [{ data: caminhoes }, { data: vendedores }] = await Promise.all([
-    sb.from('caminhoes').select('*').order('identificacao'),
+  const [caminhoes, { data: vendedores }] = await Promise.all([
+    carregarCaminhoesCatalogo(),
     sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
   ]);
   document.getElementById('equipe-caminhao').innerHTML = '<option value="">Selecione...</option>' +
-    (caminhoes||[]).map(c=>`<option value="${c.id}">${c.identificacao}${c.placa?' — '+c.placa:''}</option>`).join('');
+    (caminhoes||[]).map(c=>`<option value="${c.id}">${escHtml(c.identificacao)}${c.placa?' — '+escHtml(c.placa):''}</option>`).join('');
   document.getElementById('equipe-semana').innerHTML = '<option value="">Selecione...</option>' +
     semanasAtual.map(s=>{
       const di=new Date(s.data_inicio+'T12:00:00').toLocaleDateString('pt-BR');
@@ -9615,7 +9784,7 @@ async function carregarEquipesParaVenda() {
   sel.innerHTML = '<option value="">Sem equipe / venda direta</option>' +
     (equipes||[]).map(e=>{
       const chefe = e.equipe_membros?.find(m=>m.papel==='chefe');
-      return `<option value="${e.id}">${e.caminhoes?.identificacao||'—'} — ${escHtml(chefe?.funcionarios?.nome||'—')}</option>`;
+      return `<option value="${e.id}">${escHtml(e.caminhoes?.identificacao||'—')} — ${escHtml(chefe?.funcionarios?.nome||'—')}</option>`;
     }).join('');
 }
 
@@ -10215,6 +10384,40 @@ async function gerarProximoMes() {
       <button id="btn-cancelar-baixa-edit" class="btn" style="display:none;color:#854F0B;border-color:#FAC775;margin-right:auto;" onclick="cancelarBaixaDoModal()">Cancelar baixa</button>
       <button class="btn" onclick="fecharModal('modal-editar-parcela')">Fechar</button>
       <button class="btn primario" onclick="salvarEdicaoParcela()">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CAMINHÃO -->
+<div class="modal-bg" id="modal-caminhao">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <strong id="modal-caminhao-titulo">Novo caminhão</strong>
+      <button onclick="fecharModal('modal-caminhao')">×</button>
+    </div>
+    <input type="hidden" id="caminhao-id">
+    <div class="campo">
+      <label>Identificação *</label>
+      <input id="caminhao-identificacao" type="text" placeholder="Ex: Caminhão 01">
+    </div>
+    <div class="campo">
+      <label>Placa</label>
+      <input id="caminhao-placa" type="text" placeholder="Ex: ABC-1234">
+    </div>
+    <div class="campo">
+      <label>Foto (opcional)</label>
+      <div id="caminhao-foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
+        <img id="caminhao-foto-preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid #ddd;display:block;">
+        <button type="button" onclick="removerFotoCaminhao()" style="margin-top:.4rem;font-size:.8rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
+      </div>
+      <input type="file" id="caminhao-foto" accept="image/*" capture="environment" onchange="processarFotoCaminhao(this)" style="display:none;">
+      <button type="button" class="btn" onclick="document.getElementById('caminhao-foto').click()" style="width:100%;">📷 Tirar / escolher foto</button>
+      <div id="msg-foto-caminhao" style="margin-top:4px;font-size:12px;"></div>
+    </div>
+    <div id="msg-caminhao"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-caminhao')">Cancelar</button>
+      <button class="btn primario" onclick="salvarCaminhao()">Salvar</button>
     </div>
   </div>
 </div>
