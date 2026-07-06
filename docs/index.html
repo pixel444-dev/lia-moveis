@@ -4147,6 +4147,33 @@ async function buscarVendasFiltro() {
   renderVendas(todasVendas);
 }
 
+// Lista as equipes ativas da semana atual e garante que a equipe já vinculada à
+// venda apareça como opção mesmo se pertencer a uma semana encerrada — senão o
+// select cairia em "Sem equipe" e um simples "Salvar" desvincularia a venda sem querer.
+async function carregarEquipesEdicaoVenda(equipeAtualId) {
+  const hoje = new Date().toISOString().split('T')[0];
+  const { data: semana } = await sb.from('semanas_venda').select('id').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
+  let equipes = [];
+  if (semana) {
+    const { data } = await sb.from('equipes')
+      .select('id, caminhoes(identificacao), equipe_membros(papel, funcionarios(nome))')
+      .eq('semana_id', semana.id).eq('encerrada', false);
+    equipes = data || [];
+  }
+  if (equipeAtualId && !equipes.some(e => e.id === equipeAtualId)) {
+    const { data: equipeAtual } = await sb.from('equipes')
+      .select('id, caminhoes(identificacao), equipe_membros(papel, funcionarios(nome))')
+      .eq('id', equipeAtualId).maybeSingle();
+    if (equipeAtual) equipes = [equipeAtual, ...equipes];
+  }
+  const sel = document.getElementById('ev-equipe');
+  sel.innerHTML = '<option value="">Sem equipe</option>' + equipes.map(e => {
+    const chefe = e.equipe_membros?.find(m => m.papel === 'chefe');
+    return `<option value="${e.id}">${escHtml(e.caminhoes?.identificacao || '—')} — ${escHtml(chefe?.funcionarios?.nome || '—')}</option>`;
+  }).join('');
+  sel.value = equipeAtualId || '';
+}
+
 async function abrirEditarVenda(vendaId) {
   if (perfilAtivo.perfil !== 'gestor') return;
   const { data: venda, error } = await sb.from('vendas')
@@ -4155,6 +4182,7 @@ async function abrirEditarVenda(vendaId) {
   if (error || !venda) { alert('Erro ao carregar venda.'); return; }
 
   document.getElementById('ev-venda-id').value = venda.id;
+  document.getElementById('ev-equipe-original').value = venda.equipe_id || '';
   document.getElementById('ev-codigo').textContent = venda.codigo || '';
   document.getElementById('ev-info-cliente').innerHTML =
     `👤 <strong>${escHtml(venda.clientes?.nome || '—')}</strong> ${venda.clientes?.codigo ? '#' + venda.clientes.codigo : ''}<br>
@@ -4165,6 +4193,8 @@ async function abrirEditarVenda(vendaId) {
 
   await carregarVendedoresSelect('ev-vendedor');
   document.getElementById('ev-vendedor').value = venda.vendedor_id || '';
+
+  await carregarEquipesEdicaoVenda(venda.equipe_id);
 
   await carregarProdutosCatalogo();
   const { data: itens } = await sb.from('venda_itens').select('produto, quantidade').eq('venda_id', vendaId);
@@ -4254,19 +4284,23 @@ async function salvarEdicaoVenda() {
     const produto = itensResult.itens.map(i => i.quantidade > 1 ? `${i.quantidade}x ${i.produto}` : i.produto).join(', ');
     const vendedorId = document.getElementById('ev-vendedor').value || null;
     const observacao = document.getElementById('ev-obs').value.trim();
+    const equipeOriginalId = document.getElementById('ev-equipe-original').value || null;
+    const equipeId = document.getElementById('ev-equipe').value || null;
 
-    const { data: vendaAtual, error: errVenda } = await sb.from('vendas')
-      .update({ produto, valor, vendedor_id: vendedorId, observacao })
-      .eq('id', vendaId).select('equipe_id').single();
+    const { error: errVenda } = await sb.from('vendas')
+      .update({ produto, valor, vendedor_id: vendedorId, observacao, equipe_id: equipeId })
+      .eq('id', vendaId);
     if (errVenda) { msg.innerHTML = `<div class="msg erro">Erro ao salvar: ${errVenda.message}</div>`; return; }
 
     await sb.from('venda_itens').delete().eq('venda_id', vendaId);
     await sb.from('venda_itens').insert(itensResult.itens.map(i => ({ venda_id: vendaId, produto: i.produto, quantidade: i.quantidade })));
 
-    if (vendaAtual?.equipe_id) {
+    // Recalcula os totais da(s) equipe(s) afetada(s) — a antiga (se a venda saiu dela) e a nova (se entrou nela)
+    const equipesParaRecalcular = new Set([equipeOriginalId, equipeId].filter(Boolean));
+    for (const eqId of equipesParaRecalcular) {
       const { data: vendasEquipe } = await sb.from('vendas')
         .select('valor, tipo, entrada')
-        .eq('equipe_id', vendaAtual.equipe_id)
+        .eq('equipe_id', eqId)
         .neq('status', 'devolvida');
       const ve = vendasEquipe || [];
       const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(ve);
@@ -4275,7 +4309,7 @@ async function salvarEdicaoVenda() {
         total_credito: totalCredito,
         total_valor: totalGeral,
         total_vendas: ve.length,
-      }).eq('id', vendaAtual.equipe_id);
+      }).eq('id', eqId);
     }
 
     fecharModal('modal-editar-venda');
@@ -9625,11 +9659,18 @@ async function gerarProximoMes() {
       <button onclick="fecharModal('modal-editar-venda')">×</button>
     </div>
     <input type="hidden" id="ev-venda-id">
+    <input type="hidden" id="ev-equipe-original">
     <div id="ev-info-cliente" style="background:#f9f9f9;border-radius:8px;padding:10px 14px;margin-bottom:.875rem;font-size:13px;color:#555;"></div>
     <div class="campo">
       <label>Vendedor</label>
       <select id="ev-vendedor" style="padding:12px;font-size:15px;border-radius:10px;">
         <option value="">Selecione o vendedor...</option>
+      </select>
+    </div>
+    <div class="campo">
+      <label>🚚 Equipe vinculada</label>
+      <select id="ev-equipe" style="padding:12px;font-size:15px;border-radius:10px;">
+        <option value="">Sem equipe</option>
       </select>
     </div>
     <div class="campo">
