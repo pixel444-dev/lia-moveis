@@ -746,7 +746,8 @@ tr:hover td{background:#fafafa;}
   <div style="background:#EAF1F8;border:1px solid #B9D3EA;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.25rem;font-size:13px;line-height:1.6;">
     ℹ️ Gera uma planilha <strong>.xlsx</strong> no formato exigido pelo sistema de pagamentos (emissão de cobranças em lote).
     Selecione o período e o sistema exporta <strong>somente as vendas realizadas nesse período</strong> — clientes sem venda no período não entram na planilha.
-    Cada linha da planilha é uma <strong>parcela em aberto</strong> (uma cobrança) das vendas selecionadas; vendas à vista e parcelas já pagas não geram cobrança.
+    Cada venda com parcelas em aberto vira <strong>uma linha (uma cobrança)</strong>: a coluna Quantidade leva o número de parcelas em aberto, o Valor Unitário o valor da parcela e o Vencimento a data da parcela em aberto mais próxima; vendas à vista e parcelas já pagas não entram.
+    O sistema de pagamentos aceita no máximo <strong>200 cobranças por arquivo</strong> — se passar disso, exporte períodos menores.
     <strong>Não altere o cabeçalho nem o formato das colunas</strong> do arquivo gerado, senão o sistema de pagamentos rejeita o arquivo.
   </div>
   <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
@@ -8567,10 +8568,9 @@ function _exportCidadeUf(cidade) {
 }
 
 // "Item para cobrança" tem limite de 72 caracteres no sistema de pagamentos
-function _exportItemCobranca(venda, parcela) {
-  const sufixo = ' - Parcela ' + (parcela.numero || 1) + '/' + (parcela.total_parcelas || venda.num_parcelas || 1);
+function _exportItemCobranca(venda) {
   const base = String(venda.produto || '').replace(/\s+/g, ' ').trim() || ('Venda ' + (venda.codigo || ''));
-  return base.slice(0, Math.max(1, 72 - sufixo.length)) + sufixo;
+  return base.slice(0, 72);
 }
 
 async function buscarVendasExportacao() {
@@ -8673,7 +8673,7 @@ function gerarPlanilhaExportacao() {
     const hoje = new Date();
     const hojeIso = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-' + String(hoje.getDate()).padStart(2, '0');
     const linhas = [];
-    let totalExportado = 0, parcelasVencidas = 0;
+    let totalExportado = 0, totalParcelas = 0, cobrancasVencidas = 0;
     for (const { venda, parcelasAbertas } of selecionadas) {
       const c = venda.clientes;
       const documento = _exportDocumentoValido(c.cpf);
@@ -8681,31 +8681,39 @@ function gerarPlanilhaExportacao() {
       const rua = String(c.endereco || '').replace(/\s+/g, ' ').trim();
       const bairro = String(c.bairro || '').replace(/\s+/g, ' ').trim();
       const { cidade, uf } = _exportCidadeUf(c.cidade);
-      for (const p of parcelasAbertas) {
-        const restante = _exportRestanteParcela(p);
-        totalExportado += restante;
-        if (String(p.data_vencimento).slice(0, 10) < hojeIso) parcelasVencidas++;
-        // E-mail (H), CEP (I) e Número (K) ficam vazios — o cadastro de
-        // clientes não tem esses campos (o número da casa faz parte do
-        // endereço, exportado inteiro na coluna Rua).
-        linhas.push([
-          { t: 's', v: _exportItemCobranca(venda, p) },
-          { t: 'n', v: restante, z: FMT_MOEDA },
-          { t: 'n', v: 1, z: '#' },
-          { t: 'n', v: _exportDataParaSerial(p.data_vencimento), z: 'dd/mm/yyyy' },
-          { t: 's', v: String(c.nome).replace(/\s+/g, ' ').trim() },
-          { t: 's', v: documento, z: '@' },
-          { t: 's', v: celular, z: '@' },
-          null,                                     // E-mail
-          null,                                     // CEP
-          rua ? { t: 's', v: rua } : null,          // Rua (endereço completo)
-          null,                                     // Número
-          null,                                     // Complemento
-          bairro ? { t: 's', v: bairro } : null,    // Bairro
-          cidade ? { t: 's', v: cidade } : null,    // Cidade
-          uf ? { t: 's', v: uf } : null,            // Estado
-        ]);
-      }
+      // Uma linha (cobrança) por venda: Quantidade = nº de parcelas em aberto,
+      // Valor Unitário = valor da parcela (saldo em aberto ÷ quantidade) e
+      // Vencimento = data da parcela em aberto mais próxima. O sistema de
+      // pagamentos multiplica Quantidade × Valor Unitário no total da cobrança.
+      const qtd = parcelasAbertas.length;
+      const saldoVenda = parcelasAbertas.reduce((a, p) => a + _exportRestanteParcela(p), 0);
+      const valorUnitario = Math.round((saldoVenda / qtd) * 100) / 100;
+      const vencimento = parcelasAbertas.reduce(
+        (min, p) => (String(p.data_vencimento) < String(min) ? p.data_vencimento : min),
+        parcelasAbertas[0].data_vencimento);
+      totalExportado += Math.round(valorUnitario * qtd * 100) / 100;
+      totalParcelas += qtd;
+      if (String(vencimento).slice(0, 10) < hojeIso) cobrancasVencidas++;
+      // E-mail (H), CEP (I) e Número (K) ficam vazios — o cadastro de
+      // clientes não tem esses campos (o número da casa faz parte do
+      // endereço, exportado inteiro na coluna Rua).
+      linhas.push([
+        { t: 's', v: _exportItemCobranca(venda) },
+        { t: 'n', v: valorUnitario, z: FMT_MOEDA },
+        { t: 'n', v: qtd, z: '#' },
+        { t: 'n', v: _exportDataParaSerial(vencimento), z: 'dd/mm/yyyy' },
+        { t: 's', v: String(c.nome).replace(/\s+/g, ' ').trim() },
+        { t: 's', v: documento, z: '@' },
+        { t: 's', v: celular, z: '@' },
+        null,                                     // E-mail
+        null,                                     // CEP
+        rua ? { t: 's', v: rua } : null,          // Rua (endereço completo)
+        null,                                     // Número
+        null,                                     // Complemento
+        bairro ? { t: 's', v: bairro } : null,    // Bairro
+        cidade ? { t: 's', v: cidade } : null,    // Cidade
+        uf ? { t: 's', v: uf } : null,            // Estado
+      ]);
     }
     const CABECALHO = ['Item para cobrança*', 'Valor Unitário*', 'Quantidade*', 'Vencimento*', 'Responsável*',
       'Documento (CPF/CNPJ)*', 'Celular*', 'E-mail', 'CEP', 'Rua', 'Número', 'Complemento', 'Bairro', 'Cidade', 'Estado'];
@@ -8725,15 +8733,20 @@ function gerarPlanilhaExportacao() {
     const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
     let html = '<div style="background:#EAF3DE;border:1px solid #C0DD97;border-radius:10px;padding:12px 16px;margin-bottom:8px;font-size:13px;line-height:1.7;">'
       + '<strong>✅ Planilha gerada: ' + escHtml(nomeArquivo) + '</strong><br>'
-      + '🧾 ' + linhas.length + ' cobrança(s) (parcelas em aberto) · 🛒 ' + selecionadas.length + ' venda(s) · 👤 ' + clientesDistintos + ' cliente(s) · 💰 ' + fmtMoeda(totalExportado)
+      + '🧾 ' + linhas.length + ' cobrança(s) — uma por venda · 📦 ' + totalParcelas + ' parcela(s) em aberto · 👤 ' + clientesDistintos + ' cliente(s) · 💰 ' + fmtMoeda(totalExportado)
       + '</div>';
-    if (parcelasVencidas) {
+    if (linhas.length > 200) {
+      html += '<div style="background:#FCEBEB;border:1px solid #E8A5A5;border-radius:10px;padding:12px 16px;margin-bottom:8px;font-size:12px;line-height:1.6;">'
+        + '❌ <strong>' + linhas.length + ' cobranças no arquivo</strong> — o sistema de pagamentos aceita no máximo <strong>200 cobranças por arquivo</strong> e vai recusar este. Exporte um período menor ou desmarque parte das vendas e gere mais de um arquivo.'
+        + '</div>';
+    }
+    if (cobrancasVencidas) {
       html += '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:12px 16px;font-size:12px;line-height:1.6;">'
-        + '⚠️ <strong>' + parcelasVencidas + ' parcela(s) com vencimento já passado</strong> foram incluídas. O sistema de pagamentos não aceita cobrança com data retroativa — ajuste o vencimento dessas linhas na planilha (ou renegocie as datas) antes de importar.'
+        + '⚠️ <strong>' + cobrancasVencidas + ' cobrança(s) com vencimento já passado</strong> (parcela em aberto mais antiga da venda). O sistema de pagamentos não aceita cobrança com data retroativa — ajuste o vencimento dessas linhas na planilha (ou renegocie as datas) antes de importar.'
         + '</div>';
     }
     log.innerHTML = html;
-    Logger.info('exportacao', 'EXPORTAR_COBRANCAS', 'Planilha de cobranças gerada', { de, ate, vendas: selecionadas.length, linhas: linhas.length, vencidas: parcelasVencidas });
+    Logger.info('exportacao', 'EXPORTAR_COBRANCAS', 'Planilha de cobranças gerada', { de, ate, vendas: selecionadas.length, linhas: linhas.length, parcelas: totalParcelas, vencidas: cobrancasVencidas });
   } catch (err) {
     Logger.error('exportacao', 'EXPORTAR_COBRANCAS', 'Falha ao gerar planilha', { msg: err.message, de, ate });
     log.innerHTML = '<div style="background:#FCEBEB;border:1px solid #E8A5A5;border-radius:10px;padding:12px 16px;font-size:13px;">❌ Erro ao gerar a planilha: ' + escHtml(err.message) + '</div>';
