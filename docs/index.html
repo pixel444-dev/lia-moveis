@@ -373,6 +373,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" id="nav-produtos" data-page="produtos" onclick="pg('produtos',this)"><span class="nav-ico">📦</span>Produtos</div>
       <div class="nav-item" id="nav-usuarios" data-page="usuarios" onclick="pg('usuarios',this)"><span class="nav-ico">🔐</span>Usuários</div>
       <div class="nav-item" id="nav-importacao" data-page="importacao" onclick="pg('importacao',this)"><span class="nav-ico">📥</span>Importar dados</div>
+      <div class="nav-item" id="nav-exportacao" data-page="exportacao" onclick="pg('exportacao',this)"><span class="nav-ico">📤</span>Exportar dados</div>
       <div class="nav-item" id="nav-rotas" data-page="rotas" onclick="pg('rotas',this)"><span class="nav-ico">🛣️</span>Rotas</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-vendas">
@@ -740,6 +741,31 @@ tr:hover td{background:#fafafa;}
     <div id="log-parcelas" style="margin-top:.75rem;font-size:12px;color:#555;max-height:400px;overflow-y:auto;"></div>
   </div>
 </div>
+    <div class="page" id="page-exportacao">
+  <div class="page-title">📤 Exportar dados para cobrança</div>
+  <div style="background:#EAF1F8;border:1px solid #B9D3EA;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.25rem;font-size:13px;line-height:1.6;">
+    ℹ️ Gera uma planilha <strong>.xlsx</strong> no formato exigido pelo sistema de pagamentos (emissão de cobranças em lote).
+    Selecione o período e o sistema exporta <strong>somente as vendas realizadas nesse período</strong> — clientes sem venda no período não entram na planilha.
+    Cada linha da planilha é uma <strong>parcela em aberto</strong> (uma cobrança) das vendas selecionadas; vendas à vista e parcelas já pagas não geram cobrança.
+    <strong>Não altere o cabeçalho nem o formato das colunas</strong> do arquivo gerado, senão o sistema de pagamentos rejeita o arquivo.
+  </div>
+  <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;">
+    <div style="font-size:15px;font-weight:700;margin-bottom:1rem;">📅 Período das vendas</div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <div class="campo" style="margin-bottom:0;">
+        <label style="font-size:12px;">De</label>
+        <input id="export-periodo-de" type="date" style="padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+      </div>
+      <div class="campo" style="margin-bottom:0;">
+        <label style="font-size:12px;">Até</label>
+        <input id="export-periodo-ate" type="date" style="padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+      </div>
+      <button class="btn primario" onclick="buscarVendasExportacao()">Buscar vendas do período</button>
+    </div>
+  </div>
+  <div id="export-resultado"></div>
+  <div id="export-log"></div>
+</div>
     <div class="page" id="page-relatorios">
       <div class="page-title">Relatórios</div>
       <div id="lista-relatorios">Em construção...</div>
@@ -764,6 +790,7 @@ tr:hover td{background:#fafafa;}
           <option value="cobrancas">cobrancas</option>
           <option value="equipes">equipes</option>
           <option value="importacao">importacao</option>
+          <option value="exportacao">exportacao</option>
           <option value="global">global</option>
         </select>
         <button class="btn primario" onclick="carregarLogs(document.getElementById('filtro-log-level').value,document.getElementById('filtro-log-modulo').value)">Atualizar</button>
@@ -1776,6 +1803,7 @@ function aplicarPermissoes(perfil) {
     produtos:            gestor,
     usuarios:            gestor,
     importacao:          gestor,
+    exportacao:          gestor,
     'caixa-vendedores':  gestor,
     desempenho:          gestor,
     relatorios:          gestor,
@@ -8479,6 +8507,219 @@ async function importarParcelas() {
     if (btn) { btn.disabled = false; btn.textContent = '📥 Importar vendas e parcelas'; }
   }
 }
+// === EXPORTAÇÃO DE COBRANÇAS (planilha .xlsx para o sistema de pagamentos) ===
+// O arquivo segue o modelo oficial de emissão de cobranças em lote: cabeçalho
+// fixo de 15 colunas e formato próprio por coluna (moeda, data, texto). Linhas
+// com CPF/celular ausente ou inválido ficam de fora — uma linha inválida faz o
+// sistema de pagamentos rejeitar o arquivo inteiro.
+
+let _exportVendasPeriodo = [];
+
+function _exportSoDigitos(v) { return String(v || '').replace(/\D/g, ''); }
+
+function _exportCelularValido(tel) {
+  let d = _exportSoDigitos(tel);
+  // remove o +55 de números salvos com código do país (12/13 dígitos)
+  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+  return (d.length === 10 || d.length === 11) ? d : null;
+}
+
+function _exportDocumentoValido(doc) {
+  const d = _exportSoDigitos(doc);
+  if (d.length === 11) return validarCPF(d) ? d : null;
+  if (d.length === 14) return d; // CNPJ
+  return null;
+}
+
+function _exportProblemaCliente(cliente) {
+  if (!cliente) return 'venda sem cliente vinculado';
+  const problemas = [];
+  if (!String(cliente.nome || '').trim()) problemas.push('sem nome');
+  if (!_exportDocumentoValido(cliente.cpf)) problemas.push('CPF/CNPJ ausente ou inválido');
+  if (!_exportCelularValido(cliente.telefone)) problemas.push('celular ausente ou inválido');
+  return problemas.length ? problemas.join(', ') : null;
+}
+
+function _exportParcelasAbertas(venda) {
+  return (venda.parcelas || [])
+    .filter(p => !p.pago && p.status !== 'devolvida' && p.data_vencimento
+      && (Number(p.valor) - Number(p.valor_pago || 0)) > 0.009)
+    .sort((a, b) => (a.numero || 0) - (b.numero || 0));
+}
+
+function _exportRestanteParcela(p) {
+  return Math.round((Number(p.valor) - Number(p.valor_pago || 0)) * 100) / 100;
+}
+
+// Data ISO (aaaa-mm-dd) → número serial de data do Excel
+function _exportDataParaSerial(iso) {
+  const [a, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  return Math.round((Date.UTC(a, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000);
+}
+
+// "Item para cobrança" tem limite de 72 caracteres no sistema de pagamentos
+function _exportItemCobranca(venda, parcela) {
+  const sufixo = ' - Parcela ' + (parcela.numero || 1) + '/' + (parcela.total_parcelas || venda.num_parcelas || 1);
+  const base = String(venda.produto || '').replace(/\s+/g, ' ').trim() || ('Venda ' + (venda.codigo || ''));
+  return base.slice(0, Math.max(1, 72 - sufixo.length)) + sufixo;
+}
+
+async function buscarVendasExportacao() {
+  const de = document.getElementById('export-periodo-de').value;
+  const ate = document.getElementById('export-periodo-ate').value;
+  if (!de || !ate) { alert('Selecione as duas datas do período!'); return; }
+  if (de > ate) { alert('A data inicial não pode ser depois da data final!'); return; }
+  const resultado = document.getElementById('export-resultado');
+  document.getElementById('export-log').innerHTML = '';
+  resultado.innerHTML = '<p style="color:#888;padding:.5rem;">🔍 Buscando vendas do período...</p>';
+  let vendas;
+  try {
+    const { data, error } = await buscarTudoPaginado(() => sb.from('vendas')
+      .select('id, codigo, produto, valor, tipo, num_parcelas, data_venda, clientes(id, nome, cpf, telefone), parcelas(numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status)')
+      .gte('data_venda', de)
+      .lte('data_venda', ate)
+      .neq('status', 'devolvida')
+      .order('data_venda')
+      .order('codigo'));
+    if (error) throw new Error(error.message);
+    vendas = data || [];
+  } catch (err) {
+    Logger.error('exportacao', 'BUSCAR_VENDAS', 'Falha ao buscar vendas do período', { msg: err.message, de, ate });
+    resultado.innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Erro ao buscar vendas do período. Verifique a conexão e tente de novo.</p>';
+    return;
+  }
+  _exportVendasPeriodo = vendas.map(v => ({
+    venda: v,
+    parcelasAbertas: _exportParcelasAbertas(v),
+    problema: _exportProblemaCliente(v.clientes),
+  }));
+  if (!_exportVendasPeriodo.length) {
+    resultado.innerHTML = '<p style="color:#888;padding:.5rem;">Nenhuma venda encontrada nesse período.</p>';
+    return;
+  }
+  const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  const exportaveis = [];
+  const comProblema = [];
+  let semCobranca = 0;
+  _exportVendasPeriodo.forEach((x, i) => {
+    if (!x.parcelasAbertas.length) { semCobranca++; return; }
+    (x.problema ? comProblema : exportaveis).push({ ...x, idx: i });
+  });
+  const linhaVenda = x => `
+    <strong style="font-size:13px;">Venda #${escHtml(x.venda.codigo || '—')}</strong> — ${escHtml(x.venda.clientes?.nome || '—')}
+    <div style="font-size:11px;color:#888;">${escHtml(x.venda.produto || '—')} · ${new Date(x.venda.data_venda + 'T12:00:00').toLocaleDateString('pt-BR')} · ${x.parcelasAbertas.length} parcela(s) em aberto</div>`;
+  let html = `
+    <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.75rem;margin-bottom:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;color:#555;">${_exportVendasPeriodo.length} venda(s) no período — ${exportaveis.length} pronta(s) para exportar. Desmarque as que não quer incluir:</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" style="font-size:11px;" onclick="marcarTodasVendasExportacao(true)">Marcar todas</button>
+          <button class="btn" style="font-size:11px;" onclick="marcarTodasVendasExportacao(false)">Desmarcar todas</button>
+        </div>
+      </div>`;
+  if (exportaveis.length) {
+    html += `<div style="max-height:340px;overflow-y:auto;">
+      ${exportaveis.map(x => `
+        <label style="display:flex;align-items:center;gap:10px;padding:.5rem .25rem;border-bottom:1px solid #f0f0f0;cursor:pointer;">
+          <input type="checkbox" class="export-venda-check" data-idx="${x.idx}" checked>
+          <div style="flex:1;">${linhaVenda(x)}</div>
+          <span style="font-size:13px;font-weight:600;">${fmtMoeda(x.parcelasAbertas.reduce((a, p) => a + _exportRestanteParcela(p), 0))}</span>
+        </label>`).join('')}
+    </div>`;
+  } else {
+    html += '<p style="color:#888;padding:.5rem;">Nenhuma venda do período tem parcelas em aberto prontas para exportar.</p>';
+  }
+  if (semCobranca) {
+    html += `<div style="font-size:12px;color:#888;margin-top:.5rem;">⏭️ ${semCobranca} venda(s) sem parcela em aberto (à vista ou já quitadas) — nada a cobrar, ficam fora da planilha.</div>`;
+  }
+  if (exportaveis.length) {
+    html += '<button class="btn primario" style="width:100%;margin-top:.75rem;padding:12px;font-size:14px;" id="btn-gerar-planilha-export" onclick="gerarPlanilhaExportacao()">📤 Gerar planilha (.xlsx)</button>';
+  }
+  html += '</div>';
+  if (comProblema.length) {
+    html += `
+      <div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:12px 16px;margin-bottom:1rem;font-size:12px;line-height:1.6;">
+        <strong>⚠️ ${comProblema.length} venda(s) fora da planilha por cadastro incompleto</strong> — corrija o cadastro do cliente e busque o período de novo:<br>
+        ${comProblema.map(x => '• Venda #' + escHtml(x.venda.codigo || '—') + ' — ' + escHtml(x.venda.clientes?.nome || 'sem cliente') + ': ' + escHtml(x.problema)).join('<br>')}
+      </div>`;
+  }
+  resultado.innerHTML = html;
+}
+
+function marcarTodasVendasExportacao(marcar) {
+  document.querySelectorAll('.export-venda-check').forEach(cb => { cb.checked = marcar; });
+}
+
+function gerarPlanilhaExportacao() {
+  const selecionadas = Array.from(document.querySelectorAll('.export-venda-check'))
+    .filter(cb => cb.checked)
+    .map(cb => _exportVendasPeriodo[Number(cb.dataset.idx)])
+    .filter(Boolean);
+  if (!selecionadas.length) { alert('Selecione ao menos uma venda para exportar.'); return; }
+  const de = document.getElementById('export-periodo-de').value;
+  const ate = document.getElementById('export-periodo-ate').value;
+  const log = document.getElementById('export-log');
+  try {
+    const FMT_MOEDA = '"R$" #,##0.00';
+    const hoje = new Date();
+    const hojeIso = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-' + String(hoje.getDate()).padStart(2, '0');
+    const linhas = [];
+    let totalExportado = 0, parcelasVencidas = 0;
+    for (const { venda, parcelasAbertas } of selecionadas) {
+      const c = venda.clientes;
+      const documento = _exportDocumentoValido(c.cpf);
+      const celular = _exportCelularValido(c.telefone);
+      for (const p of parcelasAbertas) {
+        const restante = _exportRestanteParcela(p);
+        totalExportado += restante;
+        if (String(p.data_vencimento).slice(0, 10) < hojeIso) parcelasVencidas++;
+        // Colunas H–O (E-mail e endereço) ficam vazias: o cadastro não tem
+        // e-mail/CEP/número separado, e o modelo exige o endereço completo
+        // quando qualquer campo dele é preenchido.
+        linhas.push([
+          { t: 's', v: _exportItemCobranca(venda, p) },
+          { t: 'n', v: restante, z: FMT_MOEDA },
+          { t: 'n', v: 1, z: '#' },
+          { t: 'n', v: _exportDataParaSerial(p.data_vencimento), z: 'dd/mm/yyyy' },
+          { t: 's', v: String(c.nome).replace(/\s+/g, ' ').trim() },
+          { t: 's', v: documento, z: '@' },
+          { t: 's', v: celular, z: '@' },
+        ]);
+      }
+    }
+    const CABECALHO = ['Item para cobrança*', 'Valor Unitário*', 'Quantidade*', 'Vencimento*', 'Responsável*',
+      'Documento (CPF/CNPJ)*', 'Celular*', 'E-mail', 'CEP', 'Rua', 'Número', 'Complemento', 'Bairro', 'Cidade', 'Estado'];
+    const ws = {};
+    CABECALHO.forEach((h, c) => { ws[XLSX.utils.encode_cell({ r: 0, c })] = { t: 's', v: h }; });
+    linhas.forEach((linha, r) => {
+      linha.forEach((celula, c) => { if (celula) ws[XLSX.utils.encode_cell({ r: r + 1, c })] = celula; });
+    });
+    ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: linhas.length, c: CABECALHO.length - 1 } });
+    ws['!cols'] = [{ wch: 42 }, { wch: 14 }, { wch: 12 }, { wch: 13 }, { wch: 30 }, { wch: 22 }, { wch: 14 },
+      { wch: 26 }, { wch: 10 }, { wch: 24 }, { wch: 8 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 8 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Exemplo'); // mesmo nome de aba do modelo oficial
+    const nomeArquivo = 'cobrancas_' + de + '_a_' + ate + '.xlsx';
+    XLSX.writeFile(wb, nomeArquivo);
+    const clientesDistintos = new Set(selecionadas.map(x => x.venda.clientes?.id)).size;
+    const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    let html = '<div style="background:#EAF3DE;border:1px solid #C0DD97;border-radius:10px;padding:12px 16px;margin-bottom:8px;font-size:13px;line-height:1.7;">'
+      + '<strong>✅ Planilha gerada: ' + escHtml(nomeArquivo) + '</strong><br>'
+      + '🧾 ' + linhas.length + ' cobrança(s) (parcelas em aberto) · 🛒 ' + selecionadas.length + ' venda(s) · 👤 ' + clientesDistintos + ' cliente(s) · 💰 ' + fmtMoeda(totalExportado)
+      + '</div>';
+    if (parcelasVencidas) {
+      html += '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:12px 16px;font-size:12px;line-height:1.6;">'
+        + '⚠️ <strong>' + parcelasVencidas + ' parcela(s) com vencimento já passado</strong> foram incluídas. O sistema de pagamentos não aceita cobrança com data retroativa — ajuste o vencimento dessas linhas na planilha (ou renegocie as datas) antes de importar.'
+        + '</div>';
+    }
+    log.innerHTML = html;
+    Logger.info('exportacao', 'EXPORTAR_COBRANCAS', 'Planilha de cobranças gerada', { de, ate, vendas: selecionadas.length, linhas: linhas.length, vencidas: parcelasVencidas });
+  } catch (err) {
+    Logger.error('exportacao', 'EXPORTAR_COBRANCAS', 'Falha ao gerar planilha', { msg: err.message, de, ate });
+    log.innerHTML = '<div style="background:#FCEBEB;border:1px solid #E8A5A5;border-radius:10px;padding:12px 16px;font-size:13px;">❌ Erro ao gerar a planilha: ' + escHtml(err.message) + '</div>';
+  }
+}
+
 async function cancelarBaixa(parcelaId, clienteId, codigoVenda) {
   if (!confirm('Cancelar esta baixa? A parcela voltará para em aberto.')) return;
   await sb.from('movimentacoes_cobranca')
