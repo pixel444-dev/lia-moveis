@@ -380,6 +380,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-sep">Vendas</div>
       <div class="nav-item" id="nav-vendas" data-page="vendas" onclick="pg('vendas',this)"><span class="nav-ico">🛒</span>Vendas</div>
       <div class="nav-item" id="nav-equipes" data-page="equipes" onclick="pg('equipes',this)"><span class="nav-ico">🚚</span>Equipes / Semanas</div>
+      <div class="nav-item" id="nav-estoque" data-page="estoque" onclick="pg('estoque',this)"><span class="nav-ico">🏭</span>Estoque</div>
       <div class="nav-item" id="nav-meses" data-page="meses" onclick="pg('meses',this)"><span class="nav-ico">📅</span>Meses / Ciclos</div>
       <div class="nav-item" id="nav-caixa-vendedores" data-page="caixa-vendedores" onclick="pg('caixa-vendedores',this)"><span class="nav-ico">💵</span>Caixa em campo</div>
     </div>
@@ -527,6 +528,17 @@ tr:hover td{background:#fafafa;}
       </div>
       <div id="info-mes-equipes" style="margin-bottom:1rem;font-size:13px;color:#666;"></div>
       <div id="lista-equipes"></div>
+    </div>
+
+    <div class="page" id="page-estoque">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">🏭 Estoque</div>
+        <button class="btn primario" onclick="abrirRegistrarProducao()">+ Registrar produção</button>
+      </div>
+      <div class="secao" style="margin-top:0;">Estoque do CD (serraria)</div>
+      <div id="lista-estoque-cd">Carregando...</div>
+      <div class="secao">Estoque por caminhão</div>
+      <div id="lista-estoque-caminhoes">Carregando...</div>
     </div>
 
     <div class="page" id="page-meses">
@@ -1802,6 +1814,7 @@ function aplicarPermissoes(perfil) {
     meses:               gestor,
     funcionarios:        gestor,
     produtos:            gestor,
+    estoque:             gestor,
     usuarios:            gestor,
     importacao:          gestor,
     exportacao:          gestor,
@@ -1863,6 +1876,7 @@ function pg(nome, el) {
   if (nome === 'config-impressao') carregarConfigImpressao();
   if (nome === 'seguranca') carregarPaginaSeguranca();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarEquipes(); });
+  if (nome === 'estoque') carregarEstoquePagina();
   if (nome === 'usuarios') carregarUsuarios();
 }
 
@@ -3029,6 +3043,212 @@ function precoSugeridoProduto(nome) {
   return item && item.preco != null ? item.preco : null;
 }
 
+// ===== ESTOQUE (CD / CAMINHÕES) =====
+
+async function carregarCaminhoesCatalogo() {
+  const { data } = await sb.from('caminhoes').select('id, identificacao, placa').order('identificacao');
+  window._caminhoesCatalogo = data || [];
+  return window._caminhoesCatalogo;
+}
+
+async function carregarEstoquePagina() {
+  await Promise.all([carregarProdutosCatalogo(), carregarCaminhoesCatalogo()]);
+  await Promise.all([carregarEstoqueCD(), carregarEstoquePorCaminhao()]);
+}
+
+async function carregarEstoqueCD() {
+  const el = document.getElementById('lista-estoque-cd');
+  const { data, error } = await sb.from('estoque_cd').select('quantidade, produtos(nome)');
+  if (error) { el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar estoque do CD.</p>'; return; }
+  const lista = (data || []).slice().sort((a, b) => (a.produtos?.nome || '').localeCompare(b.produtos?.nome || ''));
+  if (!lista.length) { el.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum produto em estoque no CD.</p>'; return; }
+  el.innerHTML = `<div class="tabela-wrap"><table>
+    <thead><tr><th>Produto</th><th>Saldo no CD</th></tr></thead>
+    <tbody>${lista.map(i => `<tr><td>${escHtml(i.produtos?.nome || '—')}</td><td><strong>${i.quantidade}</strong></td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+async function carregarEstoquePorCaminhao() {
+  const el = document.getElementById('lista-estoque-caminhoes');
+  const caminhoes = window._caminhoesCatalogo || await carregarCaminhoesCatalogo();
+  if (!caminhoes.length) { el.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum caminhão cadastrado.</p>'; return; }
+  const { data: estoques, error } = await sb.from('caminhao_estoque').select('caminhao_id, quantidade, produtos(nome)');
+  if (error) { el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar estoque dos caminhões.</p>'; return; }
+  const porCaminhao = {};
+  (estoques || []).forEach(e => {
+    if (!e.quantidade) return;
+    (porCaminhao[e.caminhao_id] = porCaminhao[e.caminhao_id] || []).push(e);
+  });
+  el.innerHTML = caminhoes.map(c => {
+    const itens = (porCaminhao[c.id] || []).slice().sort((a, b) => (a.produtos?.nome || '').localeCompare(b.produtos?.nome || ''));
+    return `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1rem;margin-bottom:.75rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:14px;font-weight:600;">${escHtml(c.identificacao)} <span style="font-size:12px;color:#888;font-weight:400;">${escHtml(c.placa || '')}</span></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirCarregarCaminhao('${c.id}')">+ Carregar</button>
+          <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirDevolverCD('${c.id}')">Devolver ao CD</button>
+        </div>
+      </div>
+      ${itens.length ? `<div class="tabela-wrap" style="margin-top:.5rem;"><table>
+        <thead><tr><th>Produto</th><th>Saldo</th></tr></thead>
+        <tbody>${itens.map(i => `<tr><td>${escHtml(i.produtos?.nome || '—')}</td><td><strong>${i.quantidade}</strong></td></tr>`).join('')}</tbody>
+      </table></div>` : '<p style="color:#888;font-size:13px;padding:.5rem 0 0;">Estoque vazio.</p>'}
+    </div>`;
+  }).join('');
+}
+
+async function abrirRegistrarProducao() {
+  await carregarProdutosCatalogo();
+  const sel = document.getElementById('producao-produto');
+  sel.innerHTML = '<option value="">Selecione...</option>' +
+    (window._produtosCatalogo || []).map(p => `<option value="${p.id}">${escHtml(p.nome)}</option>`).join('');
+  document.getElementById('producao-qtd').value = '';
+  document.getElementById('producao-obs').value = '';
+  document.getElementById('msg-producao-cd').innerHTML = '';
+  document.getElementById('modal-producao-cd').style.display = 'flex';
+}
+
+async function salvarProducaoCD() {
+  const msg = document.getElementById('msg-producao-cd');
+  const produtoId = document.getElementById('producao-produto').value;
+  const qtd = parseInt(document.getElementById('producao-qtd').value) || 0;
+  const obs = document.getElementById('producao-obs').value.trim();
+  if (!produtoId) { msg.innerHTML = '<div class="msg erro">Selecione o produto!</div>'; return; }
+  if (qtd < 1) { msg.innerHTML = '<div class="msg erro">Informe uma quantidade válida!</div>'; return; }
+
+  const { data: atual } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', produtoId).maybeSingle();
+  const novaQtd = (atual?.quantidade || 0) + qtd;
+  const { error: errUp } = atual
+    ? await sb.from('estoque_cd').update({ quantidade: novaQtd, atualizado_em: new Date().toISOString() }).eq('id', atual.id)
+    : await sb.from('estoque_cd').insert({ produto_id: produtoId, quantidade: novaQtd });
+  if (errUp) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(errUp.message)}</div>`; return; }
+
+  await sb.from('movimentacoes_estoque').insert({
+    tipo: 'producao', produto_id: produtoId, quantidade: qtd,
+    responsavel_id: funcionarioLogado?.id || null, observacao: obs || null,
+  });
+  fecharModal('modal-producao-cd');
+  carregarEstoqueCD();
+}
+
+async function abrirCarregarCaminhao(caminhaoIdPreSelecionado) {
+  await Promise.all([carregarProdutosCatalogo(), carregarCaminhoesCatalogo()]);
+  const sel = document.getElementById('carregar-caminhao-select');
+  sel.innerHTML = '<option value="">Selecione...</option>' +
+    (window._caminhoesCatalogo || []).map(c => `<option value="${c.id}">${escHtml(c.identificacao)}${c.placa ? ' — ' + escHtml(c.placa) : ''}</option>`).join('');
+  sel.value = caminhaoIdPreSelecionado || '';
+  document.getElementById('msg-carregar-caminhao').innerHTML = '';
+  document.getElementById('modal-carregar-caminhao').style.display = 'flex';
+  await onMudaCaminhaoCarregar();
+}
+
+async function onMudaCaminhaoCarregar() {
+  const lista = document.getElementById('lista-itens-carregar');
+  const { data: estoqueCD } = await sb.from('estoque_cd').select('produto_id, quantidade, produtos(nome)').gt('quantidade', 0);
+  const itens = (estoqueCD || []).slice().sort((a, b) => (a.produtos?.nome || '').localeCompare(b.produtos?.nome || ''));
+  if (!itens.length) { lista.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum produto disponível no estoque do CD.</p>'; return; }
+  lista.innerHTML = itens.map(i => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;">
+      <div style="flex:1;font-weight:500;">${escHtml(i.produtos?.nome || '—')}</div>
+      <div style="color:#888;font-size:12px;white-space:nowrap;">No CD: <strong>${i.quantidade}</strong></div>
+      <input type="number" data-produto-id="${i.produto_id}" data-max="${i.quantidade}" placeholder="Qtd" min="0" max="${i.quantidade}"
+        style="width:80px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+    </div>`).join('');
+}
+
+async function salvarCarregamento() {
+  const msg = document.getElementById('msg-carregar-caminhao');
+  const caminhaoId = document.getElementById('carregar-caminhao-select').value;
+  if (!caminhaoId) { msg.innerHTML = '<div class="msg erro">Selecione o caminhão!</div>'; return; }
+  const inputs = Array.from(document.querySelectorAll('#lista-itens-carregar input[data-produto-id]'));
+  const itens = inputs.map(inp => ({
+    produtoId: inp.dataset.produtoId,
+    max: parseInt(inp.dataset.max) || 0,
+    qtd: parseInt(inp.value) || 0,
+  })).filter(i => i.qtd > 0);
+  if (!itens.length) { msg.innerHTML = '<div class="msg erro">Informe ao menos uma quantidade!</div>'; return; }
+  if (itens.some(i => i.qtd > i.max)) { msg.innerHTML = '<div class="msg erro">Quantidade maior que o disponível no CD para um dos itens!</div>'; return; }
+
+  for (const item of itens) {
+    const { data: cd } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', item.produtoId).single();
+    if (!cd || cd.quantidade < item.qtd) { msg.innerHTML = '<div class="msg erro">Estoque do CD mudou, feche e abra o carregamento de novo.</div>'; return; }
+    await sb.from('estoque_cd').update({ quantidade: cd.quantidade - item.qtd, atualizado_em: new Date().toISOString() }).eq('id', cd.id);
+
+    const { data: ce } = await sb.from('caminhao_estoque').select('id, quantidade').eq('caminhao_id', caminhaoId).eq('produto_id', item.produtoId).maybeSingle();
+    if (ce) {
+      await sb.from('caminhao_estoque').update({ quantidade: ce.quantidade + item.qtd, atualizado_em: new Date().toISOString() }).eq('id', ce.id);
+    } else {
+      await sb.from('caminhao_estoque').insert({ caminhao_id: caminhaoId, produto_id: item.produtoId, quantidade: item.qtd });
+    }
+    await sb.from('movimentacoes_estoque').insert({
+      tipo: 'carregamento', produto_id: item.produtoId, quantidade: item.qtd,
+      caminhao_id: caminhaoId, responsavel_id: funcionarioLogado?.id || null,
+    });
+  }
+  fecharModal('modal-carregar-caminhao');
+  carregarEstoquePagina();
+}
+
+async function abrirDevolverCD(caminhaoIdPreSelecionado) {
+  await carregarCaminhoesCatalogo();
+  const sel = document.getElementById('devolver-caminhao-select');
+  sel.innerHTML = '<option value="">Selecione...</option>' +
+    (window._caminhoesCatalogo || []).map(c => `<option value="${c.id}">${escHtml(c.identificacao)}${c.placa ? ' — ' + escHtml(c.placa) : ''}</option>`).join('');
+  sel.value = caminhaoIdPreSelecionado || '';
+  document.getElementById('msg-devolver-cd').innerHTML = '';
+  document.getElementById('modal-devolver-cd').style.display = 'flex';
+  await onMudaCaminhaoDevolver();
+}
+
+async function onMudaCaminhaoDevolver() {
+  const lista = document.getElementById('lista-itens-devolver');
+  const caminhaoId = document.getElementById('devolver-caminhao-select').value;
+  if (!caminhaoId) { lista.innerHTML = '<p style="color:#888;font-size:13px;">Selecione o caminhão.</p>'; return; }
+  const { data } = await sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', caminhaoId).gt('quantidade', 0);
+  const itens = (data || []).slice().sort((a, b) => (a.produtos?.nome || '').localeCompare(b.produtos?.nome || ''));
+  if (!itens.length) { lista.innerHTML = '<p style="color:#888;font-size:13px;">Este caminhão não tem estoque para devolver.</p>'; return; }
+  lista.innerHTML = itens.map(i => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;">
+      <div style="flex:1;font-weight:500;">${escHtml(i.produtos?.nome || '—')}</div>
+      <div style="color:#888;font-size:12px;white-space:nowrap;">No caminhão: <strong>${i.quantidade}</strong></div>
+      <input type="number" data-produto-id="${i.produto_id}" data-max="${i.quantidade}" placeholder="Qtd" min="0" max="${i.quantidade}"
+        style="width:80px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+    </div>`).join('');
+}
+
+async function salvarDevolucaoCD() {
+  const msg = document.getElementById('msg-devolver-cd');
+  const caminhaoId = document.getElementById('devolver-caminhao-select').value;
+  if (!caminhaoId) { msg.innerHTML = '<div class="msg erro">Selecione o caminhão!</div>'; return; }
+  const inputs = Array.from(document.querySelectorAll('#lista-itens-devolver input[data-produto-id]'));
+  const itens = inputs.map(inp => ({
+    produtoId: inp.dataset.produtoId,
+    max: parseInt(inp.dataset.max) || 0,
+    qtd: parseInt(inp.value) || 0,
+  })).filter(i => i.qtd > 0);
+  if (!itens.length) { msg.innerHTML = '<div class="msg erro">Informe ao menos uma quantidade!</div>'; return; }
+  if (itens.some(i => i.qtd > i.max)) { msg.innerHTML = '<div class="msg erro">Quantidade maior que o saldo do caminhão para um dos itens!</div>'; return; }
+
+  for (const item of itens) {
+    const { data: ce } = await sb.from('caminhao_estoque').select('id, quantidade').eq('caminhao_id', caminhaoId).eq('produto_id', item.produtoId).single();
+    if (!ce || ce.quantidade < item.qtd) { msg.innerHTML = '<div class="msg erro">Estoque do caminhão mudou, feche e abra de novo.</div>'; return; }
+    await sb.from('caminhao_estoque').update({ quantidade: ce.quantidade - item.qtd, atualizado_em: new Date().toISOString() }).eq('id', ce.id);
+
+    const { data: cd } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', item.produtoId).maybeSingle();
+    if (cd) {
+      await sb.from('estoque_cd').update({ quantidade: cd.quantidade + item.qtd, atualizado_em: new Date().toISOString() }).eq('id', cd.id);
+    } else {
+      await sb.from('estoque_cd').insert({ produto_id: item.produtoId, quantidade: item.qtd });
+    }
+    await sb.from('movimentacoes_estoque').insert({
+      tipo: 'devolucao', produto_id: item.produtoId, quantidade: item.qtd,
+      caminhao_id: caminhaoId, responsavel_id: funcionarioLogado?.id || null,
+    });
+  }
+  fecharModal('modal-devolver-cd');
+  carregarEstoquePagina();
+}
+
 function _sairModoVendaAvista() {
   window._modoVendaAvista = false;
   document.getElementById('lbl-vnc-nascimento').textContent = '📅 Nascimento *';
@@ -3319,13 +3539,13 @@ async function mostrarFormVenda() {
 async function carregarFonteItensVenda() {
   await carregarProdutosCatalogo();
   if (perfilAtivo.perfil === 'vendedor') {
-    if (!equipeAtiva?.id) { window._fonteItensVenda = []; return; }
-    const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
+    if (!equipeAtiva?.caminhao_id) { window._fonteItensVenda = []; return; }
+    const { data: estoque } = await sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', equipeAtiva.caminhao_id);
     window._fonteItensVenda = (estoque || [])
-      .map(e => ({ nome: e.produto, disponivel: e.quantidade_saida - (e.quantidade_voltou || 0) }))
-      .filter(f => f.disponivel > 0);
+      .map(e => ({ nome: e.produtos?.nome || '', produtoId: e.produto_id, disponivel: e.quantidade }))
+      .filter(f => f.nome && f.disponivel > 0);
   } else {
-    window._fonteItensVenda = window._produtosCatalogo.map(p => ({ nome: p.nome, disponivel: null }));
+    window._fonteItensVenda = window._produtosCatalogo.map(p => ({ nome: p.nome, produtoId: p.id, disponivel: null }));
   }
 }
 
@@ -3336,7 +3556,7 @@ function novaLinhaItemVenda() {
   const div = document.createElement('div');
   div.className = 'item-venda-linha';
   div.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;';
-  const opcoes = fonte.map(f => `<option value="${escHtml(f.nome)}">${escHtml(f.nome)}${isVendedor ? ' (' + f.disponivel + ' disponível' + (f.disponivel > 1 ? 'is' : '') + ')' : ''}</option>`).join('');
+  const opcoes = fonte.map(f => `<option value="${escHtml(f.nome)}" data-produto-id="${f.produtoId || ''}">${escHtml(f.nome)}${isVendedor ? ' (' + f.disponivel + ' disponível' + (f.disponivel > 1 ? 'is' : '') + ')' : ''}</option>`).join('');
   div.innerHTML = `
     <div style="flex:1;">
       <select class="iv-produto" onchange="onMudaItemVenda(this)" style="width:100%;padding:12px;font-size:15px;border-radius:10px;border:1px solid #ddd;">
@@ -3408,7 +3628,8 @@ function coletarItensVenda() {
   for (const linha of linhas) {
     const sel = linha.querySelector('.iv-produto');
     const manual = linha.querySelector('.iv-produto-manual');
-    const nome = (sel.value === '__outro__' ? manual.value : sel.value).trim();
+    const isOutro = sel.value === '__outro__';
+    const nome = (isOutro ? manual.value : sel.value).trim();
     const qtd = parseInt(linha.querySelector('.iv-qtd').value) || 0;
     if (!nome && !qtd) continue;
     if (!nome) return { ok: false, erro: 'Selecione o produto em todos os itens ou remova a linha vazia!' };
@@ -3416,12 +3637,13 @@ function coletarItensVenda() {
     const chave = nome.toLowerCase();
     if (vistos.has(chave)) return { ok: false, erro: `O produto "${nome}" foi informado em mais de uma linha. Some a quantidade em uma única linha.` };
     vistos.add(chave);
+    const produtoId = isOutro ? null : (sel.selectedOptions[0]?.dataset.produtoId || null);
     if (perfilAtivo.perfil === 'vendedor') {
       const fonte = (window._fonteItensVenda || []).find(f => f.nome.toLowerCase() === chave);
       const disponivel = fonte ? fonte.disponivel : 0;
       if (qtd > disponivel) return { ok: false, erro: `Estoque insuficiente de "${nome}": disponível ${disponivel}, solicitado ${qtd}.` };
     }
-    itens.push({ produto: nome, quantidade: qtd });
+    itens.push({ produto: nome, quantidade: qtd, produtoId });
   }
   if (!itens.length) return { ok: false, erro: 'Adicione pelo menos um produto à venda!' };
   return { ok: true, itens };
@@ -3631,17 +3853,23 @@ entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada'
     fecharModalVenda();
     // Registra os itens da venda (produto + quantidade)
     const { error: errItens } = await sb.from('venda_itens').insert(
-      itensVenda.itens.map(i => ({ venda_id: venda.id, produto: i.produto, quantidade: i.quantidade }))
+      itensVenda.itens.map(i => ({ venda_id: venda.id, produto: i.produto, quantidade: i.quantidade, produto_id: i.produtoId }))
     );
     if (errItens) Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao salvar itens da venda', { supabase_code: errItens.code });
-    // For vendedor: decrement equipe_estoque por item vendido
-    if (perfilAtivo.perfil === 'vendedor' && equipeAtiva?.id) {
-      const { data: estoqueItems } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeAtiva.id);
+    // For vendedor: decrementa o estoque do caminhão por item vendido
+    if (perfilAtivo.perfil === 'vendedor' && equipeAtiva?.caminhao_id) {
       for (const it of itensVenda.itens) {
-        const item = (estoqueItems || []).find(e => e.produto.trim().toLowerCase() === it.produto.trim().toLowerCase());
+        if (!it.produtoId) continue;
+        const { data: item } = await sb.from('caminhao_estoque').select('id, quantidade')
+          .eq('caminhao_id', equipeAtiva.caminhao_id).eq('produto_id', it.produtoId).maybeSingle();
         if (item) {
-          await sb.from('equipe_estoque').update({ quantidade_voltou: (item.quantidade_voltou || 0) + it.quantidade }).eq('id', item.id);
+          await sb.from('caminhao_estoque').update({ quantidade: Math.max(0, item.quantidade - it.quantidade), atualizado_em: new Date().toISOString() }).eq('id', item.id);
         }
+        await sb.from('movimentacoes_estoque').insert({
+          tipo: 'venda', produto_id: it.produtoId, quantidade: it.quantidade,
+          caminhao_id: equipeAtiva.caminhao_id, equipe_id: equipeAtiva.id, venda_id: venda.id,
+          responsavel_id: funcionarioLogado?.id || null,
+        });
       }
     }
     carregarDashboard();
@@ -4245,7 +4473,7 @@ function novaLinhaItemEditarVenda(produtoPreenchido, qtdPreenchida) {
   const div = document.createElement('div');
   div.className = 'item-editar-venda-linha';
   div.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;';
-  const opcoes = catalogo.map(p => `<option value="${escHtml(p.nome)}" ${p.nome === valorSelect ? 'selected' : ''}>${escHtml(p.nome)}</option>`).join('');
+  const opcoes = catalogo.map(p => `<option value="${escHtml(p.nome)}" data-produto-id="${p.id}" ${p.nome === valorSelect ? 'selected' : ''}>${escHtml(p.nome)}</option>`).join('');
   div.innerHTML = `
     <div style="flex:1;">
       <select class="iev-produto" onchange="onMudaItemEditarVenda(this)" style="width:100%;padding:10px;font-size:14px;border-radius:8px;border:1px solid #ddd;">
@@ -4285,7 +4513,8 @@ function coletarItensEdicaoVenda() {
   for (const linha of linhas) {
     const sel = linha.querySelector('.iev-produto');
     const manual = linha.querySelector('.iev-produto-manual');
-    const nome = (sel.value === '__outro__' ? manual.value : sel.value).trim();
+    const isOutro = sel.value === '__outro__';
+    const nome = (isOutro ? manual.value : sel.value).trim();
     const qtd = parseInt(linha.querySelector('.iev-qtd').value) || 0;
     if (!nome && !qtd) continue;
     if (!nome) return { ok: false, erro: 'Selecione o produto em todos os itens ou remova a linha vazia!' };
@@ -4293,10 +4522,60 @@ function coletarItensEdicaoVenda() {
     const chave = nome.toLowerCase();
     if (vistos.has(chave)) return { ok: false, erro: `O produto "${nome}" foi informado em mais de uma linha. Some a quantidade em uma única linha.` };
     vistos.add(chave);
-    itens.push({ produto: nome, quantidade: qtd });
+    const produtoId = isOutro ? null : (sel.selectedOptions[0]?.dataset.produtoId || null);
+    itens.push({ produto: nome, quantidade: qtd, produtoId });
   }
   if (!itens.length) return { ok: false, erro: 'Adicione pelo menos um produto à venda!' };
   return { ok: true, itens };
+}
+
+// Repõe/deduz o estoque do caminhão conforme a edição muda produtos, quantidades
+// ou a equipe vinculada à venda. Valida saldo suficiente antes de aplicar nada.
+async function reconciliarEstoqueEdicaoVenda(vendaId, equipeOriginalId, equipeNovaId, itensNovos) {
+  const { data: itensAntigos } = await sb.from('venda_itens').select('produto_id, quantidade').eq('venda_id', vendaId);
+  const [caminhaoAntigo, caminhaoNovo] = await Promise.all([
+    equipeOriginalId ? sb.from('equipes').select('caminhao_id').eq('id', equipeOriginalId).maybeSingle().then(r => r.data?.caminhao_id || null) : Promise.resolve(null),
+    equipeNovaId ? sb.from('equipes').select('caminhao_id').eq('id', equipeNovaId).maybeSingle().then(r => r.data?.caminhao_id || null) : Promise.resolve(null),
+  ]);
+
+  // Delta por caminhão+produto: repõe os itens antigos, deduz os novos.
+  const deltas = {};
+  const somar = (caminhaoId, produtoId, delta) => {
+    if (!caminhaoId || !produtoId) return;
+    const chave = caminhaoId + '|' + produtoId;
+    deltas[chave] = (deltas[chave] || 0) + delta;
+  };
+  (itensAntigos || []).forEach(i => somar(caminhaoAntigo, i.produto_id, i.quantidade));
+  (itensNovos || []).forEach(i => somar(caminhaoNovo, i.produtoId, -i.quantidade));
+
+  const chaves = Object.keys(deltas).filter(k => deltas[k] !== 0);
+  if (!chaves.length) return { ok: true };
+
+  // Valida saldo suficiente antes de aplicar qualquer alteração.
+  const linhas = [];
+  for (const chave of chaves) {
+    const [caminhaoId, produtoId] = chave.split('|');
+    const { data: ce } = await sb.from('caminhao_estoque').select('id, quantidade')
+      .eq('caminhao_id', caminhaoId).eq('produto_id', produtoId).maybeSingle();
+    const atual = ce?.quantidade || 0;
+    const novoSaldo = atual + deltas[chave];
+    if (novoSaldo < 0) return { ok: false, erro: 'Estoque insuficiente no caminhão de destino para um dos produtos editados.' };
+    linhas.push({ id: ce?.id, caminhaoId, produtoId, novoSaldo, delta: deltas[chave] });
+  }
+
+  for (const l of linhas) {
+    if (l.id) {
+      await sb.from('caminhao_estoque').update({ quantidade: l.novoSaldo, atualizado_em: new Date().toISOString() }).eq('id', l.id);
+    } else {
+      await sb.from('caminhao_estoque').insert({ caminhao_id: l.caminhaoId, produto_id: l.produtoId, quantidade: l.novoSaldo });
+    }
+    await sb.from('movimentacoes_estoque').insert({
+      tipo: l.delta > 0 ? 'estorno' : 'venda', produto_id: l.produtoId, quantidade: Math.abs(l.delta),
+      caminhao_id: l.caminhaoId, venda_id: vendaId, responsavel_id: funcionarioLogado?.id || null,
+      observacao: 'Ajuste por edição da venda',
+    });
+  }
+  return { ok: true };
 }
 
 async function salvarEdicaoVenda() {
@@ -4316,13 +4595,16 @@ async function salvarEdicaoVenda() {
     const equipeOriginalId = document.getElementById('ev-equipe-original').value || null;
     const equipeId = document.getElementById('ev-equipe').value || null;
 
+    const reconciliacao = await reconciliarEstoqueEdicaoVenda(vendaId, equipeOriginalId, equipeId, itensResult.itens);
+    if (!reconciliacao.ok) { msg.innerHTML = `<div class="msg erro">${escHtml(reconciliacao.erro)}</div>`; return; }
+
     const { error: errVenda } = await sb.from('vendas')
       .update({ produto, valor, vendedor_id: vendedorId, observacao, equipe_id: equipeId })
       .eq('id', vendaId);
     if (errVenda) { msg.innerHTML = `<div class="msg erro">Erro ao salvar: ${errVenda.message}</div>`; return; }
 
     await sb.from('venda_itens').delete().eq('venda_id', vendaId);
-    await sb.from('venda_itens').insert(itensResult.itens.map(i => ({ venda_id: vendaId, produto: i.produto, quantidade: i.quantidade })));
+    await sb.from('venda_itens').insert(itensResult.itens.map(i => ({ venda_id: vendaId, produto: i.produto, quantidade: i.quantidade, produto_id: i.produtoId })));
 
     // Recalcula os totais da(s) equipe(s) afetada(s) — a antiga (se a venda saiu dela) e a nova (se entrou nela)
     const equipesParaRecalcular = new Set([equipeOriginalId, equipeId].filter(Boolean));
@@ -7202,6 +7484,32 @@ function abrirDevolucao(vendaId, codigo, produto) {
   document.getElementById('modal-devolucao').style.display = 'flex';
 }
 
+// Repõe no estoque do caminhão os itens de uma venda que saiu do caminhão de
+// uma equipe (venda cancelada ou devolvida) — mantém o saldo do caminhão
+// coerente já que o estoque não é mais recadastrado a cada semana.
+async function restaurarEstoqueDaVenda(vendaId, observacao) {
+  const { data: venda } = await sb.from('vendas').select('equipe_id').eq('id', vendaId).maybeSingle();
+  if (!venda?.equipe_id) return;
+  const { data: equipe } = await sb.from('equipes').select('caminhao_id').eq('id', venda.equipe_id).maybeSingle();
+  if (!equipe?.caminhao_id) return;
+  const { data: itens } = await sb.from('venda_itens').select('produto_id, quantidade').eq('venda_id', vendaId);
+  for (const it of (itens || [])) {
+    if (!it.produto_id) continue;
+    const { data: ce } = await sb.from('caminhao_estoque').select('id, quantidade')
+      .eq('caminhao_id', equipe.caminhao_id).eq('produto_id', it.produto_id).maybeSingle();
+    if (ce) {
+      await sb.from('caminhao_estoque').update({ quantidade: ce.quantidade + it.quantidade, atualizado_em: new Date().toISOString() }).eq('id', ce.id);
+    } else {
+      await sb.from('caminhao_estoque').insert({ caminhao_id: equipe.caminhao_id, produto_id: it.produto_id, quantidade: it.quantidade });
+    }
+    await sb.from('movimentacoes_estoque').insert({
+      tipo: 'estorno', produto_id: it.produto_id, quantidade: it.quantidade,
+      caminhao_id: equipe.caminhao_id, equipe_id: venda.equipe_id, venda_id: vendaId,
+      responsavel_id: funcionarioLogado?.id || null, observacao,
+    });
+  }
+}
+
 async function confirmarDevolucao() {
   const vendaId = document.getElementById('dev-venda-id').value;
   const motivo = document.querySelector('input[name="motivo-dev"]:checked').value;
@@ -7218,12 +7526,14 @@ async function confirmarDevolucao() {
   }
   Logger.info('vendas', 'DEVOLVER_VENDA', 'Venda devolvida', { motivo });
   await sb.from('parcelas').update({ status: 'devolvida' }).eq('venda_id', vendaId);
+  await restaurarEstoqueDaVenda(vendaId, 'Devolução da venda (' + motivo + ')');
   fecharModal('modal-devolucao');
   carregarVendas();
 }
 
 async function cancelarVenda(vendaId, codigo) {
   if (!confirm(`Tem certeza que deseja CANCELAR a venda ${codigo}? Ela será apagada permanentemente do sistema junto com todas as parcelas.`)) return;
+  await restaurarEstoqueDaVenda(vendaId, 'Cancelamento da venda ' + codigo);
   await sb.from('parcelas').delete().eq('venda_id', vendaId);
   const { error } = await sb.from('vendas').delete().eq('id', vendaId);
   if (error) {
@@ -8910,7 +9220,8 @@ function renderEquipes(semanas, equipes) {
           <div style="display:flex;gap:8px;margin-top:.75rem;flex-wrap:wrap;">
             <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
             ${!eq.encerrada && perfilAtivo.perfil==='gestor'?`
-              <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirEstoqueEquipe('${eq.id}')">Estoque</button>
+              <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirCarregarCaminhao('${eq.caminhao_id}')">+ Carregar</button>
+              <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirDevolverCD('${eq.caminhao_id}')">Devolver ao CD</button>
               <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
             `:''}
           </div>
@@ -8957,7 +9268,7 @@ async function carregarEquipeVendedor() {
   }
 
   const [{ data: estoque }, { data: vendasBruto, error: errV }] = await Promise.all([
-    sb.from('equipe_estoque').select('*').eq('equipe_id', equipe.id),
+    sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', equipe.caminhao_id),
     sb.from('vendas').select('id, codigo, produto, valor, tipo, entrada, data_venda, vendedor_id, clientes(nome), funcionarios(nome)').eq('equipe_id', equipe.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
   ]);
 
@@ -9069,26 +9380,23 @@ async function carregarEquipeVendedor() {
     </table></div>`;
   }
 
-  // Estoque (somente leitura)
+  // Estoque (somente leitura) — saldo atual do caminhão
   html += `<div class="secao">Estoque do caminhão</div>`;
   if (estoque?.length) {
     html += `<div class="tabela-wrap"><table>
-      <thead><tr><th>Produto</th><th>Carregado</th><th>Vendido</th><th>Disponível</th></tr></thead>
+      <thead><tr><th>Produto</th><th>Disponível</th></tr></thead>
       <tbody>${estoque.map(e => {
-        const vendidoProd = e.quantidade_voltou != null ? e.quantidade_voltou : vendasEquipe.filter(v => v.produto && v.produto.trim().toLowerCase() === e.produto.trim().toLowerCase()).length;
-        const disponivel = e.quantidade_saida - vendidoProd;
+        const disponivel = e.quantidade;
         const rowStyle = disponivel <= 0 ? 'background:#fde8e8;' : disponivel === 1 ? 'background:#FAEEDA;' : '';
         const corDisp = disponivel <= 0 ? '#A32D2D' : disponivel === 1 ? '#854F0B' : '#185FA5';
         return `<tr style="${rowStyle}">
-          <td>${escHtml(e.produto)}</td>
-          <td>${e.quantidade_saida}</td>
-          <td>${vendidoProd}</td>
+          <td>${escHtml(e.produtos?.nome || '—')}</td>
           <td><strong style="color:${corDisp};">${disponivel}</strong></td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>`;
   } else {
-    html += '<p style="color:#888;font-size:13px;padding:.25rem 0;">Nenhum item de estoque cadastrado.</p>';
+    html += '<p style="color:#888;font-size:13px;padding:.25rem 0;">Nenhum item de estoque no caminhão.</p>';
   }
 
   // Vendas da equipe
@@ -9139,10 +9447,10 @@ async function toggleDetalhesEquipe(equipeId) {
   if (el.style.display !== 'none') { el.style.display = 'none'; return; }
   el.innerHTML = '<p style="color:#888;font-size:13px;">Carregando...</p>';
   el.style.display = 'block';
-  const [{ data: estoque }, { data: vendasRaw, error: errV }, { data: eq }] = await Promise.all([
-    sb.from('equipe_estoque').select('*').eq('equipe_id', equipeId),
+  const { data: eq } = await sb.from('equipes').select('meta, caminhao_id').eq('id', equipeId).single();
+  const [{ data: estoque }, { data: vendasRaw, error: errV }] = await Promise.all([
+    sb.from('caminhao_estoque').select('quantidade, produtos(nome)').eq('caminhao_id', eq?.caminhao_id),
     sb.from('vendas').select('codigo, produto, valor, clientes(nome)').eq('equipe_id', equipeId).order('data_venda', { ascending: false }),
-    sb.from('equipes').select('meta').eq('id', equipeId).single(),
   ]);
   const vendas = errV ? [] : (vendasRaw || []);
   const totalVendido = vendas.reduce((a,v) => a + Number(v.valor), 0);
@@ -9150,14 +9458,10 @@ async function toggleDetalhesEquipe(equipeId) {
   let html = '';
   if (estoque?.length) {
     html += `<div style="margin-bottom:.75rem;">
-      <div class="secao" style="margin-top:0;">Estoque do caminhão</div>
+      <div class="secao" style="margin-top:0;">Estoque do caminhão (saldo atual)</div>
       <div class="tabela-wrap"><table>
-        <thead><tr><th>Produto</th><th>Saiu</th><th>Voltou</th><th>Diferença</th></tr></thead>
-        <tbody>${estoque.map(e => {
-          const v = e.quantidade_voltou;
-          const diff = v!=null ? e.quantidade_saida - v : null;
-          return `<tr><td>${escHtml(e.produto)}</td><td>${e.quantidade_saida}</td><td>${v!=null?v:'—'}</td><td>${diff!=null?`<strong style="color:${diff>0?'#185FA5':'#888'}">${diff}</strong>`:'—'}</td></tr>`;
-        }).join('')}</tbody>
+        <thead><tr><th>Produto</th><th>Disponível</th></tr></thead>
+        <tbody>${estoque.map(e => `<tr><td>${escHtml(e.produtos?.nome || '—')}</td><td><strong>${e.quantidade}</strong></td></tr>`).join('')}</tbody>
       </table></div></div>`;
   }
   html += `<div class="secao" style="margin-top:0;">Vendas da equipe</div>`;
@@ -9235,91 +9539,16 @@ async function salvarEquipe() {
     if (errMembros) console.error('Erro membros:', errMembros);
     fecharModal('modal-nova-equipe');
     await carregarEquipes();
-    abrirEstoqueEquipe(equipe.id);
   } catch(e) {
     console.error('Exceção JS:', e);
     msg.innerHTML = `<div class="msg erro">Erro inesperado: ${e.message}</div>`;
   }
 }
 
-async function abrirEstoqueEquipe(equipeId) {
-  document.getElementById('estoque-equipe-id').value = equipeId;
-  await carregarProdutosCatalogo();
-  const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeId);
-  const lista = document.getElementById('lista-itens-estoque');
-  lista.innerHTML = '';
-  if (estoque?.length) {
-    estoque.forEach(item => adicionarLinhaEstoque(item.produto, item.quantidade_saida));
-  } else {
-    adicionarLinhaEstoque('', '');
-  }
-  document.getElementById('modal-estoque-equipe').style.display = 'flex';
-}
-
-function adicionarLinhaEstoque(produto, qtd) {
-  const lista = document.getElementById('lista-itens-estoque');
-  const catalogo = window._produtosCatalogo || [];
-  const noCatalogo = !!produto && catalogo.some(p => p.nome === produto);
-  const valorSelect = produto ? (noCatalogo ? produto : '__outro__') : '';
-  const div = document.createElement('div');
-  div.className = 'estoque-linha';
-  div.style.cssText = 'margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #eee;';
-  div.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;">
-      <select class="item-produto-select" onchange="onMudaProdutoEstoque(this)" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">
-        <option value="">Selecione o produto...</option>
-        ${catalogo.map(p => `<option value="${escHtml(p.nome)}" ${p.nome === valorSelect ? 'selected' : ''}>${escHtml(p.nome)}</option>`).join('')}
-        <option value="__outro__" ${valorSelect === '__outro__' ? 'selected' : ''}>Outro (digitar manualmente)</option>
-      </select>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <input type="number" class="item-qtd" placeholder="Qtd" value="${qtd||''}" min="0" style="padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:75px;">
-        <button class="btn" style="padding:5px 9px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="this.closest('.estoque-linha').remove()">✕</button>
-      </div>
-    </div>
-    <input type="text" class="item-produto-manual" placeholder="Digite o nome do produto" value="${valorSelect === '__outro__' ? (produto||'') : ''}" style="display:${valorSelect === '__outro__' ? 'block' : 'none'};margin-top:6px;width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;">`;
-  lista.appendChild(div);
-}
-
-function onMudaProdutoEstoque(sel) {
-  const manual = sel.closest('.estoque-linha').querySelector('.item-produto-manual');
-  if (sel.value === '__outro__') {
-    manual.style.display = 'block';
-    manual.focus();
-  } else {
-    manual.style.display = 'none';
-    manual.value = '';
-  }
-}
-
-async function salvarEstoqueEquipe() {
-  if (perfilAtivo.perfil !== 'gestor') { alert('Sem permissão'); return; }
-  const equipeId = document.getElementById('estoque-equipe-id').value;
-  const linhas = document.querySelectorAll('#lista-itens-estoque > .estoque-linha');
-  const itens = [];
-  linhas.forEach(linha => {
-    const sel = linha.querySelector('.item-produto-select');
-    const manual = linha.querySelector('.item-produto-manual');
-    const produto = (sel.value === '__outro__' ? manual.value : sel.value).trim();
-    const qtd = parseInt(linha.querySelector('.item-qtd').value) || 0;
-    if (produto) itens.push({ equipe_id: equipeId, produto, quantidade_saida: qtd });
-  });
-  if (!itens.length) { alert('Adicione pelo menos um item!'); return; }
-  console.log('Salvando estoque:', itens);
-  const { error: errDel } = await sb.from('equipe_estoque').delete().eq('equipe_id', equipeId);
-  if (errDel) { console.error('Erro delete estoque:', errDel); alert('Erro ao limpar estoque: ' + errDel.message); return; }
-  const { error } = await sb.from('equipe_estoque').insert(itens);
-  console.log('Resultado insert estoque:', error);
-  if (error) { alert('Erro ao salvar estoque: ' + error.message); return; }
-  fecharModal('modal-estoque-equipe');
-  carregarEquipes();
-}
-
 async function abrirEncerrarEquipe(equipeId) {
   document.getElementById('encerrar-equipe-id').value = equipeId;
   document.getElementById('encerrar-obs').value = '';
   const modal = document.getElementById('modal-encerrar-equipe');
-
-  const { data: estoque } = await sb.from('equipe_estoque').select('*').eq('equipe_id', equipeId);
 
   // Busca vendas da equipe — pode falhar se equipe_id não existir em vendas ainda
   let totalVendido = 0, totalQtd = 0;
@@ -9335,20 +9564,9 @@ async function abrirEncerrarEquipe(equipeId) {
   document.getElementById('info-encerrar-vendas').innerHTML = `
     <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;">
       ${totalQtd} venda(s) vinculada(s) — Total: <strong style="color:#3B6D11;">R$ ${totalVendido.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong>
-    </div>`;
+    </div>
+    <div style="font-size:12px;color:#888;margin-bottom:.75rem;">O estoque do caminhão não é afetado pelo encerramento — ele fica disponível para a próxima equipe que usar este caminhão.</div>`;
 
-  const listaEstoque = document.getElementById('lista-estoque-encerrar');
-  if (!estoque?.length) {
-    listaEstoque.innerHTML = '<p style="color:#888;font-size:13px;margin-bottom:.5rem;">Nenhum item de estoque cadastrado.</p>';
-  } else {
-    listaEstoque.innerHTML = estoque.map(e => `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;">
-        <div style="flex:1;font-weight:500;">${escHtml(e.produto)}</div>
-        <div style="color:#888;font-size:12px;white-space:nowrap;">Saiu: <strong>${e.quantidade_saida}</strong></div>
-        <input type="number" data-estoque-id="${e.id}" placeholder="Voltou" min="0" max="${e.quantidade_saida}"
-          style="width:80px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
-      </div>`).join('');
-  }
   modal.style.display = 'flex';
 }
 
@@ -9361,17 +9579,6 @@ async function confirmarEncerrarEquipe() {
   const totalValor = parseFloat(modal.dataset.totalValor) || 0;
 
   if (!confirm('Confirma o encerramento desta equipe?')) return;
-
-  // Atualiza quantidade voltou em cada item do estoque
-  const inputs = document.querySelectorAll('#lista-estoque-encerrar input[data-estoque-id]');
-  for (const inp of inputs) {
-    if (inp.value !== '') {
-      const { error } = await sb.from('equipe_estoque')
-        .update({ quantidade_voltou: parseInt(inp.value) })
-        .eq('id', inp.dataset.estoqueId);
-      if (error) console.error('Erro ao atualizar estoque item:', error);
-    }
-  }
 
   // Encerra a equipe
   const { error } = await sb.from('equipes').update({
@@ -10006,6 +10213,78 @@ async function gerarProximoMes() {
   </div>
 </div>
 
+<!-- MODAL REGISTRAR PRODUÇÃO (entrada no estoque do CD) -->
+<div class="modal-bg" id="modal-producao-cd">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <strong>Registrar produção</strong>
+      <button onclick="fecharModal('modal-producao-cd')">×</button>
+    </div>
+    <p style="font-size:13px;color:#666;margin-bottom:.75rem;">Some a quantidade fabricada ao estoque do CD.</p>
+    <div class="campo">
+      <label>Produto *</label>
+      <select id="producao-produto"><option value="">Selecione...</option></select>
+    </div>
+    <div class="campo">
+      <label>Quantidade *</label>
+      <input id="producao-qtd" type="number" min="1" placeholder="0">
+    </div>
+    <div class="campo">
+      <label>Observação</label>
+      <input id="producao-obs" type="text" placeholder="Opcional">
+    </div>
+    <div id="msg-producao-cd"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-producao-cd')">Cancelar</button>
+      <button class="btn primario" onclick="salvarProducaoCD()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CARREGAR CAMINHÃO (CD -> caminhão) -->
+<div class="modal-bg" id="modal-carregar-caminhao">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-header">
+      <strong>Carregar caminhão</strong>
+      <button onclick="fecharModal('modal-carregar-caminhao')">×</button>
+    </div>
+    <input type="hidden" id="carregar-caminhao-id">
+    <div class="campo">
+      <label>Caminhão *</label>
+      <select id="carregar-caminhao-select" onchange="onMudaCaminhaoCarregar()"><option value="">Selecione...</option></select>
+    </div>
+    <p style="font-size:13px;color:#666;margin:.5rem 0;">Informe quanto sai do estoque do CD para este caminhão.</p>
+    <div id="lista-itens-carregar"></div>
+    <div id="msg-carregar-caminhao"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-carregar-caminhao')">Cancelar</button>
+      <button class="btn primario" onclick="salvarCarregamento()">Carregar caminhão</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DEVOLVER AO CD (caminhão -> CD) -->
+<div class="modal-bg" id="modal-devolver-cd">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-header">
+      <strong>Devolver ao CD</strong>
+      <button onclick="fecharModal('modal-devolver-cd')">×</button>
+    </div>
+    <input type="hidden" id="devolver-caminhao-id">
+    <div class="campo">
+      <label>Caminhão *</label>
+      <select id="devolver-caminhao-select" onchange="onMudaCaminhaoDevolver()"><option value="">Selecione...</option></select>
+    </div>
+    <p style="font-size:13px;color:#666;margin:.5rem 0;">Informe quanto volta do caminhão para o estoque do CD.</p>
+    <div id="lista-itens-devolver"></div>
+    <div id="msg-devolver-cd"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-devolver-cd')">Cancelar</button>
+      <button class="btn primario" onclick="salvarDevolucaoCD()">Devolver ao CD</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL NOVA EQUIPE -->
 <div class="modal-bg" id="modal-nova-equipe">
   <div class="modal-box" style="max-width:540px;">
@@ -10053,25 +10332,7 @@ async function gerarProximoMes() {
     <div id="msg-equipe"></div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-nova-equipe')">Cancelar</button>
-      <button class="btn primario" onclick="salvarEquipe()">Salvar e cadastrar estoque →</button>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL ESTOQUE EQUIPE -->
-<div class="modal-bg" id="modal-estoque-equipe">
-  <div class="modal-box" style="max-width:480px;">
-    <div class="modal-header">
-      <strong>Estoque do caminhão</strong>
-      <button onclick="fecharModal('modal-estoque-equipe')">×</button>
-    </div>
-    <input type="hidden" id="estoque-equipe-id">
-    <p style="font-size:13px;color:#666;margin-bottom:.75rem;">Informe os produtos e quantidades carregados no caminhão.</p>
-    <div id="lista-itens-estoque"></div>
-    <button class="btn" style="margin-top:.5rem;font-size:12px;" onclick="adicionarLinhaEstoque('','')">+ Adicionar item</button>
-    <div class="modal-footer">
-      <button class="btn" onclick="fecharModal('modal-estoque-equipe')">Fechar</button>
-      <button class="btn primario" onclick="salvarEstoqueEquipe()">Salvar estoque</button>
+      <button class="btn primario" onclick="salvarEquipe()">Salvar equipe</button>
     </div>
   </div>
 </div>
@@ -10085,8 +10346,6 @@ async function gerarProximoMes() {
     </div>
     <input type="hidden" id="encerrar-equipe-id">
     <div id="info-encerrar-vendas"></div>
-    <div class="secao" style="margin-top:0;">Estoque retornado</div>
-    <div id="lista-estoque-encerrar"></div>
     <div class="campo" style="margin-top:.75rem;">
       <label>Observação geral</label>
       <textarea id="encerrar-obs" rows="3" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:system-ui,sans-serif;resize:vertical;" placeholder="Observações sobre a semana..."></textarea>
