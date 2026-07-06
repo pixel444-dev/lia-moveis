@@ -8507,8 +8507,16 @@ async function salvarEdicaoParcela() {
     if (parcela?.cliente_id) verParcelasCliente(parcela.cliente_id, nome);
   }
 }
-sb.auth.getSession().then(({ data: { session } }) => {
-  if (session) iniciarSessao(session.user);
+sb.auth.getSession().then(async ({ data: { session } }) => {
+  if (!session) return;
+  if (await precisaDesafio2FA()) {
+    window._userPendente2FA = session.user;
+    document.getElementById('login-form-step').style.display = 'none';
+    document.getElementById('login-2fa-step').style.display = 'block';
+    setTimeout(() => { const el = document.getElementById('login-codigo-2fa'); if (el) el.focus(); }, 80);
+    return;
+  }
+  await checarObrigatoriedade2FAeEntrar(session.user);
 });
 
 // ===== MÓDULO EQUIPES / SEMANAS =====
