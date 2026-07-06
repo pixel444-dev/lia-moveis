@@ -8557,6 +8557,15 @@ function _exportDataParaSerial(iso) {
   return Math.round((Date.UTC(a, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000);
 }
 
+// clientes.cidade é gravado como "Nome da Cidade - UF" (mesmo formato usado
+// na edição do cadastro) — separa o nome e a sigla do estado
+function _exportCidadeUf(cidade) {
+  const texto = String(cidade || '').replace(/\s+/g, ' ').trim();
+  const m = texto.match(/^(.*?)\s*-\s*([A-Za-z]{2})$/);
+  if (m) return { cidade: m[1].trim(), uf: m[2].toUpperCase() };
+  return { cidade: texto, uf: '' };
+}
+
 // "Item para cobrança" tem limite de 72 caracteres no sistema de pagamentos
 function _exportItemCobranca(venda, parcela) {
   const sufixo = ' - Parcela ' + (parcela.numero || 1) + '/' + (parcela.total_parcelas || venda.num_parcelas || 1);
@@ -8575,7 +8584,7 @@ async function buscarVendasExportacao() {
   let vendas;
   try {
     const { data, error } = await buscarTudoPaginado(() => sb.from('vendas')
-      .select('id, codigo, produto, valor, tipo, num_parcelas, data_venda, clientes(id, nome, cpf, telefone), parcelas(numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status)')
+      .select('id, codigo, produto, valor, tipo, num_parcelas, data_venda, clientes(id, nome, cpf, telefone, endereco, bairro, cidade), parcelas(numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status)')
       .gte('data_venda', de)
       .lte('data_venda', ate)
       .neq('status', 'devolvida')
@@ -8669,13 +8678,16 @@ function gerarPlanilhaExportacao() {
       const c = venda.clientes;
       const documento = _exportDocumentoValido(c.cpf);
       const celular = _exportCelularValido(c.telefone);
+      const rua = String(c.endereco || '').replace(/\s+/g, ' ').trim();
+      const bairro = String(c.bairro || '').replace(/\s+/g, ' ').trim();
+      const { cidade, uf } = _exportCidadeUf(c.cidade);
       for (const p of parcelasAbertas) {
         const restante = _exportRestanteParcela(p);
         totalExportado += restante;
         if (String(p.data_vencimento).slice(0, 10) < hojeIso) parcelasVencidas++;
-        // Colunas H–O (E-mail e endereço) ficam vazias: o cadastro não tem
-        // e-mail/CEP/número separado, e o modelo exige o endereço completo
-        // quando qualquer campo dele é preenchido.
+        // E-mail (H), CEP (I) e Número (K) ficam vazios — o cadastro de
+        // clientes não tem esses campos (o número da casa faz parte do
+        // endereço, exportado inteiro na coluna Rua).
         linhas.push([
           { t: 's', v: _exportItemCobranca(venda, p) },
           { t: 'n', v: restante, z: FMT_MOEDA },
@@ -8684,6 +8696,14 @@ function gerarPlanilhaExportacao() {
           { t: 's', v: String(c.nome).replace(/\s+/g, ' ').trim() },
           { t: 's', v: documento, z: '@' },
           { t: 's', v: celular, z: '@' },
+          null,                                     // E-mail
+          null,                                     // CEP
+          rua ? { t: 's', v: rua } : null,          // Rua (endereço completo)
+          null,                                     // Número
+          null,                                     // Complemento
+          bairro ? { t: 's', v: bairro } : null,    // Bairro
+          cidade ? { t: 's', v: cidade } : null,    // Cidade
+          uf ? { t: 's', v: uf } : null,            // Estado
         ]);
       }
     }
