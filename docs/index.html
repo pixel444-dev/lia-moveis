@@ -942,7 +942,7 @@ tr:hover td{background:#fafafa;}
     <div id="form-novo-cliente-venda" style="display:none;">
       <input type="hidden" id="vnc-edit-id">
       <div style="background:#F0FBE6;border:1px solid #C0DD97;border-radius:12px;padding:16px;margin-bottom:16px;">
-        <div style="font-size:14px;font-weight:700;color:#3B6D11;margin-bottom:14px;">👤 Cadastrar novo cliente</div>
+        <div id="titulo-form-cliente-venda" style="font-size:14px;font-weight:700;color:#3B6D11;margin-bottom:14px;">👤 Cadastrar novo cliente</div>
         <div class="campo">
           <label style="font-size:13px;">👤 Nome completo *</label>
           <input id="vnc-nome" type="text" placeholder="Nome do cliente" style="padding:14px;font-size:16px;border-radius:10px;">
@@ -3454,7 +3454,20 @@ async function abrirNovaVenda() {
   window._clienteInadimplente = false;
   window._autorizacaoInadimplenteId = null;
   _sairModoVendaAvista();
+  _setTituloFormClienteVenda(false);
   document.getElementById('modal-venda').style.display = 'flex';
+}
+
+function _setTituloFormClienteVenda(editando) {
+  const el = document.getElementById('titulo-form-cliente-venda');
+  if (el) el.textContent = editando ? '👤 Confira e atualize os dados do cliente' : '👤 Cadastrar novo cliente';
+}
+
+async function mostrarEdicaoClienteVenda(clienteId) {
+  document.getElementById('form-dados-venda').style.display = 'none';
+  document.getElementById('btn-salvar-venda').style.display = 'none';
+  document.getElementById('form-novo-cliente-venda').style.display = 'block';
+  await editarClienteNoModal(clienteId);
 }
 
 async function iniciarVendaAvista() {
@@ -3474,6 +3487,7 @@ async function iniciarVendaAvista() {
   window._vncFotoUrl = null;
   removerFotoVnc();
   _resetLocStatus();
+  _setTituloFormClienteVenda(false);
 }
 
 async function buscarClientePorCPF() {
@@ -3503,6 +3517,7 @@ async function buscarClientePorCPF() {
     window._vncFotoUrl = null;
     removerFotoVnc();
     _resetLocStatus();
+    _setTituloFormClienteVenda(false);
     return;
   }
 
@@ -3517,7 +3532,6 @@ async function buscarClientePorCPF() {
 
   if (info?.existe) {
     document.getElementById('venda-cliente-id').value = info.cliente_id;
-    document.getElementById('form-novo-cliente-venda').style.display = 'none';
 
     if (perfilAtivo.perfil === 'vendedor' && info.qtd_atrasadas > 0) {
       window._dadosInadimplente = { clienteId: info.cliente_id, nomeCliente: info.nome, qtdAtrasadas: info.qtd_atrasadas, totalAtrasado: info.valor_atrasado };
@@ -3530,6 +3544,7 @@ async function buscarClientePorCPF() {
             Solicitar autorização do gestor
           </button>
         </div>`;
+      document.getElementById('form-novo-cliente-venda').style.display = 'none';
       document.getElementById('form-dados-venda').style.display = 'none';
       document.getElementById('btn-salvar-venda').style.display = 'none';
       window._clienteInadimplente = true;
@@ -3544,13 +3559,13 @@ async function buscarClientePorCPF() {
           ⚠️ Atenção: cliente tem ${info.qtd_atrasadas} parcela(s) em atraso — R$ ${Number(info.valor_atrasado).toLocaleString('pt-BR',{minimumFractionDigits:2})}
         </div>`;
       window._clienteInadimplente = false;
-      await mostrarFormVenda();
+      await mostrarEdicaoClienteVenda(info.cliente_id);
       return;
     }
 
     div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>`;
     window._clienteInadimplente = false;
-    await mostrarFormVenda();
+    await mostrarEdicaoClienteVenda(info.cliente_id);
   } else {
     div.innerHTML = `<div class="cliente-nao-encontrado">Cliente não encontrado. Preencha os dados abaixo para cadastrar.</div>`;
     document.getElementById('form-dados-venda').style.display = 'none';
@@ -3562,6 +3577,7 @@ async function buscarClientePorCPF() {
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
     removerFotoVnc();
+    _setTituloFormClienteVenda(false);
     _resetLocStatus();
   }
 }
@@ -3845,12 +3861,9 @@ function renderSeletorParcelas() {
 }
 
 function voltarParaCadastroCliente() {
-  document.getElementById('form-dados-venda').style.display = 'none';
-  document.getElementById('btn-salvar-venda').style.display = 'none';
   const clienteId = document.getElementById('venda-cliente-id').value;
   if (clienteId) {
-    document.getElementById('form-novo-cliente-venda').style.display = 'block';
-    editarClienteNoModal(clienteId);
+    mostrarEdicaoClienteVenda(clienteId);
   }
 }
 
@@ -3858,6 +3871,7 @@ async function editarClienteNoModal(clienteId) {
   const { data } = await sb.from('clientes').select('*').eq('id', clienteId).single();
   if (!data) return;
   document.getElementById('vnc-edit-id').value = clienteId;
+  _setTituloFormClienteVenda(true);
   document.getElementById('vnc-nome').value = data.nome || '';
   document.getElementById('vnc-telefone').value = data.telefone || '';
   document.getElementById('vnc-nascimento').value = data.data_nascimento || '';
@@ -4386,6 +4400,7 @@ async function solicitarAutorizacaoSemCPF() {
       document.getElementById('vnc-edit-id').value = '';
       window._vncFotoUrl = null;
       removerFotoVnc();
+      _setTituloFormClienteVenda(false);
     } else if (aut?.status === 'negado') {
       clearInterval(pollInterval); pollInterval = null;
       painel.innerHTML = `<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#A32D2D;font-weight:500;">✗ Autorização negada pelo gestor.</div>`;
@@ -4428,8 +4443,8 @@ async function solicitarAutorizacaoInadimplente() {
       window._clienteInadimplente = false;
       window._autorizacaoInadimplenteId = null;
       document.getElementById('resultado-busca-cliente').innerHTML =
-        `<div class="cliente-encontrado">✓ Autorizado pelo gestor! Pode continuar a venda.</div>`;
-      await mostrarFormVenda();
+        `<div class="cliente-encontrado">✓ Autorizado pelo gestor! Confira os dados do cliente antes de continuar.</div>`;
+      await mostrarEdicaoClienteVenda(clienteId);
     } else if (data?.status === 'negado') {
       clearInterval(pollInterval); pollInterval = null;
       document.getElementById('resultado-busca-cliente').innerHTML = `
