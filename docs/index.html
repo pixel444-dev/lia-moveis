@@ -268,6 +268,9 @@ tr:hover td{background:#fafafa;}
 .dash-chart-wrap{position:relative;height:200px;}
 @keyframes dashSkel{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .dash-skel{background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%;animation:dashSkel 1.5s infinite;border-radius:8px;height:80px;}
+@keyframes btnSpin{to{transform:rotate(360deg);}}
+.btn-spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(120,120,120,.35);border-top-color:currentColor;border-radius:50%;vertical-align:-2px;margin-right:6px;animation:btnSpin .6s linear infinite;}
+.btn:disabled{opacity:.7;cursor:not-allowed;}
 @media(max-width:700px){
   #dash-rankings-wrap{grid-template-columns:1fr!important;}
 }
@@ -3063,6 +3066,22 @@ function precoSugeridoProduto(nome) {
   return item && item.preco != null ? item.preco : null;
 }
 
+// Trava um botão de salvar durante uma operação async (evita clique duplo
+// gerando registro/estoque duplicado em conexões lentas) e mostra uma rodinha
+// de carregamento. _destravarBotao deve rodar sempre num finally.
+function _travarBotao(btn, textoCarregando) {
+  if (!btn) return null;
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span>' + textoCarregando;
+  return original;
+}
+function _destravarBotao(btn, htmlOriginal) {
+  if (!btn) return;
+  btn.disabled = false;
+  if (htmlOriginal != null) btn.innerHTML = htmlOriginal;
+}
+
 // ===== ESTOQUE (CD / CAMINHÕES) =====
 
 async function carregarCaminhoesCatalogo() {
@@ -3170,32 +3189,39 @@ async function uploadFotoCaminhao(caminhaoId) {
 }
 
 async function salvarCaminhao() {
+  const btn = document.getElementById('btn-salvar-caminhao');
+  if (btn && btn.disabled) return;
   const msg = document.getElementById('msg-caminhao');
   const id = document.getElementById('caminhao-id').value;
   const identificacao = document.getElementById('caminhao-identificacao').value.trim();
   const placa = document.getElementById('caminhao-placa').value.trim();
   if (!identificacao) { msg.innerHTML = '<div class="msg erro">Digite a identificação do caminhão!</div>'; return; }
 
-  const dados = { identificacao, placa: placa || null };
-  if (window._caminhaoFotoRemovida && !window._caminhaoFotoBlob) dados.foto_url = null;
+  const original = _travarBotao(btn, 'Salvando...');
+  try {
+    const dados = { identificacao, placa: placa || null };
+    if (window._caminhaoFotoRemovida && !window._caminhaoFotoBlob) dados.foto_url = null;
 
-  let caminhaoId = id;
-  if (id) {
-    const { error } = await sb.from('caminhoes').update(dados).eq('id', id);
-    if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(error.message)}</div>`; return; }
-  } else {
-    const { data: novo, error } = await sb.from('caminhoes').insert({ ...dados, ativo: true }).select().single();
-    if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(error.message)}</div>`; return; }
-    caminhaoId = novo.id;
+    let caminhaoId = id;
+    if (id) {
+      const { error } = await sb.from('caminhoes').update(dados).eq('id', id);
+      if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(error.message)}</div>`; return; }
+    } else {
+      const { data: novo, error } = await sb.from('caminhoes').insert({ ...dados, ativo: true }).select().single();
+      if (error) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(error.message)}</div>`; return; }
+      caminhaoId = novo.id;
+    }
+
+    if (window._caminhaoFotoBlob && caminhaoId) {
+      const fotoUrl = await uploadFotoCaminhao(caminhaoId);
+      if (fotoUrl) await sb.from('caminhoes').update({ foto_url: fotoUrl }).eq('id', caminhaoId);
+    }
+
+    fecharModal('modal-caminhao');
+    carregarCaminhoes();
+  } finally {
+    _destravarBotao(btn, original);
   }
-
-  if (window._caminhaoFotoBlob && caminhaoId) {
-    const fotoUrl = await uploadFotoCaminhao(caminhaoId);
-    if (fotoUrl) await sb.from('caminhoes').update({ foto_url: fotoUrl }).eq('id', caminhaoId);
-  }
-
-  fecharModal('modal-caminhao');
-  carregarCaminhoes();
 }
 
 async function toggleAtivoCaminhao(id, ativo) {
@@ -3287,6 +3313,8 @@ async function abrirRegistrarProducao() {
 }
 
 async function salvarProducaoCD() {
+  const btn = document.getElementById('btn-salvar-producao-cd');
+  if (btn && btn.disabled) return;
   const msg = document.getElementById('msg-producao-cd');
   const produtoId = document.getElementById('producao-produto').value;
   const qtd = parseInt(document.getElementById('producao-qtd').value) || 0;
@@ -3294,19 +3322,24 @@ async function salvarProducaoCD() {
   if (!produtoId) { msg.innerHTML = '<div class="msg erro">Selecione o produto!</div>'; return; }
   if (qtd < 1) { msg.innerHTML = '<div class="msg erro">Informe uma quantidade válida!</div>'; return; }
 
-  const { data: atual } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', produtoId).maybeSingle();
-  const novaQtd = (atual?.quantidade || 0) + qtd;
-  const { error: errUp } = atual
-    ? await sb.from('estoque_cd').update({ quantidade: novaQtd, atualizado_em: new Date().toISOString() }).eq('id', atual.id)
-    : await sb.from('estoque_cd').insert({ produto_id: produtoId, quantidade: novaQtd });
-  if (errUp) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(errUp.message)}</div>`; return; }
+  const original = _travarBotao(btn, 'Salvando...');
+  try {
+    const { data: atual } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', produtoId).maybeSingle();
+    const novaQtd = (atual?.quantidade || 0) + qtd;
+    const { error: errUp } = atual
+      ? await sb.from('estoque_cd').update({ quantidade: novaQtd, atualizado_em: new Date().toISOString() }).eq('id', atual.id)
+      : await sb.from('estoque_cd').insert({ produto_id: produtoId, quantidade: novaQtd });
+    if (errUp) { msg.innerHTML = `<div class="msg erro">Erro: ${escHtml(errUp.message)}</div>`; return; }
 
-  await sb.from('movimentacoes_estoque').insert({
-    tipo: 'producao', produto_id: produtoId, quantidade: qtd,
-    responsavel_id: funcionarioLogado?.id || null, observacao: obs || null,
-  });
-  fecharModal('modal-producao-cd');
-  carregarEstoqueCD();
+    await sb.from('movimentacoes_estoque').insert({
+      tipo: 'producao', produto_id: produtoId, quantidade: qtd,
+      responsavel_id: funcionarioLogado?.id || null, observacao: obs || null,
+    });
+    fecharModal('modal-producao-cd');
+    carregarEstoqueCD();
+  } finally {
+    _destravarBotao(btn, original);
+  }
 }
 
 async function abrirCarregarCaminhao(caminhaoIdPreSelecionado) {
@@ -3335,6 +3368,8 @@ async function onMudaCaminhaoCarregar() {
 }
 
 async function salvarCarregamento() {
+  const btn = document.getElementById('btn-salvar-carregamento');
+  if (btn && btn.disabled) return;
   const msg = document.getElementById('msg-carregar-caminhao');
   const caminhaoId = document.getElementById('carregar-caminhao-select').value;
   if (!caminhaoId) { msg.innerHTML = '<div class="msg erro">Selecione o caminhão!</div>'; return; }
@@ -3347,24 +3382,29 @@ async function salvarCarregamento() {
   if (!itens.length) { msg.innerHTML = '<div class="msg erro">Informe ao menos uma quantidade!</div>'; return; }
   if (itens.some(i => i.qtd > i.max)) { msg.innerHTML = '<div class="msg erro">Quantidade maior que o disponível no CD para um dos itens!</div>'; return; }
 
-  for (const item of itens) {
-    const { data: cd } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', item.produtoId).single();
-    if (!cd || cd.quantidade < item.qtd) { msg.innerHTML = '<div class="msg erro">Estoque do CD mudou, feche e abra o carregamento de novo.</div>'; return; }
-    await sb.from('estoque_cd').update({ quantidade: cd.quantidade - item.qtd, atualizado_em: new Date().toISOString() }).eq('id', cd.id);
+  const original = _travarBotao(btn, 'Carregando...');
+  try {
+    for (const item of itens) {
+      const { data: cd } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', item.produtoId).single();
+      if (!cd || cd.quantidade < item.qtd) { msg.innerHTML = '<div class="msg erro">Estoque do CD mudou, feche e abra o carregamento de novo.</div>'; return; }
+      await sb.from('estoque_cd').update({ quantidade: cd.quantidade - item.qtd, atualizado_em: new Date().toISOString() }).eq('id', cd.id);
 
-    const { data: ce } = await sb.from('caminhao_estoque').select('id, quantidade').eq('caminhao_id', caminhaoId).eq('produto_id', item.produtoId).maybeSingle();
-    if (ce) {
-      await sb.from('caminhao_estoque').update({ quantidade: ce.quantidade + item.qtd, atualizado_em: new Date().toISOString() }).eq('id', ce.id);
-    } else {
-      await sb.from('caminhao_estoque').insert({ caminhao_id: caminhaoId, produto_id: item.produtoId, quantidade: item.qtd });
+      const { data: ce } = await sb.from('caminhao_estoque').select('id, quantidade').eq('caminhao_id', caminhaoId).eq('produto_id', item.produtoId).maybeSingle();
+      if (ce) {
+        await sb.from('caminhao_estoque').update({ quantidade: ce.quantidade + item.qtd, atualizado_em: new Date().toISOString() }).eq('id', ce.id);
+      } else {
+        await sb.from('caminhao_estoque').insert({ caminhao_id: caminhaoId, produto_id: item.produtoId, quantidade: item.qtd });
+      }
+      await sb.from('movimentacoes_estoque').insert({
+        tipo: 'carregamento', produto_id: item.produtoId, quantidade: item.qtd,
+        caminhao_id: caminhaoId, responsavel_id: funcionarioLogado?.id || null,
+      });
     }
-    await sb.from('movimentacoes_estoque').insert({
-      tipo: 'carregamento', produto_id: item.produtoId, quantidade: item.qtd,
-      caminhao_id: caminhaoId, responsavel_id: funcionarioLogado?.id || null,
-    });
+    fecharModal('modal-carregar-caminhao');
+    carregarEstoquePagina();
+  } finally {
+    _destravarBotao(btn, original);
   }
-  fecharModal('modal-carregar-caminhao');
-  carregarEstoquePagina();
 }
 
 async function abrirDevolverCD(caminhaoIdPreSelecionado) {
@@ -3395,6 +3435,8 @@ async function onMudaCaminhaoDevolver() {
 }
 
 async function salvarDevolucaoCD() {
+  const btn = document.getElementById('btn-salvar-devolucao-cd');
+  if (btn && btn.disabled) return;
   const msg = document.getElementById('msg-devolver-cd');
   const caminhaoId = document.getElementById('devolver-caminhao-select').value;
   if (!caminhaoId) { msg.innerHTML = '<div class="msg erro">Selecione o caminhão!</div>'; return; }
@@ -3407,24 +3449,29 @@ async function salvarDevolucaoCD() {
   if (!itens.length) { msg.innerHTML = '<div class="msg erro">Informe ao menos uma quantidade!</div>'; return; }
   if (itens.some(i => i.qtd > i.max)) { msg.innerHTML = '<div class="msg erro">Quantidade maior que o saldo do caminhão para um dos itens!</div>'; return; }
 
-  for (const item of itens) {
-    const { data: ce } = await sb.from('caminhao_estoque').select('id, quantidade').eq('caminhao_id', caminhaoId).eq('produto_id', item.produtoId).single();
-    if (!ce || ce.quantidade < item.qtd) { msg.innerHTML = '<div class="msg erro">Estoque do caminhão mudou, feche e abra de novo.</div>'; return; }
-    await sb.from('caminhao_estoque').update({ quantidade: ce.quantidade - item.qtd, atualizado_em: new Date().toISOString() }).eq('id', ce.id);
+  const original = _travarBotao(btn, 'Devolvendo...');
+  try {
+    for (const item of itens) {
+      const { data: ce } = await sb.from('caminhao_estoque').select('id, quantidade').eq('caminhao_id', caminhaoId).eq('produto_id', item.produtoId).single();
+      if (!ce || ce.quantidade < item.qtd) { msg.innerHTML = '<div class="msg erro">Estoque do caminhão mudou, feche e abra de novo.</div>'; return; }
+      await sb.from('caminhao_estoque').update({ quantidade: ce.quantidade - item.qtd, atualizado_em: new Date().toISOString() }).eq('id', ce.id);
 
-    const { data: cd } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', item.produtoId).maybeSingle();
-    if (cd) {
-      await sb.from('estoque_cd').update({ quantidade: cd.quantidade + item.qtd, atualizado_em: new Date().toISOString() }).eq('id', cd.id);
-    } else {
-      await sb.from('estoque_cd').insert({ produto_id: item.produtoId, quantidade: item.qtd });
+      const { data: cd } = await sb.from('estoque_cd').select('id, quantidade').eq('produto_id', item.produtoId).maybeSingle();
+      if (cd) {
+        await sb.from('estoque_cd').update({ quantidade: cd.quantidade + item.qtd, atualizado_em: new Date().toISOString() }).eq('id', cd.id);
+      } else {
+        await sb.from('estoque_cd').insert({ produto_id: item.produtoId, quantidade: item.qtd });
+      }
+      await sb.from('movimentacoes_estoque').insert({
+        tipo: 'devolucao', produto_id: item.produtoId, quantidade: item.qtd,
+        caminhao_id: caminhaoId, responsavel_id: funcionarioLogado?.id || null,
+      });
     }
-    await sb.from('movimentacoes_estoque').insert({
-      tipo: 'devolucao', produto_id: item.produtoId, quantidade: item.qtd,
-      caminhao_id: caminhaoId, responsavel_id: funcionarioLogado?.id || null,
-    });
+    fecharModal('modal-devolver-cd');
+    carregarEstoquePagina();
+  } finally {
+    _destravarBotao(btn, original);
   }
-  fecharModal('modal-devolver-cd');
-  carregarEstoquePagina();
 }
 
 function _sairModoVendaAvista() {
@@ -10459,7 +10506,7 @@ async function gerarProximoMes() {
     <div id="msg-caminhao"></div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-caminhao')">Cancelar</button>
-      <button class="btn primario" onclick="salvarCaminhao()">Salvar</button>
+      <button class="btn primario" id="btn-salvar-caminhao" onclick="salvarCaminhao()">Salvar</button>
     </div>
   </div>
 </div>
@@ -10487,7 +10534,7 @@ async function gerarProximoMes() {
     <div id="msg-producao-cd"></div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-producao-cd')">Cancelar</button>
-      <button class="btn primario" onclick="salvarProducaoCD()">Salvar</button>
+      <button class="btn primario" id="btn-salvar-producao-cd" onclick="salvarProducaoCD()">Salvar</button>
     </div>
   </div>
 </div>
@@ -10509,7 +10556,7 @@ async function gerarProximoMes() {
     <div id="msg-carregar-caminhao"></div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-carregar-caminhao')">Cancelar</button>
-      <button class="btn primario" onclick="salvarCarregamento()">Carregar caminhão</button>
+      <button class="btn primario" id="btn-salvar-carregamento" onclick="salvarCarregamento()">Carregar caminhão</button>
     </div>
   </div>
 </div>
@@ -10531,7 +10578,7 @@ async function gerarProximoMes() {
     <div id="msg-devolver-cd"></div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-devolver-cd')">Cancelar</button>
-      <button class="btn primario" onclick="salvarDevolucaoCD()">Devolver ao CD</button>
+      <button class="btn primario" id="btn-salvar-devolucao-cd" onclick="salvarDevolucaoCD()">Devolver ao CD</button>
     </div>
   </div>
 </div>
