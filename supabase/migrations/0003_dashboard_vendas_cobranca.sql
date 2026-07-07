@@ -12,7 +12,7 @@
 -- causa das políticas de RLS.
 -- ============================================================================
 
--- 1) dashboard_resumo: mesma assinatura e retorno (jsonb), só muda o corpo.
+-- 1) dashboard_resumo: mesmo retorno (jsonb), só muda o corpo.
 --    - vendas_qtd / vendas_valor agora só contam vendas com vendedor_id
 --      preenchido (exclui importação do sistema antigo e vendas cadastradas
 --      pelo gestor sem vendedor vinculado).
@@ -20,7 +20,13 @@
 --    - recebido_periodo / recebido_hoje / em_maos / a_receber / atrasado_*
 --      continuam sem filtro (dívida real do cliente, independe de quem
 --      cadastrou a venda).
-create or replace function public.dashboard_resumo(p_inicio date, p_fim date)
+--    A função original tem valor padrão nos parâmetros, e o Postgres não
+--    deixa remover esse padrão com CREATE OR REPLACE — por isso precisa
+--    apagar a função antes de recriá-la (o app sempre chama passando as
+--    duas datas, então não depende desses padrões).
+drop function if exists public.dashboard_resumo(date, date);
+
+create function public.dashboard_resumo(p_inicio date, p_fim date)
 returns jsonb
 language plpgsql
 -- security definer
