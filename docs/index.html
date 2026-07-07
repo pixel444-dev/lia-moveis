@@ -245,6 +245,11 @@ tr:hover td{background:#fafafa;}
 .dash-pill:hover{border-color:#185FA5;color:#185FA5;}
 .dash-pill-ativo{border-color:#185FA5;background:#185FA5;color:#fff;}
 .dash-pill-ativo:hover{background:#0C447C;}
+.dash-periodo-custom{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem;font-size:13px;color:#555;}
+.dash-periodo-custom label{display:flex;align-items:center;gap:6px;}
+.dash-periodo-custom input[type="date"]{padding:6px 10px;border:1px solid #ccc;border-radius:8px;font-size:13px;color:#333;}
+.dash-periodo-custom button{padding:6px 16px;border-radius:20px;border:1px solid #185FA5;background:#185FA5;color:#fff;font-size:13px;cursor:pointer;}
+.dash-periodo-custom button:hover{background:#0C447C;}
 .dash-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem;margin-bottom:1.25rem;}
 .dash-kpi{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:1rem;}
 .dash-kpi .kpi-label{font-size:11px;color:#888;margin-bottom:.25rem;text-transform:uppercase;letter-spacing:.5px;}
@@ -2229,6 +2234,8 @@ async function gerarCodigoVenda() {
 
 let _dashPeriodo = 'hoje';
 let _dashChart = null;
+let _dashCustomInicio = null;
+let _dashCustomFim = null;
 
 function _dashDatas(periodo) {
   const hoje = new Date();
@@ -2245,10 +2252,24 @@ function _dashDatas(periodo) {
     return { inicio: domingo.toISOString().split('T')[0], fim: sabado.toISOString().split('T')[0] };
   } else if (periodo === 'mes') {
     inicio = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-01';
+  } else if (periodo === 'custom') {
+    return { inicio: _dashCustomInicio, fim: _dashCustomFim };
   } else {
     const d = new Date(hoje); d.setDate(d.getDate() - 29); inicio = d.toISOString().split('T')[0];
   }
   return { inicio, fim };
+}
+
+function aplicarDashPeriodoCustom() {
+  const de = document.getElementById('dash-data-de').value;
+  const ate = document.getElementById('dash-data-ate').value || de;
+  if (!de) { alert('Escolha pelo menos a data inicial.'); return; }
+  if (ate < de) { alert('A data final não pode ser antes da data inicial.'); return; }
+  _dashCustomInicio = de;
+  _dashCustomFim = ate;
+  _dashPeriodo = 'custom';
+  document.querySelectorAll('.dash-pill').forEach(function(p) { p.classList.remove('dash-pill-ativo'); });
+  _carregarDashDados();
 }
 
 async function setDashPeriodo(periodo) {
@@ -2278,6 +2299,11 @@ async function carregarDashboard() {
         '<button class="dash-pill" data-periodo="semana" onclick="setDashPeriodo(\'semana\')">Semana atual</button>' +
         '<button class="dash-pill" data-periodo="30d" onclick="setDashPeriodo(\'30d\')">30 dias</button>' +
         '<button class="dash-pill" data-periodo="mes" onclick="setDashPeriodo(\'mes\')">Mês atual</button>' +
+      '</div>' +
+      '<div class="dash-periodo-custom">' +
+        '<label>De <input type="date" id="dash-data-de"></label>' +
+        '<label>Até <input type="date" id="dash-data-ate"></label>' +
+        '<button onclick="aplicarDashPeriodoCustom()">Aplicar</button>' +
       '</div>' +
       '<div id="dash-alertas-bar" style="display:none;" class="dash-alertas"></div>' +
       '<div class="dash-bloco dash-bloco-vendas">' +
