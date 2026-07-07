@@ -2227,7 +2227,7 @@ async function gerarCodigoVenda() {
   return data;
 }
 
-let _dashPeriodo = '30d';
+let _dashPeriodo = 'hoje';
 let _dashChart = null;
 
 function _dashDatas(periodo) {
@@ -2236,6 +2236,9 @@ function _dashDatas(periodo) {
   let inicio;
   if (periodo === 'hoje') {
     inicio = fim;
+  } else if (periodo === 'ontem') {
+    const d = new Date(hoje); d.setDate(d.getDate() - 1); inicio = d.toISOString().split('T')[0];
+    return { inicio, fim: inicio };
   } else if (periodo === '7d') {
     const d = new Date(hoje); d.setDate(d.getDate() - 6); inicio = d.toISOString().split('T')[0];
   } else if (periodo === 'mes') {
@@ -2268,9 +2271,10 @@ async function carregarDashboard() {
   if (!document.getElementById('dash-kpis-vendas')) {
     inner.innerHTML =
       '<div class="dash-pills">' +
-        '<button class="dash-pill" data-periodo="hoje" onclick="setDashPeriodo(\'hoje\')">Hoje</button>' +
+        '<button class="dash-pill" data-periodo="ontem" onclick="setDashPeriodo(\'ontem\')">Ontem</button>' +
+        '<button class="dash-pill dash-pill-ativo" data-periodo="hoje" onclick="setDashPeriodo(\'hoje\')">Hoje</button>' +
         '<button class="dash-pill" data-periodo="7d" onclick="setDashPeriodo(\'7d\')">7 dias</button>' +
-        '<button class="dash-pill dash-pill-ativo" data-periodo="30d" onclick="setDashPeriodo(\'30d\')">30 dias</button>' +
+        '<button class="dash-pill" data-periodo="30d" onclick="setDashPeriodo(\'30d\')">30 dias</button>' +
         '<button class="dash-pill" data-periodo="mes" onclick="setDashPeriodo(\'mes\')">Mês atual</button>' +
       '</div>' +
       '<div id="dash-alertas-bar" style="display:none;" class="dash-alertas"></div>' +
@@ -2289,7 +2293,7 @@ async function carregarDashboard() {
         '</div>' +
         '<div class="dash-secao"><div class="dash-secao-titulo">Cobradores</div><div id="dash-cobradores"></div></div>' +
       '</div>';
-    _dashPeriodo = '30d';
+    _dashPeriodo = 'hoje';
   }
 
   await _carregarDashDados();
