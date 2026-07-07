@@ -2239,8 +2239,10 @@ function _dashDatas(periodo) {
   } else if (periodo === 'ontem') {
     const d = new Date(hoje); d.setDate(d.getDate() - 1); inicio = d.toISOString().split('T')[0];
     return { inicio, fim: inicio };
-  } else if (periodo === '7d') {
-    const d = new Date(hoje); d.setDate(d.getDate() - 6); inicio = d.toISOString().split('T')[0];
+  } else if (periodo === 'semana') {
+    const domingo = new Date(hoje); domingo.setDate(domingo.getDate() - domingo.getDay());
+    const sabado = new Date(hoje); sabado.setDate(sabado.getDate() + (6 - hoje.getDay()));
+    return { inicio: domingo.toISOString().split('T')[0], fim: sabado.toISOString().split('T')[0] };
   } else if (periodo === 'mes') {
     inicio = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-01';
   } else {
@@ -2273,7 +2275,7 @@ async function carregarDashboard() {
       '<div class="dash-pills">' +
         '<button class="dash-pill" data-periodo="ontem" onclick="setDashPeriodo(\'ontem\')">Ontem</button>' +
         '<button class="dash-pill dash-pill-ativo" data-periodo="hoje" onclick="setDashPeriodo(\'hoje\')">Hoje</button>' +
-        '<button class="dash-pill" data-periodo="7d" onclick="setDashPeriodo(\'7d\')">7 dias</button>' +
+        '<button class="dash-pill" data-periodo="semana" onclick="setDashPeriodo(\'semana\')">Semana atual</button>' +
         '<button class="dash-pill" data-periodo="30d" onclick="setDashPeriodo(\'30d\')">30 dias</button>' +
         '<button class="dash-pill" data-periodo="mes" onclick="setDashPeriodo(\'mes\')">Mês atual</button>' +
       '</div>' +
