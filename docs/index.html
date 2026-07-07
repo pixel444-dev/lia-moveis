@@ -2311,8 +2311,8 @@ async function _carregarDashDados() {
     sb.rpc('dashboard_alertas'),
   ]);
 
-  const r = (rRes.data && rRes.data[0]) || {};
-  const al = (alRes.data && alRes.data[0]) || {};
+  const r = (Array.isArray(rRes.data) ? rRes.data[0] : rRes.data) || {};
+  const al = (Array.isArray(alRes.data) ? alRes.data[0] : alRes.data) || {};
 
   _renderAlertas(al);
   _renderKpisVendas(r);
