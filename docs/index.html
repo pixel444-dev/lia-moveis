@@ -982,7 +982,8 @@ tr:hover td{background:#fafafa;}
         <div class="grid2">
           <div class="campo">
             <label style="font-size:13px;">📱 Celular</label>
-            <input id="vnc-telefone" type="text" placeholder="(88) 99999-9999" style="padding:14px;font-size:16px;border-radius:10px;">
+            <input id="vnc-telefone" type="text" placeholder="(88) 99999-9999" inputmode="numeric" maxlength="15" style="padding:14px;font-size:16px;border-radius:10px;" oninput="mascararTelefoneCampo(this)" onblur="validarTelefoneCampo(this,'msg-telefone-vnc')">
+            <div id="msg-telefone-vnc"></div>
           </div>
           <div class="campo">
             <label id="lbl-vnc-nascimento" style="font-size:13px;">📅 Nascimento *</label>
@@ -1168,7 +1169,8 @@ tr:hover td{background:#fafafa;}
       </div>
       <div class="campo">
         <label>Celular</label>
-        <input id="cli-telefone" type="text" placeholder="(88) 99999-9999">
+        <input id="cli-telefone" type="text" placeholder="(88) 99999-9999" inputmode="numeric" maxlength="15" oninput="mascararTelefoneCampo(this)" onblur="validarTelefoneCampo(this,'msg-telefone-cli')">
+        <div id="msg-telefone-cli"></div>
       </div>
     </div>
     <div class="campo">
@@ -1969,6 +1971,42 @@ function validarCPFCampo(input) {
   }
 }
 
+// Formata o telefone conforme o usuário digita: (DD) NNNN-NNNN (fixo, 10
+// dígitos) ou (DD) 9NNNN-NNNN (celular, 11 dígitos com o nono dígito).
+function _formatarTelefoneBR(digitos) {
+  if (digitos.length > 10) return digitos.replace(/^(\d{2})(\d{5})(\d{0,4}).*/, '($1) $2-$3');
+  if (digitos.length > 6)  return digitos.replace(/^(\d{2})(\d{4})(\d{0,4}).*/, '($1) $2-$3');
+  if (digitos.length > 2)  return digitos.replace(/^(\d{2})(\d{0,4})/, '($1) $2');
+  if (digitos.length > 0)  return '(' + digitos;
+  return '';
+}
+
+function telefoneValido(tel) {
+  const d = String(tel || '').replace(/\D/g, '');
+  return d.length === 10 || d.length === 11;
+}
+
+// oninput: aplica a máscara em tempo real e limita a 11 dígitos (DDD + celular)
+function mascararTelefoneCampo(input) {
+  input.value = _formatarTelefoneBR(input.value.replace(/\D/g, '').slice(0, 11));
+  input.classList.remove('erro');
+}
+
+// onblur: só sinaliza erro quando o campo tem conteúdo mas ficou incompleto —
+// evita mensagem de erro piscando enquanto o usuário ainda está digitando
+function validarTelefoneCampo(input, msgId) {
+  const msg = msgId ? document.getElementById(msgId) : null;
+  const digitos = input.value.replace(/\D/g, '');
+  if (!digitos.length) { input.classList.remove('erro'); if (msg) msg.innerHTML = ''; return; }
+  if (telefoneValido(digitos)) {
+    input.classList.remove('erro');
+    if (msg) msg.innerHTML = '<span class="cpf-valido">✓ Telefone válido</span>';
+  } else {
+    input.classList.add('erro');
+    if (msg) msg.innerHTML = '<span class="cpf-invalido">✗ Telefone incompleto — informe o DDD e o número completo</span>';
+  }
+}
+
 function calcularTotaisEquipe(vendas) {
   const totalCaixa = vendas.reduce((a, v) => {
     if (v.tipo === 'avista') return a + Number(v.valor);
@@ -2754,6 +2792,8 @@ async function abrirCadastroCliente() {
   _resetCliCidade();
   document.getElementById('cli-referencia').value = '';
   document.getElementById('msg-cpf').innerHTML = '';
+  document.getElementById('msg-telefone-cli').innerHTML = '';
+  document.getElementById('cli-telefone').classList.remove('erro');
   document.getElementById('modal-cli-titulo').textContent = 'Novo cliente';
   window._fotoCasaBlob = null;
   window._fotoCasaUrl = null;
@@ -2802,15 +2842,17 @@ async function salvarCliente() {
   const municipioId = window._cliMunicipioId || null;
   const cobradorId = document.getElementById('cli-cobrador').value || null;
   const cpf = document.getElementById('cli-cpf').value.trim();
+  const telefone = document.getElementById('cli-telefone').value.trim();
 
   if (!nome) { alert('Digite o nome!'); return; }
   if (cpf && !validarCPF(cpf)) { alert('CPF inválido!'); return; }
+  if (telefone && !telefoneValido(telefone)) { alert('Celular inválido! Informe o DDD e o número completo.'); return; }
   if (cidade && !municipioId) { alert('Selecione uma cidade válida da lista.'); return; }
 
   const dados = {
     codigo: document.getElementById('cli-codigo').value,
     nome, cpf,
-    telefone: document.getElementById('cli-telefone').value.trim(),
+    telefone,
     data_nascimento: nascimento || null,
     endereco,
     bairro: document.getElementById('cli-bairro').value.trim(),
@@ -2860,7 +2902,7 @@ async function editarCliente(id) {
   document.getElementById('cli-codigo').value = data.codigo || '';
   document.getElementById('cli-nome').value = data.nome;
   document.getElementById('cli-cpf').value = data.cpf || '';
-  document.getElementById('cli-telefone').value = data.telefone || '';
+  document.getElementById('cli-telefone').value = _formatarTelefoneBR(String(data.telefone || '').replace(/\D/g, '').slice(0, 11));
   document.getElementById('cli-nascimento').value = data.data_nascimento || '';
   document.getElementById('cli-endereco').value = data.endereco || '';
   document.getElementById('cli-bairro').value = data.bairro || '';
@@ -2871,6 +2913,8 @@ async function editarCliente(id) {
   var _ddCli = document.getElementById('cli-cidade-dropdown'); if (_ddCli) _ddCli.style.display = 'none';
   document.getElementById('cli-referencia').value = data.referencia || '';
   document.getElementById('msg-cpf').innerHTML = '';
+  document.getElementById('msg-telefone-cli').innerHTML = '';
+  document.getElementById('cli-telefone').classList.remove('erro');
   document.getElementById('modal-cli-titulo').textContent = 'Editar cliente';
   window._fotoCasaBlob = null;
   window._fotoCasaUrl = data.foto_casa || null;
@@ -3580,6 +3624,8 @@ async function iniciarVendaAvista() {
   document.getElementById('form-dados-venda').style.display = 'none';
   document.getElementById('btn-salvar-venda').style.display = 'none';
   ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('msg-telefone-vnc').innerHTML = '';
+  document.getElementById('vnc-telefone').classList.remove('erro');
   _resetVncCidade();
   document.getElementById('vnc-edit-id').value = '';
   window._vncFotoUrl = null;
@@ -3610,6 +3656,8 @@ async function buscarClientePorCPF() {
     document.getElementById('form-dados-venda').style.display = 'none';
     document.getElementById('btn-salvar-venda').style.display = 'none';
     ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('msg-telefone-vnc').innerHTML = '';
+    document.getElementById('vnc-telefone').classList.remove('erro');
     _resetVncCidade();
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
@@ -3672,6 +3720,8 @@ async function buscarClientePorCPF() {
     await carregarCobradoresSelect('vnc-cobrador');
     document.getElementById('form-novo-cliente-venda').style.display = 'block';
     ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('msg-telefone-vnc').innerHTML = '';
+    document.getElementById('vnc-telefone').classList.remove('erro');
     _resetVncCidade();
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
@@ -3689,10 +3739,12 @@ async function salvarNovoClienteVenda() {
   const cidade = document.getElementById('vnc-cidade').value.trim();
   const municipioIdVnc = window._vncMunicipioId || null;
   const cobradorId = document.getElementById('vnc-cobrador').value || null;
+  const telefone = document.getElementById('vnc-telefone').value.trim();
 
   const editId = document.getElementById('vnc-edit-id').value;
   const modoAvista = !!window._modoVendaAvista;
   if (!nome) { alert('Preencha o nome completo!'); return; }
+  if (telefone && !telefoneValido(telefone)) { alert('Celular inválido! Informe o DDD e o número completo.'); return; }
   if (cidade && !municipioIdVnc) { alert('Selecione uma cidade válida da lista.'); return; }
   if (perfilAtivo.perfil === 'vendedor' && modoAvista) {
     if (nascimento && !validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
@@ -3721,7 +3773,7 @@ async function salvarNovoClienteVenda() {
 
   const dados = {
     nome, cpf,
-    telefone: document.getElementById('vnc-telefone').value.trim(),
+    telefone,
     data_nascimento: nascimento || null,
     endereco,
     bairro: document.getElementById('vnc-bairro').value.trim(),
@@ -3990,7 +4042,7 @@ async function editarClienteNoModal(clienteId) {
   }
   if (aviso) aviso.style.display = 'none';
   document.getElementById('vnc-nome').value = data.nome || '';
-  document.getElementById('vnc-telefone').value = data.telefone || '';
+  document.getElementById('vnc-telefone').value = _formatarTelefoneBR(String(data.telefone || '').replace(/\D/g, '').slice(0, 11));
   document.getElementById('vnc-nascimento').value = data.data_nascimento || '';
   document.getElementById('vnc-endereco').value = data.endereco || '';
   document.getElementById('vnc-bairro').value = data.bairro || '';
@@ -4513,6 +4565,8 @@ async function solicitarAutorizacaoSemCPF() {
       await carregarCobradoresSelect('vnc-cobrador');
       document.getElementById('form-novo-cliente-venda').style.display = 'block';
       ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      var _msgTelVnc = document.getElementById('msg-telefone-vnc'); if (_msgTelVnc) _msgTelVnc.innerHTML = '';
+      var _elTelVnc = document.getElementById('vnc-telefone'); if (_elTelVnc) _elTelVnc.classList.remove('erro');
       _resetVncCidade();
       document.getElementById('vnc-edit-id').value = '';
       window._vncFotoUrl = null;
