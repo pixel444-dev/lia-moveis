@@ -3085,7 +3085,7 @@ function _destravarBotao(btn, htmlOriginal) {
 // ===== ESTOQUE (CD / CAMINHÕES) =====
 
 async function carregarCaminhoesCatalogo() {
-  const { data } = await sb.from('caminhoes').select('id, identificacao, placa').eq('ativo', true).order('identificacao');
+  const { data } = await sb.from('caminhoes').select('id, identificacao, placa, foto_url').eq('ativo', true).order('identificacao');
   window._caminhoesCatalogo = data || [];
   return window._caminhoesCatalogo;
 }
@@ -3276,18 +3276,34 @@ async function carregarEstoquePorCaminhao() {
   const el = document.getElementById('lista-estoque-caminhoes');
   const caminhoes = window._caminhoesCatalogo || await carregarCaminhoesCatalogo();
   if (!caminhoes.length) { el.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum caminhão cadastrado.</p>'; return; }
-  const { data: estoques, error } = await sb.from('caminhao_estoque').select('caminhao_id, quantidade, produtos(nome)');
+  const [{ data: estoques, error }, { data: equipesAtivas }] = await Promise.all([
+    sb.from('caminhao_estoque').select('caminhao_id, quantidade, produtos(nome)'),
+    sb.from('equipes').select('caminhao_id, equipe_membros(papel, funcionarios(nome))').eq('encerrada', false),
+  ]);
   if (error) { el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar estoque dos caminhões.</p>'; return; }
   const porCaminhao = {};
   (estoques || []).forEach(e => {
     if (!e.quantidade) return;
     (porCaminhao[e.caminhao_id] = porCaminhao[e.caminhao_id] || []).push(e);
   });
+  const chefePorCaminhao = {};
+  (equipesAtivas || []).forEach(eq => {
+    if (chefePorCaminhao[eq.caminhao_id]) return;
+    const chefe = eq.equipe_membros?.find(m => m.papel === 'chefe');
+    if (chefe?.funcionarios?.nome) chefePorCaminhao[eq.caminhao_id] = chefe.funcionarios.nome;
+  });
   el.innerHTML = caminhoes.map(c => {
     const itens = (porCaminhao[c.id] || []).slice().sort((a, b) => (a.produtos?.nome || '').localeCompare(b.produtos?.nome || ''));
+    const chefe = chefePorCaminhao[c.id];
     return `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1rem;margin-bottom:.75rem;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-        <div style="font-size:14px;font-weight:600;">${escHtml(c.identificacao)} <span style="font-size:12px;color:#888;font-weight:400;">${escHtml(c.placa || '')}</span></div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${c.foto_url ? `<img data-img-bucket="fotos-caminhoes" data-img-src="${escHtml(c.foto_url)}" src="" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;">` : ''}
+          <div>
+            <div style="font-size:14px;font-weight:600;">${escHtml(c.identificacao)} <span style="font-size:12px;color:#888;font-weight:400;">${escHtml(c.placa || '')}</span></div>
+            ${chefe ? `<span class="badge azul" style="font-size:12px;margin-top:4px;display:inline-block;">👤 ${escHtml(chefe)}</span>` : ''}
+          </div>
+        </div>
         <div style="display:flex;gap:8px;">
           <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirCarregarCaminhao('${c.id}')">+ Carregar</button>
           <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirDevolverCD('${c.id}')">Devolver ao CD</button>
@@ -3299,6 +3315,7 @@ async function carregarEstoquePorCaminhao() {
       </table></div>` : '<p style="color:#888;font-size:13px;padding:.5rem 0 0;">Estoque vazio.</p>'}
     </div>`;
   }).join('');
+  assinarImagens(el);
 }
 
 async function abrirRegistrarProducao() {
