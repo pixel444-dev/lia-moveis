@@ -942,7 +942,10 @@ tr:hover td{background:#fafafa;}
     <div id="form-novo-cliente-venda" style="display:none;">
       <input type="hidden" id="vnc-edit-id">
       <div style="background:#F0FBE6;border:1px solid #C0DD97;border-radius:12px;padding:16px;margin-bottom:16px;">
-        <div style="font-size:14px;font-weight:700;color:#3B6D11;margin-bottom:14px;">👤 Cadastrar novo cliente</div>
+        <div id="titulo-form-cliente-venda" style="font-size:14px;font-weight:700;color:#3B6D11;margin-bottom:14px;">👤 Cadastrar novo cliente</div>
+        <div id="aviso-dados-nao-carregados" style="display:none;background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#854F0B;">
+          ⚠️ Não foi possível carregar os dados atuais deste cliente. Preencha abaixo apenas o que precisar atualizar — campos deixados em branco não serão apagados.
+        </div>
         <div class="campo">
           <label style="font-size:13px;">👤 Nome completo *</label>
           <input id="vnc-nome" type="text" placeholder="Nome do cliente" style="padding:14px;font-size:16px;border-radius:10px;">
@@ -3453,8 +3456,26 @@ async function abrirNovaVenda() {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   window._clienteInadimplente = false;
   window._autorizacaoInadimplenteId = null;
+  window._clienteEncontradoCodigo = '';
   _sairModoVendaAvista();
+  _setTituloFormClienteVenda(false);
   document.getElementById('modal-venda').style.display = 'flex';
+}
+
+function _setTituloFormClienteVenda(editando) {
+  const el = document.getElementById('titulo-form-cliente-venda');
+  if (el) el.textContent = editando ? '👤 Confira e atualize os dados do cliente' : '👤 Cadastrar novo cliente';
+  if (!editando) {
+    const aviso = document.getElementById('aviso-dados-nao-carregados');
+    if (aviso) aviso.style.display = 'none';
+  }
+}
+
+async function mostrarEdicaoClienteVenda(clienteId) {
+  document.getElementById('form-dados-venda').style.display = 'none';
+  document.getElementById('btn-salvar-venda').style.display = 'none';
+  document.getElementById('form-novo-cliente-venda').style.display = 'block';
+  await editarClienteNoModal(clienteId);
 }
 
 async function iniciarVendaAvista() {
@@ -3474,6 +3495,7 @@ async function iniciarVendaAvista() {
   window._vncFotoUrl = null;
   removerFotoVnc();
   _resetLocStatus();
+  _setTituloFormClienteVenda(false);
 }
 
 async function buscarClientePorCPF() {
@@ -3503,6 +3525,7 @@ async function buscarClientePorCPF() {
     window._vncFotoUrl = null;
     removerFotoVnc();
     _resetLocStatus();
+    _setTituloFormClienteVenda(false);
     return;
   }
 
@@ -3517,7 +3540,7 @@ async function buscarClientePorCPF() {
 
   if (info?.existe) {
     document.getElementById('venda-cliente-id').value = info.cliente_id;
-    document.getElementById('form-novo-cliente-venda').style.display = 'none';
+    window._clienteEncontradoCodigo = info.codigo || '';
 
     if (perfilAtivo.perfil === 'vendedor' && info.qtd_atrasadas > 0) {
       window._dadosInadimplente = { clienteId: info.cliente_id, nomeCliente: info.nome, qtdAtrasadas: info.qtd_atrasadas, totalAtrasado: info.valor_atrasado };
@@ -3530,6 +3553,7 @@ async function buscarClientePorCPF() {
             Solicitar autorização do gestor
           </button>
         </div>`;
+      document.getElementById('form-novo-cliente-venda').style.display = 'none';
       document.getElementById('form-dados-venda').style.display = 'none';
       document.getElementById('btn-salvar-venda').style.display = 'none';
       window._clienteInadimplente = true;
@@ -3544,13 +3568,13 @@ async function buscarClientePorCPF() {
           ⚠️ Atenção: cliente tem ${info.qtd_atrasadas} parcela(s) em atraso — R$ ${Number(info.valor_atrasado).toLocaleString('pt-BR',{minimumFractionDigits:2})}
         </div>`;
       window._clienteInadimplente = false;
-      await mostrarFormVenda();
+      await mostrarEdicaoClienteVenda(info.cliente_id);
       return;
     }
 
     div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>`;
     window._clienteInadimplente = false;
-    await mostrarFormVenda();
+    await mostrarEdicaoClienteVenda(info.cliente_id);
   } else {
     div.innerHTML = `<div class="cliente-nao-encontrado">Cliente não encontrado. Preencha os dados abaixo para cadastrar.</div>`;
     document.getElementById('form-dados-venda').style.display = 'none';
@@ -3562,6 +3586,7 @@ async function buscarClientePorCPF() {
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
     removerFotoVnc();
+    _setTituloFormClienteVenda(false);
     _resetLocStatus();
   }
 }
@@ -3621,11 +3646,19 @@ async function salvarNovoClienteVenda() {
 
   let clienteId, clienteNome, clienteCodigo;
   if (editId) {
-    await sb.from('clientes').update(dados).eq('id', editId);
+    // Alguns perfis (ex.: vendedor) podem não ter permissão de leitura completa
+    // do cliente (RLS), então o formulário pode não ter vindo pré-preenchido.
+    // Para não apagar dados reais do cliente, campos opcionais deixados em
+    // branco não entram no update — só o que o usuário de fato informou.
+    const dadosUpdate = { nome: dados.nome, cpf: dados.cpf, endereco: dados.endereco, cidade: dados.cidade, municipio_id: dados.municipio_id };
+    ['telefone', 'data_nascimento', 'bairro', 'referencia', 'cobrador_id', 'latitude', 'longitude', 'localizacao_endereco'].forEach(campo => {
+      if (dados[campo]) dadosUpdate[campo] = dados[campo];
+    });
+    await sb.from('clientes').update(dadosUpdate).eq('id', editId);
     clienteId = editId;
     const { data: atualizado } = await sb.from('clientes').select('nome, codigo').eq('id', editId).single();
     clienteNome = atualizado?.nome || nome;
-    clienteCodigo = atualizado?.codigo || '';
+    clienteCodigo = atualizado?.codigo || window._clienteEncontradoCodigo || '';
   } else {
     const codigo = await gerarCodigoCliente();
     const { data, error } = await sb.from('clientes').insert({ ...dados, codigo, cpf }).select().single();
@@ -3845,19 +3878,27 @@ function renderSeletorParcelas() {
 }
 
 function voltarParaCadastroCliente() {
-  document.getElementById('form-dados-venda').style.display = 'none';
-  document.getElementById('btn-salvar-venda').style.display = 'none';
   const clienteId = document.getElementById('venda-cliente-id').value;
   if (clienteId) {
-    document.getElementById('form-novo-cliente-venda').style.display = 'block';
-    editarClienteNoModal(clienteId);
+    mostrarEdicaoClienteVenda(clienteId);
   }
 }
 
 async function editarClienteNoModal(clienteId) {
-  const { data } = await sb.from('clientes').select('*').eq('id', clienteId).single();
-  if (!data) return;
+  // vnc-edit-id é setado antes da leitura: se o perfil (ex.: vendedor) não tiver
+  // permissão de RLS para ler a linha completa de `clientes`, o formulário fica
+  // em branco para preenchimento, mas o salvamento ainda faz update no cliente
+  // certo em vez de criar um cadastro duplicado.
   document.getElementById('vnc-edit-id').value = clienteId;
+  _setTituloFormClienteVenda(true);
+  const { data } = await sb.from('clientes').select('*').eq('id', clienteId).single();
+  const aviso = document.getElementById('aviso-dados-nao-carregados');
+  if (!data) {
+    if (aviso) aviso.style.display = 'block';
+    await carregarCobradoresSelect('vnc-cobrador');
+    return;
+  }
+  if (aviso) aviso.style.display = 'none';
   document.getElementById('vnc-nome').value = data.nome || '';
   document.getElementById('vnc-telefone').value = data.telefone || '';
   document.getElementById('vnc-nascimento').value = data.data_nascimento || '';
@@ -4386,6 +4427,7 @@ async function solicitarAutorizacaoSemCPF() {
       document.getElementById('vnc-edit-id').value = '';
       window._vncFotoUrl = null;
       removerFotoVnc();
+      _setTituloFormClienteVenda(false);
     } else if (aut?.status === 'negado') {
       clearInterval(pollInterval); pollInterval = null;
       painel.innerHTML = `<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#A32D2D;font-weight:500;">✗ Autorização negada pelo gestor.</div>`;
@@ -4428,8 +4470,8 @@ async function solicitarAutorizacaoInadimplente() {
       window._clienteInadimplente = false;
       window._autorizacaoInadimplenteId = null;
       document.getElementById('resultado-busca-cliente').innerHTML =
-        `<div class="cliente-encontrado">✓ Autorizado pelo gestor! Pode continuar a venda.</div>`;
-      await mostrarFormVenda();
+        `<div class="cliente-encontrado">✓ Autorizado pelo gestor! Confira os dados do cliente antes de continuar.</div>`;
+      await mostrarEdicaoClienteVenda(clienteId);
     } else if (data?.status === 'negado') {
       clearInterval(pollInterval); pollInterval = null;
       document.getElementById('resultado-busca-cliente').innerHTML = `
