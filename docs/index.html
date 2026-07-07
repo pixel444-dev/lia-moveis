@@ -234,6 +234,10 @@ tr:hover td{background:#fafafa;}
   .card-linha-row{display:flex;justify-content:space-between;font-size:13px;color:#555;margin-bottom:3px;}
   .card-linha-row span:first-child{color:#999;font-size:12px;}
   .card-linha-acoes{margin-top:.625rem;display:flex;gap:8px;flex-wrap:wrap;}
+  .eqsem-semana-head{padding:12px 14px;}
+  .eqsem-semana-meta{width:100%;justify-content:space-between;}
+  .eqsem-card-top{flex-direction:column;}
+  .eqsem-card-top>div:last-child{text-align:left !important;width:100%;margin-top:8px;padding-top:8px;border-top:1px dashed #eee;}
 }
 /* Dashboard gestor */
 .dash-pills{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem;}
@@ -289,6 +293,28 @@ tr:hover td{background:#fafafa;}
 .sw-s:before{content:"";position:absolute;height:14px;width:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;}
 .sw input:checked+.sw-s{background:#185FA5;}
 .sw input:checked+.sw-s:before{transform:translateX(16px);}
+
+/* Equipes / Semanas */
+.eqsem-semana{background:#fff;border:1px solid #e5e7eb;border-radius:12px;margin-bottom:12px;overflow:hidden;}
+.eqsem-semana-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;cursor:pointer;user-select:none;}
+.eqsem-semana-head:hover{background:#fafbfc;}
+.eqsem-arrow{display:inline-block;color:#999;font-size:11px;transition:transform .18s ease;}
+.eqsem-semana.aberta .eqsem-arrow{transform:rotate(90deg);}
+.eqsem-semana-titulo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;font-weight:600;color:#1a1a1a;}
+.eqsem-semana-meta{font-size:12px;color:#888;display:flex;align-items:center;gap:12px;flex-wrap:wrap;white-space:nowrap;}
+.eqsem-count{background:#F1EFE8;color:#5F5E5A;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;}
+.eqsem-semana-body{display:none;padding:0 16px 16px;border-top:1px solid #f0f0f0;}
+.eqsem-semana.aberta .eqsem-semana-body{display:block;}
+.eqsem-card{background:#fafbfc;border:1px solid #ececec;border-radius:10px;padding:14px 16px;margin-top:12px;}
+.eqsem-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;}
+.eqsem-card-titulo{font-size:14px;font-weight:600;color:#1a1a1a;}
+.eqsem-card-placa{font-size:12px;color:#999;font-weight:400;}
+.eqsem-card-linha{font-size:12px;color:#666;margin-top:5px;}
+.eqsem-card-linha strong{color:#333;}
+.eqsem-card-valor{font-size:16px;font-weight:700;color:#185FA5;margin-top:4px;}
+.eqsem-card-meta{font-size:11px;color:#999;}
+.eqsem-card-acoes{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.eqsem-card-detalhes{margin-top:12px;border-top:1px dashed #e5e5e5;padding-top:12px;}
 </style>
 </head>
 <body>
@@ -9465,6 +9491,10 @@ async function carregarEquipes() {
   renderEquipes(semanasAtual, equipesAtivas);
 }
 
+function toggleSemanaAcc(el) {
+  el.closest('.eqsem-semana').classList.toggle('aberta');
+}
+
 function renderEquipes(semanas, equipes) {
   const hoje = new Date();
   let html = '';
@@ -9473,32 +9503,43 @@ function renderEquipes(semanas, equipes) {
     const df = new Date(semana.data_fim+'T12:00:00');
     const isAtual = di <= hoje && df >= hoje;
     const eqSemana = equipes.filter(e => e.semana_id === semana.id);
-    html += `<div style="margin-bottom:1.5rem;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">
-        <div style="font-size:14px;font-weight:600;">Semana ${semana.numero}${isAtual?' <span class="badge azul">Semana atual</span>':''}${semana.encerrada?' <span class="badge cinza">Encerrada</span>':''}</div>
-        <div style="font-size:12px;color:#888;">${di.toLocaleDateString('pt-BR')} — ${df.toLocaleDateString('pt-BR')}</div>
-      </div>`;
+    const totalSemana = eqSemana.reduce((a,e) => a + (Number(e.total_valor)||0), 0);
+    html += `<div class="eqsem-semana${isAtual?' aberta':''}">
+      <div class="eqsem-semana-head" onclick="toggleSemanaAcc(this)">
+        <div class="eqsem-semana-titulo">
+          <span class="eqsem-arrow">▸</span>
+          Semana ${semana.numero}
+          ${isAtual?'<span class="badge azul">Semana atual</span>':''}
+          ${semana.encerrada?'<span class="badge cinza">Encerrada</span>':''}
+          <span class="eqsem-count">${eqSemana.length} equipe${eqSemana.length!==1?'s':''}</span>
+        </div>
+        <div class="eqsem-semana-meta">
+          ${totalSemana>0?`<strong style="color:#185FA5;">R$ ${totalSemana.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong>`:''}
+          <span>${di.toLocaleDateString('pt-BR')} — ${df.toLocaleDateString('pt-BR')}</span>
+        </div>
+      </div>
+      <div class="eqsem-semana-body">`;
     if (!eqSemana.length) {
-      html += '<p style="color:#888;font-size:13px;padding:.25rem 0 .5rem;">Nenhuma equipe cadastrada.</p>';
+      html += '<p style="color:#888;font-size:13px;padding:.75rem 0 .25rem;">Nenhuma equipe cadastrada.</p>';
     } else {
       for (const eq of eqSemana) {
         const chefe = eq.equipe_membros?.find(m => m.papel === 'chefe');
         const ajudantes = eq.equipe_membros?.filter(m => m.papel === 'ajudante') || [];
-        html += `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:1rem;margin-bottom:.75rem;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;">
+        html += `<div class="eqsem-card">
+          <div class="eqsem-card-top">
             <div>
-              <div style="font-size:14px;font-weight:600;">${escHtml(eq.caminhoes?.identificacao||'—')} <span style="font-size:12px;color:#888;font-weight:400;">${escHtml(eq.caminhoes?.placa||'')}</span></div>
-              <div style="font-size:12px;color:#555;margin-top:2px;">Chefe: <strong>${escHtml(chefe?.funcionarios?.nome||'—')}</strong>${ajudantes.length?' · '+ajudantes.map(a=>a.funcionarios?.nome).join(', '):''}</div>
-              ${eq.rota?`<div style="font-size:12px;color:#888;margin-top:2px;">Rota: ${eq.rota}</div>`:''}
-              <div style="font-size:12px;color:#888;margin-top:2px;">Saída: ${eq.data_saida?new Date(eq.data_saida+'T12:00:00').toLocaleDateString('pt-BR'):'—'}${eq.data_retorno?' · Retorno prev.: '+new Date(eq.data_retorno+'T12:00:00').toLocaleDateString('pt-BR'):''}</div>
+              <div class="eqsem-card-titulo">${escHtml(eq.caminhoes?.identificacao||'—')} <span class="eqsem-card-placa">${escHtml(eq.caminhoes?.placa||'')}</span></div>
+              <div class="eqsem-card-linha">Chefe: <strong>${escHtml(chefe?.funcionarios?.nome||'—')}</strong>${ajudantes.length?' · '+ajudantes.map(a=>escHtml(a.funcionarios?.nome||'')).join(', '):''}</div>
+              ${eq.rota?`<div class="eqsem-card-linha">Rota: ${escHtml(eq.rota)}</div>`:''}
+              <div class="eqsem-card-linha">Saída: ${eq.data_saida?new Date(eq.data_saida+'T12:00:00').toLocaleDateString('pt-BR'):'—'}${eq.data_retorno?' · Retorno prev.: '+new Date(eq.data_retorno+'T12:00:00').toLocaleDateString('pt-BR'):''}</div>
             </div>
             <div style="text-align:right;flex-shrink:0;">
               <span class="badge ${eq.encerrada?'cinza':'verde'}">${eq.encerrada?'Encerrada':'Em campo'}</span>
-              ${eq.total_valor!=null?`<div style="font-size:14px;font-weight:600;color:#185FA5;margin-top:4px;">R$ ${Number(eq.total_valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}
-              ${eq.meta?`<div style="font-size:11px;color:#888;">Meta: R$ ${Number(eq.meta).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}
+              ${eq.total_valor!=null?`<div class="eqsem-card-valor">R$ ${Number(eq.total_valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}
+              ${eq.meta?`<div class="eqsem-card-meta">Meta: R$ ${Number(eq.meta).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}
             </div>
           </div>
-          <div style="display:flex;gap:8px;margin-top:.75rem;flex-wrap:wrap;">
+          <div class="eqsem-card-acoes">
             <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
             ${!eq.encerrada && perfilAtivo.perfil==='gestor'?`
               <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirCarregarCaminhao('${eq.caminhao_id}')">+ Carregar</button>
@@ -9506,11 +9547,11 @@ function renderEquipes(semanas, equipes) {
               <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
             `:''}
           </div>
-          <div id="detalhes-equipe-${eq.id}" style="display:none;margin-top:.75rem;border-top:1px solid #f0f0f0;padding-top:.75rem;"></div>
+          <div id="detalhes-equipe-${eq.id}" class="eqsem-card-detalhes" style="display:none;"></div>
         </div>`;
       }
     }
-    html += '</div>';
+    html += '</div></div>';
   }
   document.getElementById('lista-equipes').innerHTML = html;
 }
