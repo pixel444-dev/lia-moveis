@@ -9771,19 +9771,32 @@ async function toggleDetalhesEquipe(equipeId) {
   el.style.display = 'block';
   const { data: eq } = await sb.from('equipes').select('meta, caminhao_id').eq('id', equipeId).single();
   const [{ data: estoque }, { data: vendasRaw, error: errV }] = await Promise.all([
-    sb.from('caminhao_estoque').select('quantidade, produtos(nome)').eq('caminhao_id', eq?.caminhao_id),
-    sb.from('vendas').select('codigo, produto, valor, clientes(nome)').eq('equipe_id', equipeId).order('data_venda', { ascending: false }),
+    sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', eq?.caminhao_id),
+    sb.from('vendas').select('id, codigo, produto, valor, status, clientes(nome)').eq('equipe_id', equipeId).order('data_venda', { ascending: false }),
   ]);
   const vendas = errV ? [] : (vendasRaw || []);
+  const idsVendasValidas = vendas.filter(v => v.status !== 'devolvida').map(v => v.id);
+  const { data: itensVendidos } = idsVendasValidas.length
+    ? await sb.from('venda_itens').select('produto_id, quantidade').in('venda_id', idsVendasValidas)
+    : { data: [] };
+  const vendidoPorProduto = {};
+  (itensVendidos || []).forEach(i => {
+    if (!i.produto_id) return;
+    vendidoPorProduto[i.produto_id] = (vendidoPorProduto[i.produto_id] || 0) + i.quantidade;
+  });
   const totalVendido = vendas.reduce((a,v) => a + Number(v.valor), 0);
   const meta = eq?.meta;
   let html = '';
   if (estoque?.length) {
     html += `<div style="margin-bottom:.75rem;">
-      <div class="secao" style="margin-top:0;">Estoque do caminhão (saldo atual)</div>
+      <div class="secao" style="margin-top:0;">Estoque do caminhão</div>
       <div class="tabela-wrap"><table>
-        <thead><tr><th>Produto</th><th>Disponível</th></tr></thead>
-        <tbody>${estoque.map(e => `<tr><td>${escHtml(e.produtos?.nome || '—')}</td><td><strong>${e.quantidade}</strong></td></tr>`).join('')}</tbody>
+        <thead><tr><th>Produto</th><th>Saíram</th><th>Vendidos</th><th>Disponíveis</th></tr></thead>
+        <tbody>${estoque.map(e => {
+          const vendido = vendidoPorProduto[e.produto_id] || 0;
+          const sairam = vendido + e.quantidade;
+          return `<tr><td>${escHtml(e.produtos?.nome || '—')}</td><td>${sairam}</td><td>${vendido}</td><td><strong>${e.quantidade}</strong></td></tr>`;
+        }).join('')}</tbody>
       </table></div></div>`;
   }
   html += `<div class="secao" style="margin-top:0;">Vendas da equipe</div>`;
