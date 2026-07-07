@@ -258,6 +258,13 @@ tr:hover td{background:#fafafa;}
 .dash-alertas .alerta-num{font-weight:700;font-size:16px;}
 .dash-secao{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:1rem;margin-bottom:1rem;}
 .dash-secao-titulo{font-size:14px;font-weight:600;color:#333;margin-bottom:.75rem;}
+.dash-bloco{border-radius:14px;padding:1.25rem;margin-bottom:1.5rem;}
+.dash-bloco-vendas{background:#F3F8FE;border:1px solid #D8E9FA;}
+.dash-bloco-cobranca{background:#F2F9F3;border:1px solid #D6EDD9;}
+.dash-bloco-titulo{font-size:16px;font-weight:700;margin-bottom:1rem;display:flex;align-items:center;gap:8px;}
+.dash-bloco-titulo.vendas{color:#185FA5;}
+.dash-bloco-titulo.cobranca{color:#2A7C3E;}
+.dash-bloco .dash-secao:last-child{margin-bottom:0;}
 .dash-tabela{width:100%;border-collapse:collapse;font-size:13px;}
 .dash-tabela th{font-weight:600;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:4px 8px 8px;}
 .dash-tabela td{padding:6px 8px;border-top:1px solid #f0f0f0;vertical-align:middle;}
@@ -275,9 +282,6 @@ tr:hover td{background:#fafafa;}
 @keyframes btnSpin{to{transform:rotate(360deg);}}
 .btn-spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(120,120,120,.35);border-top-color:currentColor;border-radius:50%;vertical-align:-2px;margin-right:6px;animation:btnSpin .6s linear infinite;}
 .btn:disabled{opacity:.7;cursor:not-allowed;}
-@media(max-width:700px){
-  #dash-rankings-wrap{grid-template-columns:1fr!important;}
-}
 .ac-dropdown{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 8px 8px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:200;max-height:200px;overflow-y:auto;}
 .ac-item{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f0f0;}
 .ac-item:last-child{border-bottom:none;}
@@ -2261,7 +2265,7 @@ async function carregarDashboard() {
   const inner = document.getElementById('dash-inner');
   if (!inner) return;
 
-  if (!document.getElementById('dash-kpis')) {
+  if (!document.getElementById('dash-kpis-vendas')) {
     inner.innerHTML =
       '<div class="dash-pills">' +
         '<button class="dash-pill" data-periodo="hoje" onclick="setDashPeriodo(\'hoje\')">Hoje</button>' +
@@ -2270,16 +2274,21 @@ async function carregarDashboard() {
         '<button class="dash-pill" data-periodo="mes" onclick="setDashPeriodo(\'mes\')">Mês atual</button>' +
       '</div>' +
       '<div id="dash-alertas-bar" style="display:none;" class="dash-alertas"></div>' +
-      '<div id="dash-kpis" class="dash-kpis"></div>' +
-      '<div class="dash-secao">' +
-        '<div class="dash-secao-titulo">Recebimentos — últimos 30 dias</div>' +
-        '<div class="dash-chart-wrap"><canvas id="dash-chart"></canvas></div>' +
+      '<div class="dash-bloco dash-bloco-vendas">' +
+        '<div class="dash-bloco-titulo vendas">🛒 Vendas</div>' +
+        '<div id="dash-kpis-vendas" class="dash-kpis"></div>' +
+        '<div class="dash-secao"><div class="dash-secao-titulo">Vendedores</div><div id="dash-vendedores"></div></div>' +
+        '<div class="dash-secao"><div class="dash-secao-titulo">Equipes</div><div id="dash-equipes" class="dash-equipes"></div></div>' +
       '</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;" id="dash-rankings-wrap">' +
-        '<div class="dash-secao" id="dash-cobradores-secao"><div class="dash-secao-titulo">Cobradores</div><div id="dash-cobradores"></div></div>' +
-        '<div class="dash-secao" id="dash-vendedores-secao"><div class="dash-secao-titulo">Vendedores</div><div id="dash-vendedores"></div></div>' +
-      '</div>' +
-      '<div class="dash-secao"><div class="dash-secao-titulo">Equipes</div><div id="dash-equipes" class="dash-equipes"></div></div>';
+      '<div class="dash-bloco dash-bloco-cobranca">' +
+        '<div class="dash-bloco-titulo cobranca">💰 Cobrança</div>' +
+        '<div id="dash-kpis-cobranca" class="dash-kpis"></div>' +
+        '<div class="dash-secao">' +
+          '<div class="dash-secao-titulo">Recebimentos — últimos 30 dias</div>' +
+          '<div class="dash-chart-wrap"><canvas id="dash-chart"></canvas></div>' +
+        '</div>' +
+        '<div class="dash-secao"><div class="dash-secao-titulo">Cobradores</div><div id="dash-cobradores"></div></div>' +
+      '</div>';
     _dashPeriodo = '30d';
   }
 
@@ -2288,8 +2297,10 @@ async function carregarDashboard() {
 
 async function _carregarDashDados() {
   const { inicio, fim } = _dashDatas(_dashPeriodo);
-  const kpisEl = document.getElementById('dash-kpis');
-  if (kpisEl) kpisEl.innerHTML = Array(6).fill('<div class="dash-skel"></div>').join('');
+  const kpisVendasEl = document.getElementById('dash-kpis-vendas');
+  if (kpisVendasEl) kpisVendasEl.innerHTML = Array(3).fill('<div class="dash-skel"></div>').join('');
+  const kpisCobrancaEl = document.getElementById('dash-kpis-cobranca');
+  if (kpisCobrancaEl) kpisCobrancaEl.innerHTML = Array(5).fill('<div class="dash-skel"></div>').join('');
 
   const [rRes, cRes, vRes, eRes, rdRes, alRes] = await Promise.all([
     sb.rpc('dashboard_resumo', { p_inicio: inicio, p_fim: fim }),
@@ -2304,7 +2315,8 @@ async function _carregarDashDados() {
   const al = (alRes.data && alRes.data[0]) || {};
 
   _renderAlertas(al);
-  _renderKpis(r);
+  _renderKpisVendas(r);
+  _renderKpisCobranca(r);
   _renderChart(rdRes.data || []);
   _renderCobradores(cRes.data || []);
   _renderVendedores(vRes.data || []);
@@ -2333,8 +2345,18 @@ function _renderAlertas(al) {
   bar.innerHTML = html;
 }
 
-function _renderKpis(r) {
-  const el = document.getElementById('dash-kpis');
+function _renderKpisVendas(r) {
+  const el = document.getElementById('dash-kpis-vendas');
+  if (!el) return;
+  const vendasQtd = Number(r.vendas_qtd || 0);
+  el.innerHTML =
+    '<div class="dash-kpi"><div class="kpi-label">Vendas realizadas</div><div class="kpi-val">' + vendasQtd + '</div></div>' +
+    '<div class="dash-kpi verde"><div class="kpi-label">Vendido à vista</div><div class="kpi-val">R$ ' + _brl(r.vendas_avista_valor) + '</div></div>' +
+    '<div class="dash-kpi azul"><div class="kpi-label">Vendido no crediário</div><div class="kpi-val">R$ ' + _brl(r.vendas_crediario_valor) + '</div></div>';
+}
+
+function _renderKpisCobranca(r) {
+  const el = document.getElementById('dash-kpis-cobranca');
   if (!el) return;
   const atrasadoClientes = Number(r.atrasado_clientes || 0);
   const atrasadoVal = Number(r.atrasado_valor || 0);
@@ -2343,8 +2365,7 @@ function _renderKpis(r) {
     '<div class="dash-kpi verde"><div class="kpi-label">Recebido hoje</div><div class="kpi-val">R$ ' + _brl(r.recebido_hoje) + '</div></div>' +
     '<div class="dash-kpi"><div class="kpi-label">Em mãos (cobradores)</div><div class="kpi-val">R$ ' + _brl(r.em_maos) + '</div></div>' +
     '<div class="dash-kpi azul"><div class="kpi-label">A receber</div><div class="kpi-val">R$ ' + _brl(r.a_receber) + '</div></div>' +
-    '<div class="dash-kpi' + (atrasadoVal > 0 ? ' vermelho' : '') + '"><div class="kpi-label">Atrasado</div><div class="kpi-val">R$ ' + _brl(r.atrasado_valor) + '</div><div class="kpi-sub">' + atrasadoClientes + ' cliente' + (atrasadoClientes !== 1 ? 's' : '') + '</div></div>' +
-    '<div class="dash-kpi verde"><div class="kpi-label">Vendas no período</div><div class="kpi-val">R$ ' + _brl(r.vendas_valor) + '</div><div class="kpi-sub">' + Number(r.vendas_qtd || 0) + ' venda' + (Number(r.vendas_qtd || 0) !== 1 ? 's' : '') + '</div></div>';
+    '<div class="dash-kpi' + (atrasadoVal > 0 ? ' vermelho' : '') + '"><div class="kpi-label">Atrasado</div><div class="kpi-val">R$ ' + _brl(r.atrasado_valor) + '</div><div class="kpi-sub">' + atrasadoClientes + ' cliente' + (atrasadoClientes !== 1 ? 's' : '') + '</div></div>';
 }
 
 function _renderChart(dados) {
@@ -2408,6 +2429,8 @@ function _renderEquipes(lista) {
       '<div class="eq-chefe">' + (e.chefe || '—') + '</div>' +
       '<div class="eq-linha"><span>Vendas</span><span>' + Number(e.vendas_qtd || 0) + '</span></div>' +
       '<div class="eq-linha"><span>Valor</span><span>R$ ' + _brl(e.vendas_valor) + '</span></div>' +
+      '<div class="eq-linha"><span>À vista</span><span>R$ ' + _brl(e.vendas_avista_valor) + '</span></div>' +
+      '<div class="eq-linha"><span>Parcelado</span><span>R$ ' + _brl(e.vendas_crediario_valor) + '</span></div>' +
       (meta > 0 ?
         '<div class="eq-linha"><span>Meta</span><span>R$ ' + _brl(e.meta) + '</span></div>' +
         '<div class="eq-meta"><div class="eq-meta-bar" style="width:' + pct + '%"></div></div>' +
