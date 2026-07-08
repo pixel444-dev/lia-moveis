@@ -8029,7 +8029,16 @@ async function confirmarDevolucao() {
 async function cancelarVenda(vendaId, codigo) {
   if (!confirm(`Tem certeza que deseja CANCELAR a venda ${codigo}? Ela será apagada permanentemente do sistema junto com todas as parcelas.`)) return;
   await restaurarEstoqueDaVenda(vendaId, 'Cancelamento da venda ' + codigo);
+  // Desvincula o ledger de estoque (mantém o histórico, só solta a FK) antes de apagar a venda.
+  await sb.from('movimentacoes_estoque').update({ venda_id: null }).eq('venda_id', vendaId);
+  const { data: parcelasVenda } = await sb.from('parcelas').select('id').eq('venda_id', vendaId);
+  const parcelaIds = (parcelasVenda || []).map(p => p.id);
+  if (parcelaIds.length) {
+    await sb.from('visitas_agendadas').delete().in('parcela_id', parcelaIds);
+    await sb.from('baixas_pendentes').delete().in('parcela_id', parcelaIds);
+  }
   await sb.from('parcelas').delete().eq('venda_id', vendaId);
+  await sb.from('venda_itens').delete().eq('venda_id', vendaId);
   const { error } = await sb.from('vendas').delete().eq('id', vendaId);
   if (error) {
     Logger.error('vendas', 'CANCELAR_VENDA', 'Falha ao cancelar venda', { supabase_code: error.code });
