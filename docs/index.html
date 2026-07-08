@@ -6322,13 +6322,24 @@ async function confirmarBaixa() {
     const cobradorId = document.getElementById('baixa-cobrador').value || null;
     if (tipo === 'parcial' && valorPago <= 0) { alert('Digite o valor recebido!'); return; }
     if (tipo === 'parcial' && valorPago >= valorTotal) { alert('Para pagamento total use baixa completa!'); return; }
+    // O modal recebe o saldo restante; o acumulado precisa vir do banco para
+    // somar com baixas parciais anteriores em vez de sobrescrevê-las.
+    const { data: parcela, error: errParcela } = await sb.from('parcelas')
+      .select('valor, valor_pago, cliente_id, vendas(codigo)')
+      .eq('id', parcelaId).single();
+    if (errParcela || !parcela) { alert('Erro ao carregar a parcela!'); return; }
+    const valorParcela = Number(parcela.valor) || 0;
+    const pagoAnterior = Number(parcela.valor_pago) || 0;
+    const saldoAtual = Math.round((valorParcela - pagoAnterior) * 100) / 100;
+    if (tipo === 'parcial' && valorPago >= saldoAtual) { alert('Valor maior ou igual ao saldo restante — use baixa completa!'); return; }
     const pago = tipo === 'completa';
+    const valorRecebidoAgora = pago ? saldoAtual : valorPago;
     const atualizacao = {
       pago,
       status: pago ? 'paga' : 'aberta',
       data_pagamento: pago ? new Date(data).toISOString() : null,
       cobrador_id: cobradorId,
-      valor_pago: valorPago,
+      valor_pago: pago ? valorParcela : Math.round((pagoAnterior + valorPago) * 100) / 100,
       forma_pagamento: forma,
     };
     const { data: updated, error } = await sb.from('parcelas').update(atualizacao).eq('id', parcelaId).eq('pago', false).select();
@@ -6341,13 +6352,12 @@ async function confirmarBaixa() {
       return;
     }
     Logger.info('cobrancas', 'CONFIRMAR_BAIXA', 'Baixa confirmada', { tipo_baixa: tipo });
-    const { data: parcela } = await sb.from('parcelas').select('cliente_id, valor, vendas(codigo)').eq('id', parcelaId).single();
     await sb.from('movimentacoes_cobranca').insert({
       cobrador_id: cobradorId,
       cliente_id: parcela?.cliente_id,
       tipo: 'cobranca',
       descricao: `Parcela venda ${parcela?.vendas?.codigo||''} — ${tipo === 'parcial' ? 'parcial' : 'completa'}`,
-      valor: valorPago,
+      valor: valorRecebidoAgora,
       forma_pagamento: forma,
     });
     fecharModal('modal-baixa');
@@ -6794,6 +6804,18 @@ async function confirmarRecebimento() {
     return;
   }
 
+  // O modal recebe o saldo restante; o acumulado precisa vir do banco para
+  // somar com recebimentos parciais anteriores em vez de sobrescrevê-los.
+  const { data: parcelaAtual, error: errParcela } = await sb.from('parcelas')
+    .select('valor, valor_pago').eq('id', parcelaId).single();
+  if (errParcela || !parcelaAtual) { alert('Erro ao carregar a parcela!'); return; }
+  const valorParcela = Number(parcelaAtual.valor) || 0;
+  const pagoAnterior = Number(parcelaAtual.valor_pago) || 0;
+  const saldoAtual = Math.round((valorParcela - pagoAnterior) * 100) / 100;
+  if (tipo === 'parcial' && valorRecebido >= saldoAtual) { alert('Para pagamento total use "Pagamento completo"!'); return; }
+  const isCompleto = tipo === 'completo';
+  const valorRecebidoReal = isCompleto ? saldoAtual : valorRecebido;
+
   const caixaId = await obterCaixaAtiva();
   if (!caixaId) { alert('Erro ao obter caixa ativa. Contate o gestor.'); return; }
 
@@ -6804,7 +6826,7 @@ async function confirmarRecebimento() {
     parcela_id: parcelaId,
     cobrador_id: funcionarioLogado.id,
     cliente_id: clienteId,
-    valor_recebido: valorRecebido,
+    valor_recebido: valorRecebidoReal,
     forma_pagamento: forma,
     observacao: obs || null,
     tipo_baixa: tipo,
@@ -6832,22 +6854,26 @@ async function confirmarRecebimento() {
   }
 
   // Marcar parcela como paga na visão do cobrador
-  const isCompleto = tipo === 'completo';
-  await sb.from('parcelas').update({
+  const updParcela = {
     pago: isCompleto,
-    valor_pago: valorRecebido,
+    valor_pago: isCompleto ? valorParcela : Math.round((pagoAnterior + valorRecebido) * 100) / 100,
     forma_pagamento: forma,
     cobrador_id: funcionarioLogado.id,
     data_pagamento: isCompleto ? new Date().toISOString() : null,
-    status: isCompleto ? 'paga' : 'aberta',
-    comprovante_pix: comprovanteUrl
-  }).eq('id', parcelaId).eq('pago', false);
+    status: isCompleto ? 'paga' : 'aberta'
+  };
+  // Não apagar comprovante de um recebimento parcial anterior
+  if (comprovanteUrl) updParcela.comprovante_pix = comprovanteUrl;
+  const { error: errUpd } = await sb.from('parcelas').update(updParcela).eq('id', parcelaId).eq('pago', false);
+  if (errUpd) {
+    Logger.error('cobrador', 'CONFIRMAR_RECEBIMENTO', 'Erro ao atualizar parcela', { supabase_code: errUpd.code });
+  }
 
   // Se foi dinheiro, somar no saldo da caixa
   if (forma === 'dinheiro') {
     const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', caixaId).single();
     await sb.from('caixa_cobrador').update({
-      saldo_esperado: (caixa?.saldo_esperado || 0) + valorRecebido
+      saldo_esperado: (caixa?.saldo_esperado || 0) + valorRecebidoReal
     }).eq('id', caixaId);
   }
 
@@ -7782,11 +7808,15 @@ async function salvarCorrecaoBaixa() {
     return;
   }
 
-  // Sincronizar parcela com os novos valores
+  // Sincronizar parcela: troca o valor antigo desta baixa pelo corrigido,
+  // preservando o acumulado de outras baixas parciais da mesma parcela.
   const isCompleto = tipo === 'completo';
+  const { data: parcelaAtual } = await sb.from('parcelas').select('valor, valor_pago').eq('id', baixa.parcela_id).single();
+  const valorParcela = Number(parcelaAtual?.valor) || 0;
+  const semEstaBaixa = Math.max(0, Math.round(((Number(parcelaAtual?.valor_pago) || 0) - Number(baixa.valor_recebido || 0)) * 100) / 100);
   await sb.from('parcelas').update({
     pago: isCompleto,
-    valor_pago: valor,
+    valor_pago: isCompleto ? valorParcela : Math.min(valorParcela, Math.round((semEstaBaixa + valor) * 100) / 100),
     forma_pagamento: forma,
     data_pagamento: isCompleto ? (baixa.data_pagamento || new Date().toISOString()) : null,
     status: isCompleto ? 'paga' : 'aberta'
@@ -7817,14 +7847,12 @@ async function cancelarBaixaPrestacao() {
 
   await sb.from('baixas_pendentes').update({ status: 'cancelada' }).eq('id', baixaId);
 
-  await sb.from('parcelas').update({
-    pago: false,
-    valor_pago: 0,
-    forma_pagamento: null,
-    cobrador_id: null,
-    data_pagamento: null,
-    status: 'aberta'
-  }).eq('id', baixa.parcela_id);
+  // Reverter apenas o valor desta baixa, preservando outras baixas parciais
+  const { data: parcelaCanc } = await sb.from('parcelas').select('valor_pago').eq('id', baixa.parcela_id).single();
+  const restante = Math.max(0, Math.round(((Number(parcelaCanc?.valor_pago) || 0) - Number(baixa.valor_recebido || 0)) * 100) / 100);
+  const updCancel = { pago: false, valor_pago: restante, data_pagamento: null, status: 'aberta' };
+  if (restante <= 0) { updCancel.forma_pagamento = null; updCancel.cobrador_id = null; }
+  await sb.from('parcelas').update(updCancel).eq('id', baixa.parcela_id);
 
   if (baixa.forma_pagamento === 'dinheiro') {
     const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', baixa.caixa_id).single();
@@ -7848,16 +7876,9 @@ async function autorizarCaixa() {
     .eq('caixa_id', caixaId).in('status', ['pendente', 'corrigida']);
 
   for (const b of (baixas || [])) {
-    const isCompleto = b.tipo_baixa === 'completo';
-    await sb.from('parcelas').update({
-      pago: isCompleto,
-      valor_pago: b.valor_recebido,
-      forma_pagamento: b.forma_pagamento,
-      cobrador_id: b.cobrador_id,
-      data_pagamento: isCompleto ? new Date().toISOString() : null,
-      status: isCompleto ? 'paga' : 'aberta'
-    }).eq('id', b.parcela_id);
-
+    // A parcela já foi atualizada no ato do recebimento (confirmarRecebimento)
+    // e em eventuais correções (salvarCorrecaoBaixa). Reaplicar o valor desta
+    // baixa aqui sobrescreveria o acumulado de baixas parciais anteriores.
     await sb.from('movimentacoes_cobranca').insert({
       cobrador_id: b.cobrador_id,
       cliente_id: b.cliente_id,
