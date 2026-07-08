@@ -9960,7 +9960,7 @@ async function toggleDetalhesEquipe(equipeId) {
   const { data: eq } = await sb.from('equipes').select('meta, caminhao_id').eq('id', equipeId).single();
   const [{ data: estoque }, { data: vendasRaw, error: errV }] = await Promise.all([
     sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', eq?.caminhao_id),
-    sb.from('vendas').select('id, codigo, produto, valor, status, clientes(nome)').eq('equipe_id', equipeId).order('data_venda', { ascending: false }),
+    sb.from('vendas').select('id, codigo, produto, valor, status, tipo, entrada, num_parcelas, cliente_id, clientes(id, nome, cidade)').eq('equipe_id', equipeId).order('data_venda', { ascending: false }),
   ]);
   const vendas = errV ? [] : (vendasRaw || []);
   const idsVendasValidas = vendas.filter(v => v.status !== 'devolvida').map(v => v.id);
@@ -9992,8 +9992,19 @@ async function toggleDetalhesEquipe(equipeId) {
   else if (vendas?.length) html += `<div style="margin-bottom:.5rem;font-size:13px;">Total: <strong style="color:#185FA5;">R$ ${totalVendido.toLocaleString('pt-BR',{minimumFractionDigits:2})}</strong></div>`;
   if (vendas?.length) {
     html += `<div class="tabela-wrap"><table>
-      <thead><tr><th>Código</th><th>Cliente</th><th>Produto</th><th>Valor</th></tr></thead>
-      <tbody>${vendas.map(v=>`<tr><td><span class="codigo-badge">${escHtml(v.codigo||'—')}</span></td><td>${escHtml(v.clientes?.nome||'—')}</td><td>${escHtml(v.produto||'—')}</td><td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr>`).join('')}</tbody>
+      <thead><tr><th>Código</th><th>Cliente</th><th>Cidade</th><th>Produto</th><th>Pagamento</th><th>Valor</th></tr></thead>
+      <tbody>${vendas.map(v=>{
+        const clienteId = v.clientes?.id || v.cliente_id;
+        const nomeCliente = escHtml(v.clientes?.nome||'—');
+        const clienteCel = clienteId ? `<span style="cursor:pointer;color:#185FA5;" onclick="verDetalhesCliente('${escJs(clienteId)}')">${nomeCliente}</span>` : nomeCliente;
+        let pagamento;
+        if (v.tipo === 'avista') pagamento = '<span class="badge verde">À vista</span>';
+        else if (v.tipo === 'entrada') {
+          pagamento = '<span class="badge azul">Crediário'+(v.num_parcelas?' '+v.num_parcelas+'x':'')+'</span>';
+          if (v.entrada > 0) pagamento += `<div style="font-size:11px;color:#888;margin-top:3px;">Entrada: R$ ${Number(v.entrada).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`;
+        } else pagamento = '—';
+        return `<tr><td><span class="codigo-badge">${escHtml(v.codigo||'—')}</span></td><td>${clienteCel}</td><td>${escHtml(v.clientes?.cidade||'—')}</td><td>${escHtml(v.produto||'—')}</td><td>${pagamento}</td><td>R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td></tr>`;
+      }).join('')}</tbody>
     </table></div>`;
   } else {
     html += '<p style="color:#888;font-size:13px;">Nenhuma venda registrada para esta equipe.</p>';
