@@ -6013,10 +6013,79 @@ async function buscarCobrancaFiltro() {
   }
   _renderResultadoCobrancaClientes(clientesCobranca);
 }
-function renderParcelasEmAbertoMobile(parcelas, showVendaCodigo) {
+// Resumo financeiro (compra ou conjunto de parcelas): total, pago (integral +
+// parciais), em aberto (total - pago) e em atraso (só o vencido não pago).
+// `extra` soma a entrada da venda (já paga no ato, fora do fluxo de parcelas).
+function calcularResumoParcelas(parcelas, extra) {
+  extra = extra || { totalExtra: 0, pagoExtra: 0 };
+  const hoje = new Date();
+  let total = extra.totalExtra || 0;
+  let pago = extra.pagoExtra || 0;
+  let atraso = 0;
+  (parcelas || []).forEach(function(p) {
+    const valor = Number(p.valor) || 0;
+    const pagoParcela = p.pago ? valor : (Number(p.valor_pago) || 0);
+    total += valor;
+    pago += pagoParcela;
+    if (!p.pago) {
+      const vencimento = new Date(p.data_vencimento + 'T12:00:00');
+      if (vencimento < hoje) atraso += (valor - pagoParcela);
+    }
+  });
+  const r2 = v => Math.round(v * 100) / 100;
+  return { total: r2(total), pago: r2(pago), emAberto: r2(total - pago), atraso: r2(atraso) };
+}
+
+function renderResumoParcelasCard(resumo, tituloTotal) {
+  return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;">'
+    + '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:.75rem;">Resumo</div>'
+    + '<div style="display:flex;flex-direction:column;gap:8px;">'
+    + '<div style="background:#f9f9f9;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px;">' + escHtml(tituloTotal) + '</div>'
+    + '<div style="font-size:18px;font-weight:700;color:#1a1a1a;">R$ ' + _brl(resumo.total) + '</div></div>'
+    + '<div style="background:#EAF3DE;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:11px;color:#2A7C3E;text-transform:uppercase;letter-spacing:.5px;">Valor pago</div>'
+    + '<div style="font-size:18px;font-weight:700;color:#2A7C3E;">R$ ' + _brl(resumo.pago) + '</div></div>'
+    + '<div style="background:#E6F1FB;border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:11px;color:#185FA5;text-transform:uppercase;letter-spacing:.5px;">Valor em aberto</div>'
+    + '<div style="font-size:18px;font-weight:700;color:#185FA5;">R$ ' + _brl(resumo.emAberto) + '</div></div>'
+    + '<div style="background:' + (resumo.atraso > 0 ? '#FCEBEB' : '#f9f9f9') + ';border-radius:8px;padding:.75rem;">'
+    + '<div style="font-size:11px;color:' + (resumo.atraso > 0 ? '#A32D2D' : '#888') + ';text-transform:uppercase;letter-spacing:.5px;">Valor em atraso</div>'
+    + '<div style="font-size:18px;font-weight:700;color:' + (resumo.atraso > 0 ? '#A32D2D' : '#1a1a1a') + ';">R$ ' + _brl(resumo.atraso) + '</div></div>'
+    + '</div></div>';
+}
+
+// Lista única (paga + em aberto) na ordem recebida — sem separar as pagas no final.
+function renderParcelasMobileUnificado(parcelas, showVendaCodigo) {
+  const hoje = new Date();
   return parcelas.map(function(p) {
     const vencimento = new Date(p.data_vencimento + 'T12:00:00');
-    const hoje = new Date();
+    const produto = (p.vendas && p.vendas.produto) ? p.vendas.produto : '';
+    const produtoSafe = escJs(produto);
+    const codigoVenda = (p.vendas && p.vendas.codigo) ? p.vendas.codigo : '';
+    const codigoBadge = (showVendaCodigo && codigoVenda) ? '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + escHtml(codigoVenda) + '</span></div>' : '';
+
+    if (p.pago) {
+      const comprovante = p.comprovante_pix
+        ? '<a href="#" onclick="abrirAssinado(event,\'comprovantes\',\'' + p.comprovante_pix + '\');" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:6px;">📎 Ver comprovante PIX</a>'
+        : '';
+      let html = '<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:12px;padding:1rem;margin-bottom:8px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+      html += '<span style="font-size:15px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>';
+      html += '<span class="badge verde">Paga</span></div>';
+      html += codigoBadge;
+      html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📦 ' + escHtml(produto || '—') + '</div>';
+      html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📅 Venceu: ' + vencimento.toLocaleDateString('pt-BR') + '</div>';
+      html += '<div style="font-size:13px;color:#555;margin-bottom:6px;">✅ Recebido: ' + (p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—') + '</div>';
+      html += '<div style="font-size:18px;font-weight:700;color:#3B6D11;margin-bottom:10px;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>';
+      html += comprovante;
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';
+      html += '<button class="btn" style="flex:1;padding:10px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa(\'' + escJs(p.id) + '\',\'' + escJs(p.cliente_id) + '\',\'' + escJs(codigoVenda) + '\')">Cancelar baixa</button>';
+      html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="verDetalhesParcela(\'' + p.id + '\')">Ver detalhes</button>';
+      html += '</div></div>';
+      return html;
+    }
+
     const atrasada = vencimento < hoje;
     const valorPago = p.valor_pago || 0;
     const saldo = p.valor - valorPago;
@@ -6024,16 +6093,12 @@ function renderParcelasEmAbertoMobile(parcelas, showVendaCodigo) {
     const border = atrasada ? '#f5c6c6' : valorPago > 0 ? '#FAC775' : '#e0e0e0';
     const badgeClass = atrasada ? 'vermelho' : valorPago > 0 ? 'amarelo' : 'azul';
     const badgeLabel = atrasada ? 'Atrasada' : valorPago > 0 ? 'Parcial' : 'Em aberto';
-    const produto = (p.vendas && p.vendas.produto) ? p.vendas.produto : '';
-    const produtoSafe = escJs(produto);
     let html = '<div style="background:' + bg + ';border:1px solid ' + border + ';border-radius:12px;padding:1rem;margin-bottom:8px;">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
     html += '<span style="font-size:15px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>';
     html += '<span class="badge ' + badgeClass + '">' + badgeLabel + '</span>';
     html += '</div>';
-    if (showVendaCodigo && p.vendas && p.vendas.codigo) {
-      html += '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + escHtml(p.vendas.codigo) + '</span></div>';
-    }
+    html += codigoBadge;
     html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📦 ' + escHtml(produto || '—') + '</div>';
     html += '<div style="font-size:13px;color:#555;margin-bottom:10px;">📅 Vence: ' + vencimento.toLocaleDateString('pt-BR') + '</div>';
     html += '<div style="font-size:18px;font-weight:700;color:' + (atrasada ? '#A32D2D' : '#1a1a1a') + ';margin-bottom:10px;">';
@@ -6046,38 +6111,6 @@ function renderParcelasEmAbertoMobile(parcelas, showVendaCodigo) {
     html += '</div></div>';
     return html;
   }).join('');
-}
-
-async function renderParcelasPageasMobile(parcelas) {
-  const partes = [];
-  for (const p of parcelas) {
-    const produto = (p.vendas && p.vendas.produto) ? p.vendas.produto : '';
-    const produtoSafe = escJs(produto);
-    const codigoVenda = (p.vendas && p.vendas.codigo) ? p.vendas.codigo : '';
-    const formaBadge = p.forma_pagamento ? '<span class="badge ' + (p.forma_pagamento === 'pix' ? 'azul' : 'verde') + '">' + p.forma_pagamento.toUpperCase() + '</span>' : '—';
-    let html = '<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:12px;padding:1rem;margin-bottom:8px;">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
-    html += '<span style="font-size:15px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>';
-    html += '<span class="badge verde">Paga</span></div>';
-    if (codigoVenda) html += '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + escHtml(codigoVenda) + '</span></div>';
-    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📦 ' + escHtml(produto || '—') + '</div>';
-    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📅 Venceu: ' + new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR') + '</div>';
-    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">✅ Recebido: ' + (p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—') + '</div>';
-    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">👤 ' + escHtml(p.funcionarios && p.funcionarios.nome ? p.funcionarios.nome : '—') + '</div>';
-    html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">💳 ' + formaBadge + '</div>';
-    if (p.comprovante_pix) {
-      const comprovanteUrl = await urlAssinada('comprovantes', p.comprovante_pix);
-      html += '<a href="' + (comprovanteUrl||p.comprovante_pix) + '" target="_blank" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-bottom:8px;">📎 Ver comprovante PIX</a>';
-    }
-    html += '<div style="font-size:18px;font-weight:700;color:#3B6D11;margin-bottom:10px;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>';
-    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-    html += '<button class="btn" style="flex:1;padding:10px;font-size:13px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa(\'' + escJs(p.id) + '\',\'' + escJs(p.cliente_id) + '\',\'' + escJs(codigoVenda) + '\')">Cancelar baixa</button>';
-    html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="verDetalhesParcela(\'' + p.id + '\')">Ver detalhes</button>';
-    html += '<button class="btn" style="padding:10px 14px;font-size:13px;" onclick="abrirEditarParcela(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + p.valor + '\',\'' + p.data_vencimento + '\',\'' + produtoSafe + '\',true,\'' + p.cliente_id + '\',\'' + escJs(codigoVenda) + '\')">Editar</button>';
-    html += '</div></div>';
-    partes.push(html);
-  }
-  return partes.join('');
 }
 
 async function verDetalhesParcela(parcelaId) {
@@ -6149,27 +6182,40 @@ async function verDetalhesParcela(parcelaId) {
 
 async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
   const { data, error } = await sb.from('parcelas')
-    .select('*, vendas(codigo, produto), funcionarios(nome)')
+    .select('*, vendas(codigo, produto, entrada), funcionarios(nome)')
     .eq('venda_id', vendaId)
     .order('numero');
   if (error || !data) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;">Erro ao carregar parcelas.</p>'; return; }
   if (!data.length) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma parcela encontrada para esta venda.</p>'; return; }
-  const emAberto = data.filter(p => !p.pago);
-  const pagas = data.filter(p => p.pago);
   const mobile = isMobile();
-  let emAbertoHtml;
-  if (!emAberto.length) {
-    emAbertoHtml = '<p style="color:#3B6D11;padding:.5rem;">Todas as parcelas desta venda estão pagas!</p>';
-  } else if (mobile) {
-    emAbertoHtml = renderParcelasEmAbertoMobile(emAberto, false);
+  const entrada = Number(data[0]?.vendas?.entrada) || 0;
+  const resumo = calcularResumoParcelas(data, { totalExtra: entrada, pagoExtra: entrada });
+  const emAbertoQtd = data.filter(p => !p.pago).length;
+  const hoje = new Date();
+
+  let listaHtml;
+  if (mobile) {
+    listaHtml = renderParcelasMobileUnificado(data, false);
   } else {
-    emAbertoHtml = `<div class="tabela-wrap"><table>
+    listaHtml = `<div class="tabela-wrap"><table>
       <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
-      <tbody>${emAberto.map(p => {
+      <tbody>${data.map(p => {
         const vencimento = new Date(p.data_vencimento + 'T12:00:00');
-        const hoje = new Date();
-        const atrasada = vencimento < hoje;
         const valorPago = p.valor_pago || 0;
+        if (p.pago) {
+          const comprovante = p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : '';
+          return `<tr style="background:#EAF3DE;">
+            <td>${p.numero}/${p.total_parcelas}</td>
+            <td>${vencimento.toLocaleDateString('pt-BR')}<div style="font-size:11px;color:#888;">Pago em ${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</div></td>
+            <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+            <td><span class="badge verde">Paga</span>${comprovante}</td>
+            <td>
+              <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${escJs(codigoVenda)}')">Cancelar baixa</button>
+              <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button>
+            </td>
+          </tr>`;
+        }
+        const atrasada = vencimento < hoje;
         const saldo = p.valor - valorPago;
         return `<tr style="background:${atrasada?'#FCEBEB':valorPago>0?'#FAEEDA':''}">
           <td>${p.numero}/${p.total_parcelas}</td>
@@ -6185,27 +6231,18 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
       </tbody>
     </table></div>`;
   }
-  let pagasHtml = '';
-  if (pagas.length) {
-    const pagasConteudo = mobile ? await renderParcelasPageasMobile(pagas) : `
-      <div class="tabela-wrap"><table>
-        <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
-        <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
-          <td>${p.numero}/${p.total_parcelas}</td>
-          <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
-          <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-          <td><span class="badge verde">Paga</span>${p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
-          <td><button class="btn" style="font-size:11px;padding:3px 8px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button></td>
-        </tr>`).join('')}</tbody>
-      </table></div>`;
-    pagasHtml = `<div style="margin-top:1rem;"><div style="font-size:13px;font-weight:500;color:#888;margin-bottom:.5rem;">${pagas.length} parcela(s) paga(s)</div>${pagasConteudo}</div>`;
-  }
+
   document.getElementById('lista-parcelas-cliente').innerHTML = `
-    <div style="margin-bottom:1rem;">
-      <div data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
-        Venda ${escHtml(codigoVenda)} — ${escHtml(nomeCliente)} — ${emAberto.length} parcela(s) em aberto
+    <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
+      <div style="flex:3;min-width:280px;">
+        <div data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
+          Venda ${escHtml(codigoVenda)} — ${escHtml(nomeCliente)} — ${data.length} parcela(s), ${emAbertoQtd} em aberto
+        </div>
+        ${listaHtml}
       </div>
-      ${emAbertoHtml}${pagasHtml}
+      <div style="flex:1;min-width:220px;max-width:280px;">
+        ${renderResumoParcelasCard(resumo, 'Total da compra')}
+      </div>
     </div>`;
 }
 
@@ -6213,25 +6250,41 @@ async function verParcelasCliente(clienteId, nomeCliente) {
   const { data, error } = await sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').eq('cliente_id', clienteId).order('data_vencimento');
   if (error || !data) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;padding:.5rem;">Erro ao carregar parcelas.</p>'; return; }
   if (!data.length) { document.getElementById('lista-parcelas-cliente').innerHTML = '<p style="color:#888;padding:1rem;">Nenhuma parcela encontrada para este cliente.</p>'; return; }
-  const emAberto = data.filter(p => !p.pago);
-  const pagas = data.filter(p => p.pago);
   const mobile = isMobile();
-  let emAbertoHtml;
-  if (!emAberto.length) {
-    emAbertoHtml = '<p style="color:#3B6D11;padding:.5rem;">Nenhuma parcela em aberto.</p>';
-  } else if (mobile) {
-    emAbertoHtml = renderParcelasEmAbertoMobile(emAberto, true);
+  const resumo = calcularResumoParcelas(data);
+  const emAbertoQtd = data.filter(p => !p.pago).length;
+  const hoje = new Date();
+
+  let listaHtml;
+  if (mobile) {
+    listaHtml = renderParcelasMobileUnificado(data, true);
   } else {
-    emAbertoHtml = `<div class="tabela-wrap"><table>
+    listaHtml = `<div class="tabela-wrap"><table>
       <thead><tr><th>Venda</th><th>Produto</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
-      <tbody>${emAberto.map(p => {
+      <tbody>${data.map(p => {
         const vencimento = new Date(p.data_vencimento + 'T12:00:00');
-        const hoje = new Date();
-        const atrasada = vencimento < hoje;
         const valorPago = p.valor_pago || 0;
+        const codigoVenda = p.vendas?.codigo || '';
+        if (p.pago) {
+          const comprovante = p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : '';
+          return `<tr style="background:#EAF3DE;">
+            <td><span class="codigo-badge">${escHtml(codigoVenda||'—')}</span></td>
+            <td>${escHtml(p.vendas?.produto||'—')}</td>
+            <td>${p.numero}/${p.total_parcelas}</td>
+            <td>${vencimento.toLocaleDateString('pt-BR')}<div style="font-size:11px;color:#888;">Pago em ${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</div></td>
+            <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+            <td><span class="badge verde">Paga</span>${comprovante}</td>
+            <td>
+              <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${escJs(codigoVenda)}')">Cancelar baixa</button>
+              <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button>
+              <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}',true,'${p.cliente_id}','${escJs(codigoVenda)}')">Editar</button>
+            </td>
+          </tr>`;
+        }
+        const atrasada = vencimento < hoje;
         const saldo = p.valor - valorPago;
         return `<tr style="background:${atrasada?'#FCEBEB':valorPago>0?'#FAEEDA':''}">
-          <td><span class="codigo-badge">${escHtml(p.vendas?.codigo||'—')}</span></td>
+          <td><span class="codigo-badge">${escHtml(codigoVenda||'—')}</span></td>
           <td>${escHtml(p.vendas?.produto||'—')}</td>
           <td>${p.numero}/${p.total_parcelas}</td>
           <td style="color:${atrasada?'#A32D2D':'#1a1a1a'};font-weight:${atrasada?'500':'400'}">${vencimento.toLocaleDateString('pt-BR')}</td>
@@ -6246,33 +6299,16 @@ async function verParcelasCliente(clienteId, nomeCliente) {
       </tbody>
     </table></div>`;
   }
-  let pagasHtml = '';
-  if (pagas.length) {
-    const pagasConteudo = mobile ? await renderParcelasPageasMobile(pagas) : `
-      <div class="tabela-wrap"><table>
-        <thead><tr><th>Venda</th><th>Parcela</th><th>Vencimento</th><th>Recebido em</th><th>Cobrador</th><th>Forma</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
-        <tbody>${pagas.map(p => `<tr style="background:#EAF3DE;">
-          <td><span class="codigo-badge">${escHtml(p.vendas?.codigo||'—')}</span></td>
-          <td>${p.numero}/${p.total_parcelas}</td>
-          <td>${new Date(p.data_vencimento+'T12:00:00').toLocaleDateString('pt-BR')}</td>
-          <td>${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</td>
-          <td>${escHtml(p.funcionarios?.nome||'—')}</td>
-          <td>${p.forma_pagamento ? '<span class="badge '+(p.forma_pagamento==='pix'?'azul':'verde')+'">'+p.forma_pagamento.toUpperCase()+'</span>' : '—'}${p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : ''}</td>
-          <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-          <td><span class="badge verde">Paga</span></td>
-          <td>
-            <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${escJs(p.vendas?.codigo||'')}')">Cancelar baixa</button>
-            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button>
-            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}',true,'${p.cliente_id}','${escJs(p.vendas?.codigo||'')}')">Editar</button>
-          </td>
-        </tr>`).join('')}</tbody>
-      </table></div>`;
-    pagasHtml = `<div style="margin-top:1rem;"><div style="font-size:13px;font-weight:500;color:#888;margin-bottom:.5rem;">${pagas.length} parcela(s) paga(s)</div>${pagasConteudo}</div>`;
-  }
+
   document.getElementById('lista-parcelas-cliente').innerHTML = `
-    <div style="margin-bottom:1rem;">
-      <div data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${escHtml(nomeCliente)} — ${emAberto.length} parcela(s) em aberto</div>
-      ${emAbertoHtml}${pagasHtml}
+    <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
+      <div style="flex:3;min-width:280px;">
+        <div data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${escHtml(nomeCliente)} — ${data.length} parcela(s), ${emAbertoQtd} em aberto</div>
+        ${listaHtml}
+      </div>
+      <div style="flex:1;min-width:220px;max-width:280px;">
+        ${renderResumoParcelasCard(resumo, 'Total das parcelas')}
+      </div>
     </div>`;
 }
 
