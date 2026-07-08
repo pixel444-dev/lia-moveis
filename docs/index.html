@@ -1373,6 +1373,14 @@ function escJs(v) {
     .replace(/>/g, '&gt;')
     .replace(/[\r\n]+/g, ' ');
 }
+// Formata uma data no fuso horário local (não UTC) como 'YYYY-MM-DD'.
+// Nunca usar toISOString().split('T')[0] pra representar "hoje": toISOString
+// converte pra UTC, e como o Brasil é UTC-3, depois das 21h local o UTC já
+// virou o dia seguinte — toISOString().split('T')[0] devolveria a data errada.
+function dataLocalYMD(d) {
+  d = d || new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 // ──────────────────────────────────────────────────────────────
 
 async function urlAssinada(bucket, valor, segundos = 3600) {
@@ -2250,29 +2258,25 @@ let _dashChart = null;
 let _dashCustomInicio = null;
 let _dashCustomFim = null;
 
-function _dashDataLocal(d) {
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-}
-
 function _dashDatas(periodo) {
   const hoje = new Date();
-  const fim = _dashDataLocal(hoje);
+  const fim = dataLocalYMD(hoje);
   let inicio;
   if (periodo === 'hoje') {
     inicio = fim;
   } else if (periodo === 'ontem') {
-    const d = new Date(hoje); d.setDate(d.getDate() - 1); inicio = _dashDataLocal(d);
+    const d = new Date(hoje); d.setDate(d.getDate() - 1); inicio = dataLocalYMD(d);
     return { inicio, fim: inicio };
   } else if (periodo === 'semana') {
     const domingo = new Date(hoje); domingo.setDate(domingo.getDate() - domingo.getDay());
     const sabado = new Date(hoje); sabado.setDate(sabado.getDate() + (6 - hoje.getDay()));
-    return { inicio: _dashDataLocal(domingo), fim: _dashDataLocal(sabado) };
+    return { inicio: dataLocalYMD(domingo), fim: dataLocalYMD(sabado) };
   } else if (periodo === 'mes') {
     inicio = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-01';
   } else if (periodo === 'custom') {
     return { inicio: _dashCustomInicio, fim: _dashCustomFim };
   } else {
-    const d = new Date(hoje); d.setDate(d.getDate() - 29); inicio = _dashDataLocal(d);
+    const d = new Date(hoje); d.setDate(d.getDate() - 29); inicio = dataLocalYMD(d);
   }
   return { inicio, fim };
 }
@@ -4842,7 +4846,7 @@ async function buscarVendasFiltro() {
 // venda apareça como opção mesmo se pertencer a uma semana encerrada — senão o
 // select cairia em "Sem equipe" e um simples "Salvar" desvincularia a venda sem querer.
 async function carregarEquipesEdicaoVenda(equipeAtualId) {
-  const hoje = new Date().toISOString().split('T')[0];
+  const hoje = dataLocalYMD();
   const { data: semana } = await sb.from('semanas_venda').select('id').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
   let equipes = [];
   if (semana) {
@@ -5219,7 +5223,7 @@ async function validarGastoAlimentacao() {
   if (tipo !== 'alimentacao') { aviso.innerHTML = ''; return; }
 
   const caixaId = await obterCaixaAtiva();
-  const hoje = new Date().toISOString().split('T')[0];
+  const hoje = dataLocalYMD();
   const { data } = await sb.from('movimentacoes_caixa')
     .select('valor').eq('caixa_id', caixaId).eq('tipo', 'gasto')
     .eq('categoria', 'alimentacao').gte('criado_em', hoje + 'T00:00:00');
@@ -5269,7 +5273,7 @@ async function confirmarGasto() {
 
   if (tipo === 'alimentacao') {
     const caixaId = await obterCaixaAtiva();
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = dataLocalYMD();
     const { data } = await sb.from('movimentacoes_caixa')
       .select('valor').eq('caixa_id', caixaId).eq('tipo', 'gasto')
       .eq('categoria', 'alimentacao').gte('criado_em', hoje + 'T00:00:00');
@@ -5412,7 +5416,7 @@ async function carregarDesempenhoCiclo() {
   const cobradorId = funcionarioLogado.id;
   const hoje = new Date();
   const chave = cicloDoDia(hoje.getDate()).chave;
-  const hojeStr = hoje.toISOString().split('T')[0];
+  const hojeStr = dataLocalYMD(hoje);
   const mc = mesCobrancaDaData(hojeStr);
 
   const atual = intervaloCicloNoMes(mc.ano, mc.mes, chave);
@@ -5494,7 +5498,7 @@ async function carregarSaldoCobrador(caixaIdParam) {
 }
 
 async function carregarVisitasHoje() {
-  var hoje = new Date().toISOString().split('T')[0];
+  var hoje = dataLocalYMD();
   var secao = document.getElementById('secao-visitas-hoje');
   if (!secao) return;
 
@@ -6279,7 +6283,7 @@ async function abrirBaixa(parcelaId, numero, total, valor, produto) {
   document.getElementById('campo-valor-baixa').style.display = 'none';
   document.getElementById('baixa-valor').value = '';
   document.getElementById('msg-saldo-baixa').innerHTML = '';
-  document.getElementById('baixa-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('baixa-data').value = dataLocalYMD();
   document.getElementById('baixa-forma').value = 'dinheiro';
   document.getElementById('info-parcela-baixa').innerHTML = `
     <strong>Parcela ${escHtml(numero)}/${escHtml(total)}</strong> — ${escHtml(produto)}<br>
@@ -9591,7 +9595,7 @@ sb.auth.getSession().then(async ({ data: { session } }) => {
 async function carregarEquipes() {
   if (perfilAtivo.perfil === 'vendedor') { await carregarEquipeVendedor(); return; }
   try { await sb.rpc('garantir_mes_atual'); } catch (e) { Logger.warn('meses', 'garantir_mes_atual', 'Falha ao garantir mês ao abrir equipes', { error_message: e.message }); }
-  const hoje = new Date().toISOString().split('T')[0];
+  const hoje = dataLocalYMD();
   const { data: mes } = await sb.from('meses_referencia').select('*').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
   mesAtual = mes;
   const infoEl = document.getElementById('info-mes-equipes');
@@ -10061,7 +10065,7 @@ async function confirmarEncerrarEquipe() {
 }
 
 async function carregarEquipesParaVenda() {
-  const hoje = new Date().toISOString().split('T')[0];
+  const hoje = dataLocalYMD();
   const { data: semana } = await sb.from('semanas_venda').select('id').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
   const sel = document.getElementById('venda-equipe');
   if (!semana) { sel.innerHTML = '<option value="">Sem equipe ativa esta semana</option>'; return; }
