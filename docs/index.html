@@ -8026,25 +8026,28 @@ async function confirmarDevolucao() {
   carregarVendas();
 }
 
-async function cancelarVenda(vendaId, codigo) {
-  if (!confirm(`Tem certeza que deseja CANCELAR a venda ${codigo}? Ela será apagada permanentemente do sistema junto com todas as parcelas.`)) return;
-  await restaurarEstoqueDaVenda(vendaId, 'Cancelamento da venda ' + codigo);
-  // Desvincula o ledger de estoque (mantém o histórico, só solta a FK) antes de apagar a venda.
-  await sb.from('movimentacoes_estoque').update({ venda_id: null }).eq('venda_id', vendaId);
-  const { data: parcelasVenda } = await sb.from('parcelas').select('id').eq('venda_id', vendaId);
-  const parcelaIds = (parcelasVenda || []).map(p => p.id);
-  if (parcelaIds.length) {
-    await sb.from('visitas_agendadas').delete().in('parcela_id', parcelaIds);
-    await sb.from('baixas_pendentes').delete().in('parcela_id', parcelaIds);
-  }
-  await sb.from('parcelas').delete().eq('venda_id', vendaId);
-  await sb.from('venda_itens').delete().eq('venda_id', vendaId);
-  const { error } = await sb.from('vendas').delete().eq('id', vendaId);
+function cancelarVenda(vendaId, codigo) {
+  document.getElementById('cancel-venda-id').value = vendaId;
+  document.getElementById('cancel-venda-codigo').value = codigo;
+  document.getElementById('info-venda-cancelamento').innerHTML =
+    `A venda <strong>${escHtml(codigo)}</strong> será apagada permanentemente do sistema junto com todas as parcelas.`;
+  document.getElementById('cancel-senha').value = '';
+  document.getElementById('modal-cancelar-venda').style.display = 'flex';
+}
+
+async function confirmarCancelamentoVenda() {
+  const vendaId = document.getElementById('cancel-venda-id').value;
+  const codigo = document.getElementById('cancel-venda-codigo').value;
+  const senha = document.getElementById('cancel-senha').value;
+  if (!senha.trim()) { alert('Digite a senha de confirmação para cancelar.'); return; }
+  const { error } = await sb.rpc('cancelar_venda', { p_venda_id: vendaId, p_senha: senha });
   if (error) {
-    Logger.error('vendas', 'CANCELAR_VENDA', 'Falha ao cancelar venda', { supabase_code: error.code });
-    alert('Erro ao cancelar venda!'); return;
+    Logger.error('vendas', 'CANCELAR_VENDA', 'Falha ao cancelar venda', { supabase_code: error.code, mensagem: error.message });
+    alert(error.message || 'Erro ao cancelar venda!');
+    return;
   }
   Logger.warn('vendas', 'CANCELAR_VENDA', 'Venda cancelada permanentemente', { codigo });
+  fecharModal('modal-cancelar-venda');
   carregarVendas();
   carregarDashboard();
 }
@@ -10671,6 +10674,26 @@ async function gerarProximoMes() {
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-devolucao')">Cancelar</button>
       <button class="btn" style="background:#FAEEDA;color:#854F0B;border-color:#FAC775;" onclick="confirmarDevolucao()">Confirmar devolução</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-cancelar-venda">
+  <div class="modal-box" style="max-width:400px;">
+    <div class="modal-header">
+      <strong>Cancelar venda</strong>
+      <button onclick="fecharModal('modal-cancelar-venda')">×</button>
+    </div>
+    <div id="info-venda-cancelamento" style="background:#f9f9f9;border-radius:8px;padding:10px 14px;margin-bottom:.875rem;font-size:13px;"></div>
+    <div class="campo">
+      <label>Senha de confirmação *</label>
+      <input type="password" id="cancel-senha" autocomplete="off" style="width:100%;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;" placeholder="Digite a senha de confirmação">
+    </div>
+    <input type="hidden" id="cancel-venda-id">
+    <input type="hidden" id="cancel-venda-codigo">
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-cancelar-venda')">Voltar</button>
+      <button class="btn" style="color:#A32D2D;border-color:#f5c6c6;" onclick="confirmarCancelamentoVenda()">Cancelar venda</button>
     </div>
   </div>
 </div>
