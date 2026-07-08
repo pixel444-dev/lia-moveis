@@ -2237,25 +2237,29 @@ let _dashChart = null;
 let _dashCustomInicio = null;
 let _dashCustomFim = null;
 
+function _dashDataLocal(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 function _dashDatas(periodo) {
   const hoje = new Date();
-  const fim = hoje.toISOString().split('T')[0];
+  const fim = _dashDataLocal(hoje);
   let inicio;
   if (periodo === 'hoje') {
     inicio = fim;
   } else if (periodo === 'ontem') {
-    const d = new Date(hoje); d.setDate(d.getDate() - 1); inicio = d.toISOString().split('T')[0];
+    const d = new Date(hoje); d.setDate(d.getDate() - 1); inicio = _dashDataLocal(d);
     return { inicio, fim: inicio };
   } else if (periodo === 'semana') {
     const domingo = new Date(hoje); domingo.setDate(domingo.getDate() - domingo.getDay());
     const sabado = new Date(hoje); sabado.setDate(sabado.getDate() + (6 - hoje.getDay()));
-    return { inicio: domingo.toISOString().split('T')[0], fim: sabado.toISOString().split('T')[0] };
+    return { inicio: _dashDataLocal(domingo), fim: _dashDataLocal(sabado) };
   } else if (periodo === 'mes') {
     inicio = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-01';
   } else if (periodo === 'custom') {
     return { inicio: _dashCustomInicio, fim: _dashCustomFim };
   } else {
-    const d = new Date(hoje); d.setDate(d.getDate() - 29); inicio = d.toISOString().split('T')[0];
+    const d = new Date(hoje); d.setDate(d.getDate() - 29); inicio = _dashDataLocal(d);
   }
   return { inicio, fim };
 }
