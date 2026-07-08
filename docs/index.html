@@ -274,13 +274,26 @@ tr:hover td{background:#fafafa;}
 .dash-tabela th{font-weight:600;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:4px 8px 8px;}
 .dash-tabela td{padding:6px 8px;border-top:1px solid #f0f0f0;vertical-align:middle;}
 .dash-tabela tr:hover td{background:#f7f9ff;}
-.dash-equipes{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem;}
-.dash-equipe-card{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:.875rem;}
-.dash-equipe-card .eq-rota{font-weight:700;font-size:15px;color:#185FA5;margin-bottom:.25rem;}
-.dash-equipe-card .eq-chefe{font-size:12px;color:#888;margin-bottom:.5rem;}
-.dash-equipe-card .eq-linha{display:flex;justify-content:space-between;font-size:13px;padding:2px 0;}
-.dash-equipe-card .eq-meta{margin-top:.5rem;height:6px;background:#eee;border-radius:3px;overflow:hidden;}
-.dash-equipe-card .eq-meta-bar{height:100%;background:#185FA5;border-radius:3px;transition:width .4s;}
+.dash-equipes{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem;}
+.dash-equipe-card{background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:1rem;}
+.dash-equipe-card .eq-rota{font-weight:700;font-size:16px;color:#185FA5;margin-bottom:.15rem;display:flex;align-items:center;gap:6px;}
+.dash-equipe-card .eq-chefe{font-size:12px;color:#888;margin-bottom:.75rem;display:flex;align-items:center;gap:6px;}
+.dash-equipe-card .eq-linha{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;}
+.dash-equipe-card .eq-linha span:first-child{color:#666;display:flex;align-items:center;gap:6px;}
+.dash-equipe-card .eq-linha span:last-child{font-weight:600;color:#1a1a1a;}
+.dash-equipe-card .eq-meta-header{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;margin-top:.25rem;border-top:1px dashed #eee;padding-top:.6rem;}
+.dash-equipe-card .eq-meta-header span:first-child{color:#666;display:flex;align-items:center;gap:6px;}
+.dash-equipe-card .eq-meta-header span:last-child{font-weight:600;color:#1a1a1a;}
+.dash-equipe-card .eq-meta{margin-top:.35rem;height:8px;background:#eee;border-radius:4px;overflow:hidden;}
+.dash-equipe-card .eq-meta-bar{height:100%;border-radius:4px;transition:width .4s;}
+.dash-equipe-card .eq-meta-bar.baixo{background:#C0392B;}
+.dash-equipe-card .eq-meta-bar.medio{background:#DDA61A;}
+.dash-equipe-card .eq-meta-bar.alto{background:#2A7C3E;}
+.dash-equipe-card .eq-meta-pct{font-size:12px;font-weight:700;text-align:right;margin-top:3px;}
+.dash-equipe-card .eq-meta-pct.baixo{color:#C0392B;}
+.dash-equipe-card .eq-meta-pct.medio{color:#9C7A0E;}
+.dash-equipe-card .eq-meta-pct.alto{color:#2A7C3E;}
+.dash-equipe-card .eq-sem-meta{font-size:12px;color:#aaa;font-style:italic;margin-top:.5rem;border-top:1px dashed #eee;padding-top:.6rem;}
 .dash-chart-wrap{position:relative;height:200px;}
 @keyframes dashSkel{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .dash-skel{background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%;animation:dashSkel 1.5s infinite;border-radius:8px;height:80px;}
@@ -2460,18 +2473,19 @@ function _renderEquipes(lista) {
     const meta = Number(e.meta || 0);
     const valor = Number(e.vendas_valor || 0);
     const pct = meta > 0 ? Math.min(100, Math.round(valor / meta * 100)) : 0;
+    const statusClasse = pct >= 80 ? 'alto' : pct >= 50 ? 'medio' : 'baixo';
     return '<div class="dash-equipe-card">' +
-      '<div class="eq-rota">' + (e.rota || '—') + '</div>' +
-      '<div class="eq-chefe">' + (e.chefe || '—') + '</div>' +
-      '<div class="eq-linha"><span>Vendas</span><span>' + Number(e.vendas_qtd || 0) + '</span></div>' +
-      '<div class="eq-linha"><span>Valor</span><span>R$ ' + _brl(e.vendas_valor) + '</span></div>' +
-      '<div class="eq-linha"><span>À vista</span><span>R$ ' + _brl(e.vendas_avista_valor) + '</span></div>' +
-      '<div class="eq-linha"><span>Parcelado</span><span>R$ ' + _brl(e.vendas_crediario_valor) + '</span></div>' +
+      '<div class="eq-rota">🚚 ' + (e.rota || '—') + '</div>' +
+      '<div class="eq-chefe">👤 ' + (e.chefe || '—') + '</div>' +
+      '<div class="eq-linha"><span>🛒 Vendas</span><span>' + Number(e.vendas_qtd || 0) + '</span></div>' +
+      '<div class="eq-linha"><span>💰 Total</span><span>R$ ' + _brl(e.vendas_valor) + '</span></div>' +
+      '<div class="eq-linha"><span>💵 À vista</span><span>R$ ' + _brl(e.vendas_avista_valor) + '</span></div>' +
+      '<div class="eq-linha"><span>💳 Parcelado</span><span>R$ ' + _brl(e.vendas_crediario_valor) + '</span></div>' +
       (meta > 0 ?
-        '<div class="eq-linha"><span>Meta</span><span>R$ ' + _brl(e.meta) + '</span></div>' +
-        '<div class="eq-meta"><div class="eq-meta-bar" style="width:' + pct + '%"></div></div>' +
-        '<div style="font-size:11px;color:#888;text-align:right;margin-top:2px;">' + pct + '%</div>'
-      : '') +
+        '<div class="eq-meta-header"><span>🎯 Meta</span><span>R$ ' + _brl(e.meta) + '</span></div>' +
+        '<div class="eq-meta"><div class="eq-meta-bar ' + statusClasse + '" style="width:' + pct + '%"></div></div>' +
+        '<div class="eq-meta-pct ' + statusClasse + '">' + pct + '%</div>'
+      : '<div class="eq-sem-meta">🎯 Meta não definida</div>') +
     '</div>';
   }).join('');
 }
