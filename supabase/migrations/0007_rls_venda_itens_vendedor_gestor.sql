@@ -5,9 +5,10 @@
 -- tabela `vendas` em si tem policy `using (true)` para qualquer autenticado —
 -- ver migration 0006).
 --
--- Regra de negócio: registrar/editar os itens de uma venda só pode quem pode
--- registrar a venda — perfis `vendedor` e `gestor`. O perfil `cobrador` não
--- deve ter permissão de escrita aqui. Leitura (SELECT) não é alterada por
+-- Regra de negócio: `vendedor` e `gestor` podem registrar/editar os itens de
+-- uma venda (INSERT/UPDATE), mas apagar itens (DELETE) fica restrito a
+-- `gestor` — vendedor não deve poder excluir. Perfil `cobrador` não tem
+-- nenhuma permissão de escrita aqui. Leitura (SELECT) não é alterada por
 -- este script — segue como já está configurado hoje.
 --
 -- Rode este script no SQL Editor do Supabase.
@@ -27,6 +28,6 @@ create policy "venda_itens_vendedor_gestor_update" on venda_itens
   with check (public.meu_perfil() in ('vendedor', 'gestor'));
 
 drop policy if exists "venda_itens_vendedor_gestor_delete" on venda_itens;
-create policy "venda_itens_vendedor_gestor_delete" on venda_itens
+create policy "venda_itens_gestor_delete" on venda_itens
   for delete to authenticated
-  using (public.meu_perfil() in ('vendedor', 'gestor'));
+  using (public.meu_perfil() = 'gestor');
