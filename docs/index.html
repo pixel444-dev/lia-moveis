@@ -587,6 +587,10 @@ tr:hover td{background:#fafafa;}
         <div class="page-title" style="margin:0">Equipes / Semanas</div>
         <button class="btn primario" id="btn-nova-equipe" onclick="abrirNovaEquipe()">+ Nova equipe</button>
       </div>
+      <div id="equipes-seletor-mes" style="display:none;margin-bottom:1rem;">
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">Ver equipes do mês</label>
+        <select id="equipes-mes-select" onchange="trocarMesEquipes(this.value)" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;min-width:220px;"></select>
+      </div>
       <div id="info-mes-equipes" style="margin-bottom:1rem;font-size:13px;color:#666;"></div>
       <div id="lista-equipes"></div>
     </div>
@@ -1496,6 +1500,7 @@ let todasVendas = [];
 let equipesAtivas = [];
 let semanasAtual = [];
 let mesAtual = null;
+let mesEquipesSelecionadoId = null;
 let equipeAtiva = null;
 let autorizacaoAtualId = null;
 let pollInterval = null;
@@ -9496,20 +9501,66 @@ function _renderBlocoRanking(titulo, subtitulo, itens, msgVazio) {
 // ===== MÓDULO EQUIPES / SEMANAS =====
 
 async function carregarEquipes() {
-  if (perfilAtivo.perfil === 'vendedor') { await carregarEquipeVendedor(); return; }
+  if (perfilAtivo.perfil === 'vendedor') {
+    const seletor = document.getElementById('equipes-seletor-mes');
+    if (seletor) seletor.style.display = 'none';
+    await carregarEquipeVendedor();
+    return;
+  }
   try { await sb.rpc('garantir_mes_atual'); } catch (e) { Logger.warn('meses', 'garantir_mes_atual', 'Falha ao garantir mês ao abrir equipes', { error_message: e.message }); }
+  // Toda vez que a página é (re)aberta, volta a mostrar o mês atual —
+  // navegar pro histórico é uma escolha explícita via seletor, não algo
+  // que deve "grudar" entre visitas à página.
+  mesEquipesSelecionadoId = null;
+  document.getElementById('equipes-seletor-mes').style.display = '';
+  await carregarSeletorMesEquipes();
+  await carregarEquipesDoMes(mesEquipesSelecionadoId);
+}
+
+async function carregarSeletorMesEquipes() {
+  const { data: meses } = await sb.from('meses_referencia').select('id, ano, mes, data_inicio, data_fim')
+    .order('ano', { ascending: false }).order('mes', { ascending: false });
+  const nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const hoje = dataLocalYMD();
-  const { data: mes } = await sb.from('meses_referencia').select('*').lte('data_inicio', hoje).gte('data_fim', hoje).maybeSingle();
-  mesAtual = mes;
+  if (!mesEquipesSelecionadoId) {
+    const doMomento = (meses || []).find(m => m.data_inicio <= hoje && m.data_fim >= hoje);
+    mesEquipesSelecionadoId = doMomento ? doMomento.id : (meses?.[0]?.id || null);
+  }
+  const sel = document.getElementById('equipes-mes-select');
+  sel.innerHTML = (meses || []).map(m =>
+    `<option value="${m.id}"${m.id === mesEquipesSelecionadoId ? ' selected' : ''}>${nomesMes[m.mes - 1]}/${m.ano}</option>`
+  ).join('');
+}
+
+function trocarMesEquipes(mesId) {
+  mesEquipesSelecionadoId = mesId;
+  carregarEquipesDoMes(mesId);
+}
+
+async function carregarEquipesDoMes(mesId) {
   const infoEl = document.getElementById('info-mes-equipes');
   const listaEl = document.getElementById('lista-equipes');
-  if (!mes) {
-    infoEl.innerHTML = '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;font-size:13px;">Nenhum mês de referência cadastrado para hoje. Cadastre em <em>meses_referencia</em> no Supabase para continuar.</div>';
+  const btnNova = document.getElementById('btn-nova-equipe');
+  if (!mesId) {
+    infoEl.innerHTML = '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;font-size:13px;">Nenhum mês de referência cadastrado. Cadastre em <em>meses_referencia</em> no Supabase para continuar.</div>';
     listaEl.innerHTML = '';
+    if (btnNova) btnNova.style.display = 'none';
+    return;
+  }
+  const { data: mes } = await sb.from('meses_referencia').select('*').eq('id', mesId).maybeSingle();
+  mesAtual = mes;
+  if (!mes) {
+    infoEl.innerHTML = '';
+    listaEl.innerHTML = '<p style="color:#888;padding:1rem;">Mês não encontrado.</p>';
+    if (btnNova) btnNova.style.display = 'none';
     return;
   }
   const nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  infoEl.innerHTML = `Ciclo: <strong>${nomesMes[mes.mes-1]}/${mes.ano}</strong> — ${new Date(mes.data_inicio+'T12:00:00').toLocaleDateString('pt-BR')} a ${new Date(mes.data_fim+'T12:00:00').toLocaleDateString('pt-BR')}`;
+  const hoje = dataLocalYMD();
+  const ehMesAtual = mes.data_inicio <= hoje && mes.data_fim >= hoje;
+  if (btnNova) btnNova.style.display = ehMesAtual ? '' : 'none';
+  infoEl.innerHTML = `Ciclo: <strong>${nomesMes[mes.mes-1]}/${mes.ano}</strong> — ${new Date(mes.data_inicio+'T12:00:00').toLocaleDateString('pt-BR')} a ${new Date(mes.data_fim+'T12:00:00').toLocaleDateString('pt-BR')}`
+    + (ehMesAtual ? '' : ' <span class="badge cinza">Histórico — somente leitura</span>');
   const { data: semanas } = await sb.from('semanas_venda').select('*').eq('mes_id', mes.id).order('numero');
   semanasAtual = semanas || [];
   if (!semanasAtual.length) {
@@ -9522,14 +9573,14 @@ async function carregarEquipes() {
     .in('semana_id', semanaIds)
     .order('data_saida');
   equipesAtivas = equipes || [];
-  renderEquipes(semanasAtual, equipesAtivas);
+  renderEquipes(semanasAtual, equipesAtivas, !ehMesAtual);
 }
 
 function toggleSemanaAcc(el) {
   el.closest('.eqsem-semana').classList.toggle('aberta');
 }
 
-function renderEquipes(semanas, equipes) {
+function renderEquipes(semanas, equipes, somenteLeitura) {
   const hoje = new Date();
   let html = '';
   for (const semana of semanas) {
@@ -9575,7 +9626,7 @@ function renderEquipes(semanas, equipes) {
           </div>
           <div class="eqsem-card-acoes">
             <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
-            ${!eq.encerrada && perfilAtivo.perfil==='gestor'?`
+            ${!eq.encerrada && !somenteLeitura && perfilAtivo.perfil==='gestor'?`
               <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirCarregarCaminhao('${eq.caminhao_id}')">+ Carregar</button>
               <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirDevolverCD('${eq.caminhao_id}')">Devolver ao CD</button>
               <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
