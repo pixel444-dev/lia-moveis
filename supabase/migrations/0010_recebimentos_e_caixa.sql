@@ -2,23 +2,37 @@
 -- Recebimentos, caixa e prestação de contas — a parte que mais mexe com
 -- dinheiro, movida pro backend de forma atômica.
 --
--- Problemas de hoje que esta migration resolve:
---   - `confirmarRecebimento()` (docs/index.html:6820-6925) faz
---     *read-then-write* do saldo da caixa sem lock nenhum — duas baixas
---     quase simultâneas do mesmo cobrador podem se perder uma à outra.
---   - `autorizarCaixa()` (docs/index.html:7905-7954) faz um loop de
---     `await` por baixa pendente, sem transação — uma falha no meio deixa
---     o fechamento pela metade (algumas baixas aprovadas, outras não, ou
---     `caixa_cobrador` sem atualizar depois de já ter gravado o ledger).
---   - Existem hoje duas fontes de verdade paralelas pro "quanto dinheiro em
---     espécie o cobrador tem em mãos": `caixa_cobrador.saldo_esperado`
---     (mantido incrementalmente) e a soma recalculada de
---     `baixas_pendentes.valor_recebido`. As funções abaixo mantêm só a
---     primeira, sempre via UPDATE incremental dentro da mesma transação
---     que grava a baixa — vira a única fonte de verdade.
---   - O campo `visitas_agendadas.concluida` nunca era setado como `true`
---     por nenhum fluxo (campo morto) — `registrar_nao_recebi()` agora fecha
---     a remarcação anterior da mesma parcela ao criar uma nova.
+-- ⚠️ REVISADO depois de inspecionar o schema e o RLS reais em produção.
+-- Achados que mudaram o escopo desta migration em relação à primeira
+-- versão:
+--   - `caixa_select`, `baixa_select`, `movcx_select`, `vis_select` e
+--     `movcob_select` JÁ EXISTEM e já implementam exatamente "cobrador vê
+--     só o próprio, gestor vê tudo" — não recriamos essas policies aqui
+--     (a versão anterior deste arquivo ia adicionar policies de SELECT
+--     redundantes, coexistindo com as reais sob nomes diferentes).
+--   - `baixa_update_gestor` e `movcx_update_gestor` já exigem gestor pro
+--     UPDATE — então o "gap" que eu ia fechar em `movimentacoes_caixa` já
+--     não existe; não mexemos no grant dessa tabela.
+--   - Achado à parte: como o UPDATE de `movimentacoes_caixa` já era
+--     gestor-only antes desta migration, o fluxo atual de
+--     `confirmarGasto()`/`confirmarDeposito()` no app — que faz INSERT e
+--     só DEPOIS faz UPDATE de `foto_comprovante` — já deveria estar
+--     falhando silenciosamente pra quem é cobrador. As funções novas
+--     abaixo (`registrar_gasto`/`registrar_deposito`) resolvem isso ao
+--     receber a URL do comprovante já pronta, num único INSERT.
+--   - `caixa_update` e `baixa_insert`/`caixa_insert` de hoje são mais
+--     permissivos do que parecia à primeira vista: um cobrador pode dar
+--     UPDATE em QUALQUER coluna da própria `caixa_cobrador` (inclusive
+--     `status` e `saldo_entregue` — ou seja, hoje um cobrador mal-
+--     intencionado pode se autoaprovar direto pelo DevTools), e o INSERT
+--     de `caixa_cobrador`/`baixas_pendentes` não restringe o `status`
+--     inicial. Por isso, diferente da 0008 (onde trocamos REVOKE por
+--     policy cirúrgica), aqui mantemos um REVOKE — mas só nas 2 tabelas
+--     onde o gap é real e só nos comandos necessários (INSERT/UPDATE, não
+--     DELETE, que já é gestor-only nas duas). Isso EXIGE que o frontend
+--     passe a chamar as funções abaixo antes ou junto desta migration ir
+--     pra produção — sem isso, cobrador para de conseguir abrir caixa ou
+--     registrar recebimento.
 --
 -- Rode este script no SQL Editor do Supabase, depois da 0009.
 --
@@ -28,15 +42,14 @@
 -- ⚠️ Mudança de fluxo no frontend que este backend exige: os comprovantes
 -- (PIX, gasto, depósito) precisam ser enviados ao Storage do Supabase ANTES
 -- de chamar a RPC (não depois, como é hoje) — a RPC recebe a URL já pronta
--- em `p_comprovante_url`, porque uma função SQL não consegue subir arquivo
--- pro Storage. Troque o nome do arquivo de "usa o id da linha recém-criada"
--- pra algo gerado no cliente (ex.: uuid aleatório) antes do upload.
+-- em `p_comprovante_url`. Troque o nome do arquivo de "usa o id da linha
+-- recém-criada" pra algo gerado no cliente (ex.: uuid aleatório) antes do
+-- upload.
 --
 -- ⚠️ O formato exato de `snapshot_pendentes`/`snapshot_remarcados` (jsonb)
 -- montado em `autorizar_caixa()` é uma proposta razoável, não uma cópia
--- garantida do formato atual (não consegui confirmar o shape exato usado
--- por `verDetalheHistorico()` sem acesso ao Studio) — ajustaremos o
--- render do histórico no frontend pra casar com o shape novo.
+-- garantida do formato atual — ajustaremos o render do histórico no
+-- frontend pra casar com o shape novo.
 -- ============================================================================
 
 -- 1) Registrar recebimento (baixa pendente), atômico e com locks.
@@ -163,6 +176,8 @@ begin
     raise exception 'Parcela não encontrada.';
   end if;
 
+  -- fecha qualquer remarque anterior em aberto da mesma parcela (o campo
+  -- `concluida` nunca era setado antes — campo morto até agora).
   update visitas_agendadas set concluida = true
     where parcela_id = p_parcela_id and not concluida;
 
@@ -177,7 +192,10 @@ $$;
 revoke all on function public.registrar_nao_recebi(uuid, text, text, date) from public;
 grant execute on function public.registrar_nao_recebi(uuid, text, text, date) to authenticated;
 
--- 3) Gasto e depósito do cobrador.
+-- 3) Gasto e depósito do cobrador. `movimentacoes_caixa` já tem RLS
+--    adequado hoje (insert: dono ou gestor; update: só gestor) — estas
+--    funções são um caminho conveniente e atômico, não uma correção de
+--    segurança; não mexem em grants.
 drop function if exists public.registrar_gasto(text, text, numeric, text);
 
 create function public.registrar_gasto(
@@ -399,7 +417,9 @@ revoke all on function public.cancelar_baixa_prestacao(uuid) from public;
 grant execute on function public.cancelar_baixa_prestacao(uuid) to authenticated;
 
 -- 5) Fechamento/autorização definitiva da caixa (prestação de contas),
---    tudo-ou-nada.
+--    tudo-ou-nada. `movimentacoes_cobranca.ciclo_id` referencia a própria
+--    caixa (confirmado no schema real: a tabela usa "ciclo" como sinônimo
+--    de "caixa", não existe uma tabela `ciclos` separada).
 drop function if exists public.autorizar_caixa(uuid, numeric);
 
 create function public.autorizar_caixa(p_caixa_id uuid, p_saldo_entregue numeric)
@@ -426,8 +446,8 @@ begin
     raise exception 'Caixa já foi prestada.';
   end if;
 
-  insert into movimentacoes_cobranca (cobrador_id, cliente_id, tipo, valor, forma_pagamento)
-  select cobrador_id, cliente_id, 'cobranca', valor_recebido, forma_pagamento
+  insert into movimentacoes_cobranca (ciclo_id, cobrador_id, cliente_id, tipo, valor, forma_pagamento)
+  select p_caixa_id, cobrador_id, cliente_id, 'cobranca', valor_recebido, forma_pagamento
   from baixas_pendentes
   where caixa_id = p_caixa_id and status in ('pendente', 'corrigida');
 
@@ -435,15 +455,7 @@ begin
   where caixa_id = p_caixa_id and status in ('pendente', 'corrigida');
 
   with clientes_cobrador as (
-    select c.id, c.nome
-    from clientes c
-    where c.cobrador_id = v_caixa.cobrador_id
-    union
-    select c.id, c.nome
-    from clientes c
-    join rotas_municipios rm on rm.municipio_id = c.municipio_id
-    join rotas r on r.id = rm.rota_id and r.ativa = true and r.cobrador_id = v_caixa.cobrador_id
-    where c.cobrador_id is null
+    select id from public.clientes_do_cobrador(v_caixa.cobrador_id)
   ),
   parcelas_abertas as (
     select p.*
@@ -459,16 +471,16 @@ begin
   )
   select
     jsonb_agg(jsonb_build_object(
-      'cliente_id', pa.cliente_id, 'cliente_nome', cc.nome, 'parcela_id', pa.id,
+      'cliente_id', pa.cliente_id, 'cliente_nome', cl.nome, 'parcela_id', pa.id,
       'valor', pa.valor - coalesce(pa.valor_pago, 0), 'data_vencimento', pa.data_vencimento
     )) filter (where rq.parcela_id is null and pa.data_vencimento between v_caixa.ciclo_inicio and v_caixa.ciclo_fim),
     jsonb_agg(jsonb_build_object(
-      'cliente_id', pa.cliente_id, 'cliente_nome', cc.nome, 'parcela_id', pa.id,
+      'cliente_id', pa.cliente_id, 'cliente_nome', cl.nome, 'parcela_id', pa.id,
       'data_agendada', rq.data_agendada, 'motivo', rq.motivo
     )) filter (where rq.parcela_id is not null)
   into v_snapshot_pendentes, v_snapshot_remarcados
   from parcelas_abertas pa
-  join clientes_cobrador cc on cc.id = pa.cliente_id
+  join clientes cl on cl.id = pa.cliente_id
   left join remarques rq on rq.parcela_id = pa.id;
 
   update caixa_cobrador set
@@ -488,39 +500,9 @@ $$;
 revoke all on function public.autorizar_caixa(uuid, numeric) from public;
 grant execute on function public.autorizar_caixa(uuid, numeric) to authenticated;
 
--- 6) Tranca as tabelas: escrita só pelas funções acima a partir de agora.
-revoke insert, update, delete on caixa_cobrador from authenticated;
-revoke insert, update, delete on baixas_pendentes from authenticated;
-revoke insert, update, delete on movimentacoes_caixa from authenticated;
-revoke insert, update, delete on visitas_agendadas from authenticated;
-revoke insert, update, delete on movimentacoes_cobranca from authenticated;
-
--- SELECT: cobrador só vê o que é seu; gestor vê tudo. Não sabemos os nomes
--- de policies de SELECT que já existem hoje nessas tabelas (não
--- versionadas) — depois de rodar, confira em Database → Policies que não
--- sobrou nenhuma policy antiga liberando SELECT geral pra qualquer
--- autenticado (o que tornaria esta restrição inócua).
-drop policy if exists caixa_cobrador_select_proprio_ou_gestor on caixa_cobrador;
-create policy caixa_cobrador_select_proprio_ou_gestor on caixa_cobrador
-  for select to authenticated
-  using (cobrador_id = public.meu_funcionario_id() or public.meu_perfil() = 'gestor');
-
-drop policy if exists baixas_pendentes_select_proprio_ou_gestor on baixas_pendentes;
-create policy baixas_pendentes_select_proprio_ou_gestor on baixas_pendentes
-  for select to authenticated
-  using (cobrador_id = public.meu_funcionario_id() or public.meu_perfil() = 'gestor');
-
-drop policy if exists movimentacoes_caixa_select_proprio_ou_gestor on movimentacoes_caixa;
-create policy movimentacoes_caixa_select_proprio_ou_gestor on movimentacoes_caixa
-  for select to authenticated
-  using (cobrador_id = public.meu_funcionario_id() or public.meu_perfil() = 'gestor');
-
-drop policy if exists visitas_agendadas_select_proprio_ou_gestor on visitas_agendadas;
-create policy visitas_agendadas_select_proprio_ou_gestor on visitas_agendadas
-  for select to authenticated
-  using (cobrador_id = public.meu_funcionario_id() or public.meu_perfil() = 'gestor');
-
-drop policy if exists movimentacoes_cobranca_select_proprio_ou_gestor on movimentacoes_cobranca;
-create policy movimentacoes_cobranca_select_proprio_ou_gestor on movimentacoes_cobranca
-  for select to authenticated
-  using (cobrador_id = public.meu_funcionario_id() or public.meu_perfil() = 'gestor');
+-- 6) Tranca só as 2 tabelas onde o RLS de hoje tem um gap real de
+--    autoaprovação (ver cabeçalho). DELETE não é tocado (já é gestor-only
+--    nas duas, via `caixa_delete_gestor`/`baixa_delete_gestor`).
+--    Nenhuma outra tabela desta migration tem grants alterados.
+revoke insert, update on caixa_cobrador from authenticated;
+revoke insert, update on baixas_pendentes from authenticated;

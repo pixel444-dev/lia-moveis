@@ -1,30 +1,38 @@
 -- ============================================================================
 -- Motor de ciclos de cobrança e atribuição de cobrador no backend.
 --
--- Formaliza em Postgres o mecanismo que hoje só existe em JS:
+-- ⚠️ REVISADO depois de inspecionar o schema real em produção: já existem
+-- as funções `meus_clientes()` e `clientes_por_rota()` (security definer),
+-- que implementam exatamente a regra de atribuição direta/rota que eu ia
+-- reconstruir do zero — só que elas são "sem parâmetro" (sempre calculam
+-- pra `meu_funcionario_id()`, ou seja, "meus clientes" do ponto de vista de
+-- quem está chamando). Isso funciona pro cobrador ver a própria carteira,
+-- mas não serve pro gestor consultar a carteira de UM cobrador específico
+-- (ex.: no painel de acompanhamento ao vivo). Por isso criamos abaixo
+-- `clientes_do_cobrador(p_cobrador_id)`, a versão parametrizada do mesmo
+-- padrão — mesma lógica de `meus_clientes() UNION clientes_por_rota()`,
+-- só que recebendo o cobrador como argumento em vez de assumir que é quem
+-- está logado.
+--
+-- Formaliza em Postgres o resto do mecanismo que hoje só existe em JS:
 --   - 6 ciclos fixos por mês (dia 10-14, 15-19, 20-24, 25-29, 30-04, 05-09),
 --     hoje em `cicloDoDia()` (docs/index.html:6954-6961);
---   - atribuição de cobrador por cliente: `clientes.cobrador_id` direto tem
---     prioridade; se nulo, cai pra rota ativa do cobrador cujo
---     `rotas_municipios` cobre a cidade do cliente — mesma regra usada hoje
---     em `_clientesDoCobrador()` (docs/index.html:5124-5154);
 --   - classificação de fichas (nova / normal / remarcada / atrasada) por
 --     ciclo, hoje calculada no cliente em `renderCicloSelecionado()`
 --     (docs/index.html:5612-5749);
 --   - abertura de caixa do cobrador (get-or-create do ciclo atual), hoje em
 --     `obterCaixaAtiva()` (docs/index.html:7018-7056), sem nenhum lock —
 --     hoje é possível (ainda que raro) duas caixas abertas em paralelo pro
---     mesmo cobrador se duas chamadas caírem ao mesmo tempo.
+--     mesmo cobrador se duas chamadas caírem ao mesmo tempo. Note também
+--     que a policy real `caixa_insert` de hoje não restringe o `status` no
+--     insert — a migration 0010 fecha essa lacuna revogando o INSERT
+--     direto depois que `abrir_caixa_cobrador()` estiver no ar.
 --
 -- Rode este script no SQL Editor do Supabase, depois da 0008.
 --
--- ⚠️ Depois de rodar, confira no Studio que `fichas_do_ciclo` e
--- `abrir_caixa_cobrador` estão com "Security: Definer".
---
--- ⚠️ Assim como na 0008, os nomes de coluna usados abaixo (`clientes`,
--- `rotas`, `rotas_municipios`, `visitas_agendadas`, `caixa_cobrador`) foram
--- inferidos do uso no frontend, não de um schema versionado — confira antes
--- de rodar em produção.
+-- ⚠️ Depois de rodar, confira no Studio que `clientes_do_cobrador`,
+-- `cobrador_do_cliente`, `fichas_do_ciclo` e `abrir_caixa_cobrador` estão
+-- com "Security: Definer".
 -- ============================================================================
 
 -- 1) Ciclo do dia: mesma tabela de 6 faixas fixas do JS.
@@ -49,10 +57,36 @@ $$;
 
 grant execute on function public.ciclo_do_dia(int) to authenticated;
 
--- 2) Cobrador responsável por um cliente: direto tem prioridade; senão,
+-- 2) Versão parametrizada de meus_clientes() ∪ clientes_por_rota(): todos
+--    os clientes de UM cobrador específico (direto ou por rota), não só do
+--    cobrador logado. Mesma regra, só generalizada.
+drop function if exists public.clientes_do_cobrador(uuid);
+
+create function public.clientes_do_cobrador(p_cobrador_id uuid)
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  select id from clientes where cobrador_id = p_cobrador_id
+  union
+  select c.id
+  from clientes c
+  join rotas_municipios rm on rm.municipio_id = c.municipio_id
+  join rotas r on r.id = rm.rota_id
+  where c.cobrador_id is null
+    and c.municipio_id is not null
+    and r.cobrador_id = p_cobrador_id
+    and r.ativa = true;
+$$;
+
+grant execute on function public.clientes_do_cobrador(uuid) to authenticated;
+
+-- 3) Cobrador responsável por UM cliente: direto tem prioridade; senão,
 --    cai pra rota ativa cujo conjunto de municípios cobre a cidade do
 --    cliente. Retorna null se nenhuma das duas regras se aplica (cliente
---    "em limbo", mesma semântica de `clientes_em_limbo()`).
+--    "em limbo", mesma semântica de `clientes_em_limbo()`, já existente).
 drop function if exists public.cobrador_do_cliente(uuid);
 
 create function public.cobrador_do_cliente(p_cliente_id uuid)
@@ -77,7 +111,7 @@ $$;
 
 grant execute on function public.cobrador_do_cliente(uuid) to authenticated;
 
--- 3) Fichas de um ciclo, pra um cobrador e uma caixa específicos — porta
+-- 4) Fichas de um ciclo, pra um cobrador e uma caixa específicos — porta
 --    server-side de `renderCicloSelecionado()`. Recebe o id da caixa (não
 --    recalcula ciclo_inicio/ciclo_fim: usa os valores já gravados na
 --    própria caixa, que podem ter sido estendidos manualmente pelo gestor)
@@ -137,15 +171,7 @@ begin
 
   return query
   with clientes_cobrador as (
-    select c.id, c.nome, c.codigo, c.localidade_id
-    from clientes c
-    where c.cobrador_id = v_caixa.cobrador_id
-    union
-    select c.id, c.nome, c.codigo, c.localidade_id
-    from clientes c
-    join rotas_municipios rm on rm.municipio_id = c.municipio_id
-    join rotas r on r.id = rm.rota_id and r.ativa = true and r.cobrador_id = v_caixa.cobrador_id
-    where c.cobrador_id is null
+    select id from public.clientes_do_cobrador(v_caixa.cobrador_id)
   ),
   parcelas_abertas as (
     select p.*
@@ -193,12 +219,12 @@ begin
     left join remarques rq on rq.parcela_id = pa.id
   )
   select
-    c.parcela_id, c.cliente_id, cc.nome, cc.codigo, cc.localidade_id,
+    c.parcela_id, c.cliente_id, cl.nome, cl.codigo, cl.localidade_id,
     c.venda_id, c.numero, c.total_parcelas, c.valor, c.valor_pago,
     c.data_vencimento, c.data_efetiva, c.tipo,
     (c.venda_id is not null and c.venda_id not in (select vi.venda_id from vendas_interagidas vi)) as nova_venda
   from classificadas c
-  join clientes_cobrador cc on cc.id = c.cliente_id
+  join clientes cl on cl.id = c.cliente_id
   where c.tipo = 'atrasada'
      or (
        c.data_efetiva between v_caixa.ciclo_inicio and v_caixa.ciclo_fim
@@ -209,7 +235,7 @@ $$;
 
 grant execute on function public.fichas_do_ciclo(uuid, text) to authenticated;
 
--- 4) Abertura atômica da caixa do cobrador (get-or-create). Um índice único
+-- 5) Abertura atômica da caixa do cobrador (get-or-create). Um índice único
 --    parcial garante, a nível de banco, que nunca existam duas caixas
 --    'aberto' pro mesmo cobrador ao mesmo tempo — mesmo sob concorrência.
 create unique index if not exists caixa_cobrador_um_aberto_por_cobrador

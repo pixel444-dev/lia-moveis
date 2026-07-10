@@ -1,57 +1,52 @@
 -- ============================================================================
--- Move a criação de venda (crédito e à vista) e a decisão de autorização de
--- inadimplente para dentro do backend.
+-- Bloqueio real de venda pra cliente inadimplente crônico + criação atômica
+-- de venda a crédito.
 --
--- Motivo: hoje `salvarVenda()` no app faz o insert de vendas/parcelas/itens
--- direto via `sb.from(...)`, e as policies de RLS de `vendas`/`parcelas` são
--- `for all to authenticated using (true)` (mesmo diagnóstico documentado no
--- comentário da migration 0006) — ou seja, qualquer usuário autenticado
--- consegue inserir uma venda ou uma parcela direto pelo DevTools, sem passar
--- por nenhuma validação. O bloqueio de cliente inadimplente hoje é só uma
--- flag em memória do navegador (`window._clienteInadimplente`), e
--- `autorizarVenda`/`negarVenda` fazem UPDATE direto em `autorizacoes_venda`
--- sem checar no servidor se quem chama é gestor.
+-- ⚠️ REVISADO depois de inspecionar o schema real em produção (a versão
+-- anterior deste arquivo assumia, com base só no comentário da migration
+-- 0006, que `vendas`/`parcelas` tinham RLS `for all using(true)` — não é
+-- mais verdade. O RLS real de hoje já é bem mais maduro:
+--   - `vendas_insert`/`parcelas_insert` já restringem por dono
+--     (`minhas_equipes()` / `clientes_da_minha_equipe()`);
+--   - `autoriz_update_gestor` já exige gestor pra aprovar/negar autorização
+--     (então as funções `autorizar_venda`/`negar_venda` que eu ia criar
+--     eram redundantes — não entraram nesta versão);
+--   - só falta uma coisa: NENHUMA dessas policies verifica inadimplência.
+-- Por isso a versão anterior fazia `REVOKE INSERT/UPDATE/DELETE` inteiro em
+-- `vendas`/`parcelas`, o que ia quebrar o cadastro de venda de todo
+-- vendedor no minuto em que a migration rodasse (forçando um cutover
+-- sincronizado com o frontend). A versão abaixo é cirúrgica: adiciona uma
+-- policy `restrictive` que só barra a inserção quando o cliente está
+-- bloqueado — o resto do acesso direto continua funcionando exatamente
+-- como hoje.
 --
 -- Esta migration:
---   1) cria `cliente_bloqueado_por_atraso()`, que troca a regra atual
---      ("1 parcela atrasada já bloqueia") por "bloqueado só a partir de 1
---      mês (30 dias corridos) de atraso na parcela mais antiga em aberto";
---   2) cria `criar_venda()`, que faz a venda inteira (venda + parcelas +
---      itens + totais de equipe + baixa de estoque do caminhão) numa única
---      transação atômica, com o bloqueio de inadimplência crônica
---      verificado no servidor (gestor continua podendo vender pra
---      inadimplente sem bloqueio, igual hoje);
---   3) cria `autorizar_venda()`/`negar_venda()`, que passam a exigir
---      `meu_perfil() = 'gestor'` no servidor;
---   4) revoga INSERT/UPDATE/DELETE direto em `vendas`/`parcelas` do papel
---      `authenticated` — só as funções abaixo (security definer) conseguem
---      escrever nessas tabelas a partir de agora.
+--   1) cria `cliente_bloqueado_por_atraso()` — bloqueado só a partir de 1
+--      mês (30 dias corridos) de atraso na parcela mais antiga em aberto
+--      (troca a regra atual de "1 parcela atrasada já bloqueia", que hoje
+--      só existe como flag em memória do navegador,
+--      `window._clienteInadimplente`, driblável via DevTools);
+--   2) adiciona policies `restrictive` em `vendas` e `parcelas` que aplicam
+--      esse bloqueio no INSERT pra qualquer usuário que não seja gestor —
+--      protege tanto o fluxo atual (insert direto do JS) quanto qualquer
+--      chamada futura;
+--   3) cria `criar_venda()`, um caminho atômico opcional (venda + parcelas
+--      + itens + totais de equipe + baixa de estoque numa transação só,
+--      com o mesmo bloqueio verificado de novo — necessário porque essa
+--      função roda `security definer` e portanto NÃO passa pelas policies
+--      de RLS, inclusive as novas do passo 2) — corrige de quebra a sobra
+--      de centavos na divisão de parcelas e as duas race conditions de
+--      hoje (totais de equipe recalculados do zero, baixa de estoque
+--      read-then-write);
+--   4) fecha uma lacuna em `autorizacoes_venda`: hoje `autoriz_insert` não
+--      restringe o campo `status`, então um vendedor mal-intencionado
+--      poderia inserir a própria solicitação já com `status: 'autorizado'`
+--      pelo DevTools, pulando a aprovação do gestor.
 --
 -- Rode este script no SQL Editor do Supabase.
 --
 -- ⚠️ Depois de rodar, confira no Studio (Database → Functions) que
--- `criar_venda`, `autorizar_venda` e `negar_venda` estão com "Security:
--- Definer". Sem isso elas não conseguem escrever nas tabelas travadas pelo
--- REVOKE do passo 4.
---
--- ⚠️ IMPORTANTE — pontos que não dá pra confirmar só lendo o frontend, por
--- isso pedem sua validação manual no Studio antes de rodar em produção:
---   - Nomes/tipos exatos das colunas de `vendas`, `parcelas`, `venda_itens`
---     e `equipes` usados abaixo foram inferidos dos `insert`/`update` do
---     app (docs/index.html), não de um schema versionado. Se algum nome
---     estiver diferente no banco real, a criação da função vai falhar com
---     erro claro de "column does not exist" — ajuste antes de seguir.
---   - `autorizacoes_venda` já deve ter RLS com alguma policy hoje (não
---     versionada). Este script adiciona uma policy nova de INSERT e revoga
---     UPDATE/DELETE do client, mas não sabe o nome de policies antigas — dê
---     uma olhada em Database → Policies depois de rodar pra confirmar que
---     não sobrou nenhuma policy antiga liberando UPDATE direto.
---   - Cálculo de data de vencimento das parcelas: mantive paridade exata
---     com o `Date.setMonth()` do JS de hoje (inclusive o "estouro de mês",
---     ex.: 31/jan + 1 mês vira 3/mar), via `add_months_like_js()` abaixo.
---     Se preferir vencimento fixo no dia do mês com clamping (padrão do
---     Postgres, mais comum em cobrança parcelada), troque a chamada dentro
---     de `criar_venda()`.
+-- `criar_venda` está com "Security: Definer".
 -- ============================================================================
 
 -- 1) Helper: soma N meses a uma data reproduzindo o comportamento de
@@ -84,8 +79,31 @@ as $$
   );
 $$;
 
--- 3) Criação atômica de venda (à vista ou a crédito).
---    p_itens: jsonb array de objetos {"produto": text, "quantidade": numeric,
+-- 3) Aplica o bloqueio direto no RLS de vendas/parcelas (protege o insert
+--    direto que o app já faz hoje, sem precisar trocar nada no frontend
+--    imediatamente). `as restrictive` significa que esta policy só pode
+--    NEGAR — ela é combinada com "E" às policies permissivas já existentes
+--    (`vendas_insert`, `parcelas_insert`), nunca abre acesso novo.
+drop policy if exists vendas_bloquear_inadimplente_cronico on vendas;
+create policy vendas_bloquear_inadimplente_cronico on vendas
+  as restrictive
+  for insert to authenticated
+  with check (
+    public.meu_perfil() = 'gestor' or not public.cliente_bloqueado_por_atraso(cliente_id)
+  );
+
+drop policy if exists parcelas_bloquear_inadimplente_cronico on parcelas;
+create policy parcelas_bloquear_inadimplente_cronico on parcelas
+  as restrictive
+  for insert to authenticated
+  with check (
+    public.meu_perfil() = 'gestor' or not public.cliente_bloqueado_por_atraso(cliente_id)
+  );
+
+-- 4) Criação atômica de venda (à vista ou a crédito) — caminho opcional,
+--    recomendado, mas o insert direto continua funcionando (protegido
+--    pelas policies do passo 3).
+--    p_itens: jsonb array de objetos {"produto": text, "quantidade": int,
 --    "produto_id": uuid|null}, no mesmo formato que `coletarItensVenda()`
 --    já monta hoje no frontend.
 drop function if exists public.criar_venda(uuid, uuid, uuid, text, text, numeric, int, numeric, date, text, jsonb);
@@ -117,8 +135,8 @@ declare
   v_valor_parcela numeric;
   v_item jsonb;
   v_caminhao_id uuid;
-  v_qtd_atual numeric;
-  v_qtd_nova numeric;
+  v_qtd_atual int;
+  v_qtd_nova int;
   v_produto_id uuid;
 begin
   if v_perfil is null then
@@ -127,6 +145,8 @@ begin
 
   -- Gate de inadimplência crônica: só pra vendedor. Gestor sempre pode
   -- vender pra inadimplente sem autorização, igual ao comportamento atual.
+  -- Necessário aqui além da policy do passo 3 porque esta função roda
+  -- security definer (bypassa RLS).
   if v_perfil = 'vendedor' and public.cliente_bloqueado_por_atraso(p_cliente_id) then
     raise exception 'Cliente com atraso de mais de 1 mês. Solicite autorização do gestor antes de vender.';
   end if;
@@ -181,14 +201,14 @@ begin
     from generate_series(1, p_num_parcelas) as gs;
   end if;
 
-  -- Itens da venda.
+  -- Itens da venda (venda_itens.quantidade é integer).
   if p_itens is not null then
     for v_item in select * from jsonb_array_elements(p_itens) loop
       insert into venda_itens (venda_id, produto, quantidade, produto_id)
       values (
         v_venda.id,
         v_item ->> 'produto',
-        (v_item ->> 'quantidade')::numeric,
+        (v_item ->> 'quantidade')::int,
         nullif(v_item ->> 'produto_id', '')::uuid
       );
     end loop;
@@ -205,9 +225,10 @@ begin
     where id = p_equipe_id;
   end if;
 
-  -- Baixa de estoque do caminhão: só quando é o próprio vendedor
-  -- registrando (mesma condição de hoje). Lock de linha (for update) evita
-  -- o read-then-write não atômico que existe hoje no JS.
+  -- Baixa de estoque do caminhão (caminhao_estoque.quantidade e
+  -- movimentacoes_estoque.quantidade são integer): só quando é o próprio
+  -- vendedor registrando (mesma condição de hoje). Lock de linha
+  -- (for update) evita o read-then-write não atômico que existe hoje no JS.
   if v_perfil = 'vendedor' and p_itens is not null and p_equipe_id is not null then
     select caminhao_id into v_caminhao_id from equipes where id = p_equipe_id;
     if v_caminhao_id is not null then
@@ -219,7 +240,7 @@ begin
             where caminhao_id = v_caminhao_id and produto_id = v_produto_id
             for update;
 
-          v_qtd_nova := greatest(0, coalesce(v_qtd_atual, 0) - (v_item ->> 'quantidade')::numeric);
+          v_qtd_nova := greatest(0, coalesce(v_qtd_atual, 0) - (v_item ->> 'quantidade')::int);
 
           update caminhao_estoque
             set quantidade = v_qtd_nova, atualizado_em = now()
@@ -228,7 +249,7 @@ begin
           insert into movimentacoes_estoque
             (tipo, produto_id, quantidade, caminhao_id, equipe_id, venda_id, responsavel_id, observacao)
           values
-            ('venda', v_produto_id, (v_item ->> 'quantidade')::numeric, v_caminhao_id, p_equipe_id, v_venda.id,
+            ('venda', v_produto_id, (v_item ->> 'quantidade')::int, v_caminhao_id, p_equipe_id, v_venda.id,
              public.meu_funcionario_id(), 'Venda ' || v_venda.codigo);
         end if;
       end loop;
@@ -242,60 +263,13 @@ $$;
 revoke all on function public.criar_venda(uuid, uuid, uuid, text, text, numeric, int, numeric, date, text, jsonb) from public;
 grant execute on function public.criar_venda(uuid, uuid, uuid, text, text, numeric, int, numeric, date, text, jsonb) to authenticated;
 
--- 4) Autorização de venda para cliente inadimplente / venda sem CPF: a
---    decisão (autorizar/negar) passa a exigir gestor no servidor. A
---    solicitação em si continua sendo um INSERT direto do vendedor (não dá
---    pra centralizar isso numa função sem saber o formato exato usado hoje
---    para o código de 6 dígitos), mas a policy nova abaixo impede que o
---    próprio vendedor insira já com status diferente de 'pendente'.
-drop function if exists public.autorizar_venda(uuid);
-drop function if exists public.negar_venda(uuid);
-
-create function public.autorizar_venda(p_autorizacao_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = public, extensions
-as $$
-begin
-  if public.meu_perfil() is distinct from 'gestor' then
-    raise exception 'Apenas gestor pode autorizar vendas.';
-  end if;
-  update autorizacoes_venda set status = 'autorizado' where id = p_autorizacao_id;
-end;
-$$;
-
-create function public.negar_venda(p_autorizacao_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = public, extensions
-as $$
-begin
-  if public.meu_perfil() is distinct from 'gestor' then
-    raise exception 'Apenas gestor pode negar vendas.';
-  end if;
-  update autorizacoes_venda set status = 'negado' where id = p_autorizacao_id;
-end;
-$$;
-
-revoke all on function public.autorizar_venda(uuid) from public;
-grant execute on function public.autorizar_venda(uuid) to authenticated;
-revoke all on function public.negar_venda(uuid) from public;
-grant execute on function public.negar_venda(uuid) to authenticated;
-
--- 5) Tranca as tabelas: a partir daqui só as funções acima escrevem em
---    vendas/parcelas. SELECT continua liberado do jeito que já está hoje
---    (não mexemos nas policies de leitura).
-revoke insert, update, delete on vendas from authenticated;
-revoke insert, update, delete on parcelas from authenticated;
-
--- autorizacoes_venda: o vendedor ainda pode criar a solicitação (INSERT),
--- mas só com status 'pendente' — e não pode mais fazer UPDATE direto
--- (aprovação/negação só via autorizar_venda/negar_venda acima).
-drop policy if exists autorizacoes_venda_insert_pendente on autorizacoes_venda;
-create policy autorizacoes_venda_insert_pendente on autorizacoes_venda
+-- 5) Fecha a lacuna em autorizacoes_venda: `autoriz_insert` (já existente)
+--    não restringe `status`, então esta policy restritiva garante que
+--    qualquer INSERT feito por quem não é gestor só pode entrar como
+--    'pendente' — a aprovação continua exigindo gestor via
+--    `autoriz_update_gestor` (já existente, não mexemos nela).
+drop policy if exists autorizacoes_venda_insert_apenas_pendente on autorizacoes_venda;
+create policy autorizacoes_venda_insert_apenas_pendente on autorizacoes_venda
+  as restrictive
   for insert to authenticated
-  with check (status = 'pendente');
-
-revoke update, delete on autorizacoes_venda from authenticated;
+  with check (public.meu_perfil() = 'gestor' or status = 'pendente');
