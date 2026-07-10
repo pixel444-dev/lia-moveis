@@ -1009,7 +1009,8 @@ tr:hover td{background:#fafafa;}
           </div>
           <div class="campo">
             <label id="lbl-vnc-nascimento" style="font-size:13px;">📅 Nascimento *</label>
-            <input id="vnc-nascimento" type="date" style="padding:14px;font-size:16px;border-radius:10px;">
+            <input id="vnc-nascimento" type="text" inputmode="numeric" placeholder="DD/MM/AAAA" maxlength="10" style="padding:14px;font-size:16px;border-radius:10px;" oninput="mascararDataCampo(this)" onblur="validarDataNascimentoCampo(this)">
+            <div id="msg-nascimento-vnc"></div>
           </div>
         </div>
         <div class="campo">
@@ -2035,6 +2036,53 @@ function validarTelefoneCampo(input, msgId) {
     input.classList.add('erro');
     if (msg) msg.innerHTML = '<span class="cpf-invalido">✗ Telefone incompleto — informe o DDD e o número completo</span>';
   }
+}
+
+// Formata a data de nascimento conforme o usuário digita: DD/MM/AAAA.
+function _formatarDataBR(digitos) {
+  if (digitos.length > 4) return digitos.replace(/^(\d{2})(\d{2})(\d{0,4}).*/, '$1/$2/$3');
+  if (digitos.length > 2) return digitos.replace(/^(\d{2})(\d{0,2})/, '$1/$2');
+  return digitos;
+}
+
+// Converte "DD/MM/AAAA" pro formato ISO ("AAAA-MM-DD") usado pelo banco e por
+// validarIdade(). Retorna null se a data não existir no calendário ou for futura.
+function _dataBRparaISO(str) {
+  const m = String(str || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = parseInt(m[3], 10);
+  if (mo < 1 || mo > 12) return null;
+  const diasNoMes = new Date(y, mo, 0).getDate();
+  if (d < 1 || d > diasNoMes) return null;
+  const iso = y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  return iso <= new Date().toISOString().slice(0, 10) ? iso : null;
+}
+
+// Converte "AAAA-MM-DD" (vindo do banco) pro formato exibido "DD/MM/AAAA".
+function _dataISOparaBR(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
+}
+
+// oninput: aplica a máscara em tempo real e limita a 8 dígitos (DDMMAAAA)
+function mascararDataCampo(input) {
+  input.value = _formatarDataBR(input.value.replace(/\D/g, '').slice(0, 8));
+  input.classList.remove('erro');
+}
+
+// onblur: valida formato, existência no calendário e idade mínima
+function validarDataNascimentoCampo(input) {
+  const msg = document.getElementById('msg-nascimento-vnc');
+  const valorBR = input.value.trim();
+  if (!valorBR) { input.classList.remove('erro'); if (msg) msg.innerHTML = ''; return; }
+  const iso = _dataBRparaISO(valorBR);
+  if (!iso) {
+    input.classList.add('erro');
+    if (msg) msg.innerHTML = '<span class="cpf-invalido">✗ Data inválida — use o formato DD/MM/AAAA</span>';
+    return;
+  }
+  input.classList.remove('erro');
+  msg.innerHTML = validarIdade(iso) ? '<span class="cpf-valido">✓ Data válida</span>' : '<span class="cpf-invalido">✗ Cliente deve ter no mínimo 18 anos</span>';
 }
 
 function calcularTotaisEquipe(vendas) {
@@ -3703,6 +3751,8 @@ async function iniciarVendaAvista() {
   ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('msg-telefone-vnc').innerHTML = '';
   document.getElementById('vnc-telefone').classList.remove('erro');
+  document.getElementById('msg-nascimento-vnc').innerHTML = '';
+  document.getElementById('vnc-nascimento').classList.remove('erro');
   _resetVncCidade();
   document.getElementById('vnc-edit-id').value = '';
   window._vncFotoUrl = null;
@@ -3735,6 +3785,8 @@ async function buscarClientePorCPF() {
     ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('msg-telefone-vnc').innerHTML = '';
     document.getElementById('vnc-telefone').classList.remove('erro');
+    document.getElementById('msg-nascimento-vnc').innerHTML = '';
+    document.getElementById('vnc-nascimento').classList.remove('erro');
     _resetVncCidade();
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
@@ -3799,6 +3851,8 @@ async function buscarClientePorCPF() {
     ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('msg-telefone-vnc').innerHTML = '';
     document.getElementById('vnc-telefone').classList.remove('erro');
+    document.getElementById('msg-nascimento-vnc').innerHTML = '';
+    document.getElementById('vnc-nascimento').classList.remove('erro');
     _resetVncCidade();
     document.getElementById('vnc-edit-id').value = '';
     window._vncFotoUrl = null;
@@ -3811,7 +3865,7 @@ async function buscarClientePorCPF() {
 async function salvarNovoClienteVenda() {
   const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
   const nome = document.getElementById('vnc-nome').value.trim();
-  const nascimento = document.getElementById('vnc-nascimento').value;
+  const nascimentoBR = document.getElementById('vnc-nascimento').value.trim();
   const endereco = document.getElementById('vnc-endereco').value.trim();
   const cidade = document.getElementById('vnc-cidade').value.trim();
   const municipioIdVnc = window._vncMunicipioId || null;
@@ -3823,6 +3877,11 @@ async function salvarNovoClienteVenda() {
   if (!nome) { alert('Preencha o nome completo!'); return; }
   if (telefone && !telefoneValido(telefone)) { alert('Celular inválido! Informe o DDD e o número completo.'); return; }
   if (cidade && !municipioIdVnc) { alert('Selecione uma cidade válida da lista.'); return; }
+  let nascimento = '';
+  if (nascimentoBR) {
+    nascimento = _dataBRparaISO(nascimentoBR);
+    if (!nascimento) { alert('Data de nascimento inválida! Use o formato DD/MM/AAAA.'); return; }
+  }
   if (perfilAtivo.perfil === 'vendedor' && modoAvista) {
     if (nascimento && !validarIdade(nascimento)) { alert('Cliente deve ter no mínimo 18 anos!'); return; }
     if (!endereco) { alert('Preencha o endereço!'); return; }
@@ -4120,7 +4179,7 @@ async function editarClienteNoModal(clienteId) {
   if (aviso) aviso.style.display = 'none';
   document.getElementById('vnc-nome').value = data.nome || '';
   document.getElementById('vnc-telefone').value = _formatarTelefoneBR(String(data.telefone || '').replace(/\D/g, '').slice(0, 11));
-  document.getElementById('vnc-nascimento').value = data.data_nascimento || '';
+  document.getElementById('vnc-nascimento').value = _dataISOparaBR(data.data_nascimento);
   document.getElementById('vnc-endereco').value = data.endereco || '';
   document.getElementById('vnc-bairro').value = data.bairro || '';
   document.getElementById('vnc-cidade').value = data.cidade || '';
@@ -4605,6 +4664,8 @@ async function solicitarAutorizacaoSemCPF() {
       ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
       var _msgTelVnc = document.getElementById('msg-telefone-vnc'); if (_msgTelVnc) _msgTelVnc.innerHTML = '';
       var _elTelVnc = document.getElementById('vnc-telefone'); if (_elTelVnc) _elTelVnc.classList.remove('erro');
+      var _msgNascVnc = document.getElementById('msg-nascimento-vnc'); if (_msgNascVnc) _msgNascVnc.innerHTML = '';
+      var _elNascVnc = document.getElementById('vnc-nascimento'); if (_elNascVnc) _elNascVnc.classList.remove('erro');
       _resetVncCidade();
       document.getElementById('vnc-edit-id').value = '';
       window._vncFotoUrl = null;
