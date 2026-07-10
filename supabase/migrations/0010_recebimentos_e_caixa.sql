@@ -454,6 +454,15 @@ begin
   update baixas_pendentes set status = 'aprovada'
   where caixa_id = p_caixa_id and status in ('pendente', 'corrigida');
 
+  -- Shape do snapshot alinhado com o que a tela de histórico já lê hoje
+  -- (docs/index.html, montarHistoricoHtml: p.nome/p.numero/p.total/p.venc/
+  -- p.valor e v.nome/v.motivo/v.data/v.obs) — replica também a distinção
+  -- fina que calcularPendentesRemarcados() já faz: uma parcela só entra em
+  -- "remarcados" se a remarcação foi CRIADA dentro deste ciclo; se a
+  -- remarcação é antiga (de um ciclo anterior) mas a data agendada cai
+  -- dentro deste ciclo, ela conta como "pendente" (não duplica o
+  -- "remarcados"), e o campo `venc` mostrado é sempre o vencimento
+  -- original da parcela, não a data remarcada.
   with clientes_cobrador as (
     select id from public.clientes_do_cobrador(v_caixa.cobrador_id)
   ),
@@ -464,24 +473,35 @@ begin
     where not p.pago and coalesce(p.status, '') <> 'devolvida'
   ),
   remarques as (
-    select distinct on (parcela_id) parcela_id, data_agendada, motivo
+    select distinct on (parcela_id) parcela_id, data_agendada, motivo, observacao, criado_em
     from visitas_agendadas
-    where cobrador_id = v_caixa.cobrador_id and not concluida and criado_em >= v_caixa.ciclo_inicio
+    where cobrador_id = v_caixa.cobrador_id and not concluida
     order by parcela_id, criado_em desc
+  ),
+  classificadas as (
+    select
+      pa.*,
+      rq.data_agendada, rq.motivo, rq.observacao,
+      case
+        when rq.data_agendada is not null then rq.data_agendada
+        when pa.data_vencimento < current_date then current_date
+        else pa.data_vencimento
+      end as data_efetiva,
+      (rq.parcela_id is not null and rq.criado_em >= v_caixa.ciclo_inicio) as remarcado_neste_ciclo
+    from parcelas_abertas pa
+    left join remarques rq on rq.parcela_id = pa.id
   )
   select
     jsonb_agg(jsonb_build_object(
-      'cliente_id', pa.cliente_id, 'cliente_nome', cl.nome, 'parcela_id', pa.id,
-      'valor', pa.valor - coalesce(pa.valor_pago, 0), 'data_vencimento', pa.data_vencimento
-    )) filter (where rq.parcela_id is null and pa.data_vencimento between v_caixa.ciclo_inicio and v_caixa.ciclo_fim),
+      'nome', cl.nome, 'numero', c.numero, 'total', c.total_parcelas,
+      'venc', c.data_vencimento, 'valor', c.valor - coalesce(c.valor_pago, 0)
+    )) filter (where not c.remarcado_neste_ciclo and c.data_efetiva between v_caixa.ciclo_inicio and v_caixa.ciclo_fim),
     jsonb_agg(jsonb_build_object(
-      'cliente_id', pa.cliente_id, 'cliente_nome', cl.nome, 'parcela_id', pa.id,
-      'data_agendada', rq.data_agendada, 'motivo', rq.motivo
-    )) filter (where rq.parcela_id is not null)
+      'nome', cl.nome, 'motivo', c.motivo, 'data', c.data_agendada, 'obs', c.observacao
+    )) filter (where c.remarcado_neste_ciclo)
   into v_snapshot_pendentes, v_snapshot_remarcados
-  from parcelas_abertas pa
-  join clientes cl on cl.id = pa.cliente_id
-  left join remarques rq on rq.parcela_id = pa.id;
+  from classificadas c
+  join clientes cl on cl.id = c.cliente_id;
 
   update caixa_cobrador set
     status = 'aprovado',

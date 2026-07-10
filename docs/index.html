@@ -5270,46 +5270,33 @@ async function confirmarGasto() {
 
   if (valor <= 0) { alert('Digite o valor do gasto!'); return; }
   if (!descricao) { alert('Digite a descrição!'); return; }
-
-  if (tipo === 'alimentacao') {
-    const caixaId = await obterCaixaAtiva();
-    const hoje = dataLocalYMD();
-    const { data } = await sb.from('movimentacoes_caixa')
-      .select('valor').eq('caixa_id', caixaId).eq('tipo', 'gasto')
-      .eq('categoria', 'alimentacao').gte('criado_em', hoje + 'T00:00:00');
-    const jaGasto = (data || []).reduce(function(a, g) { return a + Number(g.valor); }, 0);
-    if (jaGasto + valor > 40) {
-      alert('Limite de alimentação R$ 40/dia ultrapassado! Já gastou R$ ' + jaGasto.toFixed(2) + ' hoje.');
-      return;
-    }
-  }
-
   if (tipo !== 'alimentacao' && !window._gastoComprovante) {
     alert('Comprovante obrigatório para este tipo de gasto!');
     return;
   }
 
-  const caixaId = await obterCaixaAtiva();
-  if (!caixaId) { alert('Erro ao obter caixa.'); return; }
-
-  const { data: mov, error } = await sb.from('movimentacoes_caixa').insert({
-    caixa_id: caixaId,
-    cobrador_id: funcionarioLogado.id,
-    tipo: 'gasto',
-    categoria: tipo,
-    descricao: descricao,
-    valor: valor
-  }).select().single();
-
-  if (error) {
-    Logger.error('cobrador', 'REGISTRAR_GASTO', 'Erro ao registrar gasto', { supabase_code: error.code });
-    alert('Erro ao registrar gasto!');
-    return;
+  // Upload primeiro (o nome do arquivo não depende mais do id da linha,
+  // já que o insert agora acontece dentro da RPC registrar_gasto).
+  let comprovanteUrl = null;
+  if (window._gastoComprovante) {
+    const nomeArquivo = 'gasto_' + crypto.randomUUID() + '.' + window._gastoComprovanteExt;
+    comprovanteUrl = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._gastoComprovante, window._gastoComprovanteExt);
+    if (!comprovanteUrl) { alert('Erro ao enviar o comprovante. Tente novamente.'); return; }
   }
 
-  if (window._gastoComprovante) {
-    const url = await uploadArquivoComprovante('comprovantes', 'gasto_' + mov.id + '.' + window._gastoComprovanteExt, window._gastoComprovante, window._gastoComprovanteExt);
-    if (url) await sb.from('movimentacoes_caixa').update({ foto_comprovante: url }).eq('id', mov.id);
+  // O limite de R$40/dia em alimentação agora é validado dentro da RPC
+  // (servidor), não só no cliente.
+  const { error } = await sb.rpc('registrar_gasto', {
+    p_categoria: tipo,
+    p_descricao: descricao,
+    p_valor: valor,
+    p_comprovante_url: comprovanteUrl
+  });
+
+  if (error) {
+    Logger.error('cobrador', 'REGISTRAR_GASTO', 'Erro ao registrar gasto', { supabase_code: error.code, error_message: error.message });
+    alert(error.message || 'Erro ao registrar gasto!');
+    return;
   }
 
   fecharModal('modal-gasto');
@@ -5354,25 +5341,20 @@ async function confirmarDeposito() {
   if (valor <= 0) { alert('Digite o valor do depósito!'); return; }
   if (!window._depositoComprovante) { alert('Comprovante do depósito é obrigatório!'); return; }
 
-  const caixaId = await obterCaixaAtiva();
-  if (!caixaId) { alert('Erro ao obter caixa.'); return; }
+  const nomeArquivo = 'deposito_' + crypto.randomUUID() + '.' + window._depositoComprovanteExt;
+  const comprovanteUrl = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._depositoComprovante, window._depositoComprovanteExt);
+  if (!comprovanteUrl) { alert('Erro ao enviar o comprovante. Tente novamente.'); return; }
 
-  const { data: mov, error } = await sb.from('movimentacoes_caixa').insert({
-    caixa_id: caixaId,
-    cobrador_id: funcionarioLogado.id,
-    tipo: 'deposito',
-    descricao: 'Depósito',
-    valor: valor
-  }).select().single();
+  const { error } = await sb.rpc('registrar_deposito', {
+    p_valor: valor,
+    p_comprovante_url: comprovanteUrl
+  });
 
   if (error) {
-    Logger.error('cobrador', 'REGISTRAR_DEPOSITO', 'Erro ao registrar depósito', { supabase_code: error.code });
+    Logger.error('cobrador', 'REGISTRAR_DEPOSITO', 'Erro ao registrar depósito', { supabase_code: error.code, error_message: error.message });
     alert('Erro ao registrar depósito!');
     return;
   }
-
-  const url = await uploadArquivoComprovante('comprovantes', 'deposito_' + mov.id + '.' + window._depositoComprovanteExt, window._depositoComprovante, window._depositoComprovanteExt);
-  if (url) await sb.from('movimentacoes_caixa').update({ foto_comprovante: url }).eq('id', mov.id);
 
   fecharModal('modal-deposito');
   await carregarSaldoCobrador();
@@ -6785,13 +6767,16 @@ function removerComprovante() {
   document.getElementById('comprovante-arquivo').value = '';
 }
 
-async function uploadComprovante(baixaId) {
+async function uploadComprovante() {
   if (!window._comprovanteBlob) {
     console.log('[upload] Sem blob para upload');
     return null;
   }
   const ext = window._comprovanteExt || 'webp';
-  const nomeArquivo = 'pix_' + baixaId + '.' + ext;
+  // Nome gerado no cliente (não depende mais do id de uma linha já criada):
+  // registrar_recebimento() faz o insert de baixas_pendentes internamente,
+  // então o upload precisa acontecer ANTES da chamada à RPC.
+  const nomeArquivo = 'pix_' + crypto.randomUUID() + '.' + ext;
   const contentType = ext === 'pdf' ? 'application/pdf' : 'image/webp';
 
   console.log('[upload] Iniciando:', nomeArquivo, contentType, 'tamanho:', window._comprovanteBlob.size);
@@ -6823,7 +6808,6 @@ async function confirmarRecebimento() {
   if (btn) { btn.disabled = true; btn.textContent = 'Processando...'; }
   try {
   const parcelaId = document.getElementById('receb-parcela-id').value;
-  const clienteId = document.getElementById('receb-cliente-id').value;
   const tipo = document.getElementById('receb-tipo').value;
   const valorTotal = parseFloat(document.getElementById('receb-valor-total').value) || 0;
   const valorRecebido = tipo === 'completo'
@@ -6840,77 +6824,30 @@ async function confirmarRecebimento() {
     return;
   }
 
-  // O modal recebe o saldo restante; o acumulado precisa vir do banco para
-  // somar com recebimentos parciais anteriores em vez de sobrescrevê-los.
-  const { data: parcelaAtual, error: errParcela } = await sb.from('parcelas')
-    .select('valor, valor_pago').eq('id', parcelaId).single();
-  if (errParcela || !parcelaAtual) { alert('Erro ao carregar a parcela!'); return; }
-  const valorParcela = Number(parcelaAtual.valor) || 0;
-  const pagoAnterior = Number(parcelaAtual.valor_pago) || 0;
-  const saldoAtual = Math.round((valorParcela - pagoAnterior) * 100) / 100;
-  if (tipo === 'parcial' && valorRecebido >= saldoAtual) { alert('Para pagamento total use "Pagamento completo"!'); return; }
-  const isCompleto = tipo === 'completo';
-  const valorRecebidoReal = isCompleto ? saldoAtual : valorRecebido;
-
-  const caixaId = await obterCaixaAtiva();
-  if (!caixaId) { alert('Erro ao obter caixa ativa. Contate o gestor.'); return; }
-
-  const dataCiclo = await resolverDataCobranca(parcelaId);
-
-  const { data: baixa, error } = await sb.from('baixas_pendentes').insert({
-    caixa_id: caixaId,
-    parcela_id: parcelaId,
-    cobrador_id: funcionarioLogado.id,
-    cliente_id: clienteId,
-    valor_recebido: valorRecebidoReal,
-    forma_pagamento: forma,
-    observacao: obs || null,
-    tipo_baixa: tipo,
-    status: 'pendente',
-    data_ciclo: dataCiclo
-  }).select().single();
-
-  if (error) {
-    Logger.error('cobrador', 'CONFIRMAR_RECEBIMENTO', 'Erro ao salvar baixa pendente', { supabase_code: error.code });
-    alert('Erro ao registrar recebimento!');
-    return;
-  }
-
-  console.log('[recebimento] Baixa criada com ID:', baixa.id);
-
-  // Upload do comprovante se for PIX
+  // Upload primeiro: registrar_recebimento() faz o insert de
+  // baixas_pendentes e o update de parcelas/caixa_cobrador numa transação
+  // só no backend (com lock de linha, sem a corrida de leitura-e-escrita
+  // que existia aqui antes), então precisamos da URL do comprovante pronta
+  // antes de chamar a RPC.
   let comprovanteUrl = null;
   if (forma === 'pix' && window._comprovanteBlob) {
-    console.log('[recebimento] Vai fazer upload do comprovante PIX');
-    comprovanteUrl = await uploadComprovante(baixa.id);
-    console.log('[recebimento] URL retornada:', comprovanteUrl);
-    if (comprovanteUrl) {
-      await sb.from('baixas_pendentes').update({ comprovante_pix: comprovanteUrl }).eq('id', baixa.id);
-    }
+    comprovanteUrl = await uploadComprovante();
+    if (!comprovanteUrl) { alert('Erro ao enviar comprovante. Tente novamente.'); return; }
   }
 
-  // Marcar parcela como paga na visão do cobrador
-  const updParcela = {
-    pago: isCompleto,
-    valor_pago: isCompleto ? valorParcela : Math.round((pagoAnterior + valorRecebido) * 100) / 100,
-    forma_pagamento: forma,
-    cobrador_id: funcionarioLogado.id,
-    data_pagamento: isCompleto ? new Date().toISOString() : null,
-    status: isCompleto ? 'paga' : 'aberta'
-  };
-  // Não apagar comprovante de um recebimento parcial anterior
-  if (comprovanteUrl) updParcela.comprovante_pix = comprovanteUrl;
-  const { error: errUpd } = await sb.from('parcelas').update(updParcela).eq('id', parcelaId).eq('pago', false);
-  if (errUpd) {
-    Logger.error('cobrador', 'CONFIRMAR_RECEBIMENTO', 'Erro ao atualizar parcela', { supabase_code: errUpd.code });
-  }
+  const { error } = await sb.rpc('registrar_recebimento', {
+    p_parcela_id: parcelaId,
+    p_tipo: tipo,
+    p_valor_recebido: valorRecebido,
+    p_forma: forma,
+    p_observacao: obs || null,
+    p_comprovante_url: comprovanteUrl
+  });
 
-  // Se foi dinheiro, somar no saldo da caixa
-  if (forma === 'dinheiro') {
-    const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', caixaId).single();
-    await sb.from('caixa_cobrador').update({
-      saldo_esperado: (caixa?.saldo_esperado || 0) + valorRecebidoReal
-    }).eq('id', caixaId);
+  if (error) {
+    Logger.error('cobrador', 'CONFIRMAR_RECEBIMENTO', 'Erro ao registrar recebimento', { supabase_code: error.code, error_message: error.message });
+    alert(error.message || 'Erro ao registrar recebimento!');
+    return;
   }
 
   removerComprovante();
@@ -7016,43 +6953,16 @@ async function totalRecebidoNoIntervalo(cobradorId, inicio, fim) {
 }
 
 async function obterCaixaAtiva() {
-  const { data } = await sb.from('caixa_cobrador').select('id')
-    .eq('cobrador_id', funcionarioLogado.id).eq('status', 'aberto').limit(1);
-  if (data?.[0]) return data[0].id;
-
-  const hoje = new Date();
-  const dia = hoje.getDate();
-  const ciclo = cicloDoDia(dia);
-  let inicioStr, fimStr;
-  if (ciclo.chave === '30') {
-    if (dia <= 4) {
-      // Estamos na cauda do ciclo 30 — início foi no mês anterior
-      const mesAnt = hoje.getMonth() === 0 ? 11 : hoje.getMonth() - 1;
-      const anoAnt = hoje.getMonth() === 0 ? hoje.getFullYear() - 1 : hoje.getFullYear();
-      inicioStr = new Date(anoAnt, mesAnt, 30).toISOString().split('T')[0];
-      fimStr = new Date(hoje.getFullYear(), hoje.getMonth(), 4).toISOString().split('T')[0];
-    } else {
-      // dia >= 30 — início este mês, fim no próximo
-      inicioStr = new Date(hoje.getFullYear(), hoje.getMonth(), 30).toISOString().split('T')[0];
-      fimStr = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 4).toISOString().split('T')[0];
-    }
-  } else {
-    inicioStr = new Date(hoje.getFullYear(), hoje.getMonth(), ciclo.diaInicio).toISOString().split('T')[0];
-    fimStr = new Date(hoje.getFullYear(), hoje.getMonth(), ciclo.diaFim).toISOString().split('T')[0];
-  }
-
-  const { data: novaCaixa, error } = await sb.from('caixa_cobrador').insert({
-    cobrador_id: funcionarioLogado.id,
-    ciclo_inicio: inicioStr,
-    ciclo_fim: fimStr,
-    status: 'aberto'
-  }).select().single();
-
+  // A lógica de ciclo (inclusive a virada de mês do ciclo "30") agora roda
+  // no backend, dentro de abrir_caixa_cobrador() (migration 0009) — get-or-
+  // create atômico, protegido por índice único contra duas caixas abertas
+  // em paralelo.
+  const { data: caixa, error } = await sb.rpc('abrir_caixa_cobrador');
   if (error) {
-    Logger.error('cobrador', 'CRIAR_CAIXA', 'Erro ao criar caixa automática', { supabase_code: error.code });
+    Logger.error('cobrador', 'CRIAR_CAIXA', 'Erro ao abrir caixa automática', { supabase_code: error.code, error_message: error.message });
     return null;
   }
-  return novaCaixa.id;
+  return caixa?.id ?? null;
 }
 
 function abrirNaoRecebi(parcelaId, numero, total, clienteId, nomeCliente) {
@@ -7079,18 +6989,15 @@ async function confirmarNaoRecebi() {
   if (!motivo) { alert('Selecione o motivo!'); return; }
   if (!data) { alert('Selecione a data da próxima visita!'); return; }
 
-  const { error } = await sb.from('visitas_agendadas').insert({
-    cobrador_id: funcionarioLogado.id,
-    cliente_id: clienteId,
-    parcela_id: parcelaId,
-    motivo: motivo,
-    observacao: obs || null,
-    data_agendada: data,
-    concluida: false
+  const { error } = await sb.rpc('registrar_nao_recebi', {
+    p_parcela_id: parcelaId,
+    p_motivo: motivo,
+    p_observacao: obs || null,
+    p_data_remarcada: data
   });
 
   if (error) {
-    Logger.error('cobrador', 'AGENDAR_VISITA', 'Erro ao agendar visita', { supabase_code: error.code });
+    Logger.error('cobrador', 'AGENDAR_VISITA', 'Erro ao agendar visita', { supabase_code: error.code, error_message: error.message });
     alert('Erro ao registrar!');
     return;
   }
@@ -7173,48 +7080,24 @@ async function salvarCaixaManual() {
   if (!inicio || !fim) { alert('Informe o período!'); return; }
   if (new Date(fim) < new Date(inicio)) { alert('A data final deve ser depois da inicial!'); return; }
 
-  if (_caixaAbertaCobrador) {
-    const { error } = await sb.from('caixa_cobrador')
-      .update({ ciclo_inicio: inicio, ciclo_fim: fim })
-      .eq('id', _caixaAbertaCobrador.id);
-    if (error) {
-      Logger.error('prestacao', 'ESTENDER_CAIXA', 'Erro ao estender caixa', { supabase_code: error.code });
-      alert('Erro ao estender caixa!');
-      return;
-    }
-    Logger.info('prestacao', 'ESTENDER_CAIXA', 'Caixa estendida', { caixaId: _caixaAbertaCobrador.id, inicio, fim });
-    alert('Caixa estendida com sucesso!');
-  } else {
-    // Verificação final: cobrador pode ter criado caixa automaticamente enquanto modal estava aberto
-    const { data: existente } = await sb.from('caixa_cobrador').select('id')
-      .eq('cobrador_id', cobradorId).eq('status', 'aberto').limit(1);
-    if (existente?.[0]) {
-      const { error } = await sb.from('caixa_cobrador')
-        .update({ ciclo_inicio: inicio, ciclo_fim: fim })
-        .eq('id', existente[0].id);
-      if (error) {
-        Logger.error('prestacao', 'CRIAR_CAIXA_MANUAL', 'Erro ao atualizar caixa existente', { supabase_code: error.code });
-        alert('Erro ao salvar caixa!');
-        return;
-      }
-      Logger.info('prestacao', 'CRIAR_CAIXA_MANUAL', 'Caixa existente atualizada (race condition evitada)', { cobradorId, inicio, fim });
-      alert('Caixa atualizada com sucesso!');
-    } else {
-      const { error } = await sb.from('caixa_cobrador').insert({
-        cobrador_id: cobradorId,
-        ciclo_inicio: inicio,
-        ciclo_fim: fim,
-        status: 'aberto'
-      });
-      if (error) {
-        Logger.error('prestacao', 'CRIAR_CAIXA_MANUAL', 'Erro ao criar caixa', { supabase_code: error.code });
-        alert('Erro ao criar caixa!');
-        return;
-      }
-      Logger.info('prestacao', 'CRIAR_CAIXA_MANUAL', 'Caixa criada manualmente', { cobradorId, inicio, fim });
-      alert('Caixa criada com sucesso!');
-    }
+  // gestor_abrir_ou_estender_caixa() já faz o get-or-create/estende de
+  // forma atômica no backend (inclusive a proteção contra o cobrador ter
+  // criado a própria caixa automaticamente enquanto este modal estava
+  // aberto — mesma corrida que o código anterior tratava manualmente).
+  const { error } = await sb.rpc('gestor_abrir_ou_estender_caixa', {
+    p_cobrador_id: cobradorId,
+    p_ciclo_inicio: inicio,
+    p_ciclo_fim: fim
+  });
+
+  if (error) {
+    Logger.error('prestacao', 'CRIAR_CAIXA_MANUAL', 'Erro ao salvar caixa', { supabase_code: error.code, error_message: error.message });
+    alert('Erro ao salvar caixa!');
+    return;
   }
+
+  Logger.info('prestacao', 'CRIAR_CAIXA_MANUAL', 'Caixa criada/estendida manualmente', { cobradorId, inicio, fim });
+  alert(_caixaAbertaCobrador ? 'Caixa estendida com sucesso!' : 'Caixa criada/atualizada com sucesso!');
 
   fecharModal('modal-gerenciar-caixa');
   carregarPrestacaoContas();
@@ -7828,45 +7711,21 @@ async function salvarCorrecaoBaixa() {
 
   if (isNaN(valor) || valor <= 0) { alert('Digite um valor válido!'); return; }
 
-  const { data: baixa } = await sb.from('baixas_pendentes').select('*').eq('id', baixaId).single();
-  if (!baixa) { alert('Baixa não encontrada!'); return; }
-
-  const { error } = await sb.from('baixas_pendentes').update({
-    valor_recebido: valor,
-    tipo_baixa: tipo,
-    forma_pagamento: forma,
-    status: 'corrigida'
-  }).eq('id', baixaId);
+  // corrigir_baixa() já faz a sincronização de parcelas/caixa_cobrador
+  // atomicamente no backend (mesma lógica de "troca o valor antigo desta
+  // baixa pelo corrigido, preservando outras baixas parciais" que existia
+  // aqui, só que numa transação com lock).
+  const { error } = await sb.rpc('corrigir_baixa', {
+    p_baixa_id: baixaId,
+    p_valor_recebido: valor,
+    p_tipo_baixa: tipo,
+    p_forma_pagamento: forma
+  });
 
   if (error) {
-    Logger.error('prestacao', 'CORRIGIR_BAIXA', 'Erro ao corrigir', { supabase_code: error.code });
+    Logger.error('prestacao', 'CORRIGIR_BAIXA', 'Erro ao corrigir', { supabase_code: error.code, error_message: error.message });
     alert('Erro ao corrigir!');
     return;
-  }
-
-  // Sincronizar parcela: troca o valor antigo desta baixa pelo corrigido,
-  // preservando o acumulado de outras baixas parciais da mesma parcela.
-  const isCompleto = tipo === 'completo';
-  const { data: parcelaAtual } = await sb.from('parcelas').select('valor, valor_pago').eq('id', baixa.parcela_id).single();
-  const valorParcela = Number(parcelaAtual?.valor) || 0;
-  const semEstaBaixa = Math.max(0, Math.round(((Number(parcelaAtual?.valor_pago) || 0) - Number(baixa.valor_recebido || 0)) * 100) / 100);
-  await sb.from('parcelas').update({
-    pago: isCompleto,
-    valor_pago: isCompleto ? valorParcela : Math.min(valorParcela, Math.round((semEstaBaixa + valor) * 100) / 100),
-    forma_pagamento: forma,
-    data_pagamento: isCompleto ? (baixa.data_pagamento || new Date().toISOString()) : null,
-    status: isCompleto ? 'paga' : 'aberta'
-  }).eq('id', baixa.parcela_id);
-
-  // Ajustar saldo_esperado se a forma de dinheiro mudou ou o valor mudou
-  const deltaAnterior = baixa.forma_pagamento === 'dinheiro' ? Number(baixa.valor_recebido) : 0;
-  const deltaNovo = forma === 'dinheiro' ? valor : 0;
-  const delta = deltaNovo - deltaAnterior;
-  if (delta !== 0) {
-    const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', baixa.caixa_id).single();
-    await sb.from('caixa_cobrador').update({
-      saldo_esperado: (caixa?.saldo_esperado || 0) + delta
-    }).eq('id', baixa.caixa_id);
   }
 
   Logger.info('prestacao', 'CORRIGIR_BAIXA', 'Baixa corrigida', { baixaId, valor, tipo, forma });
@@ -7878,23 +7737,12 @@ async function cancelarBaixaPrestacao() {
   const baixaId = document.getElementById('corrigir-baixa-id').value;
   if (!confirm('Cancelar esta baixa? O recebimento será removido e o dinheiro em mãos ajustado.')) return;
 
-  const { data: baixa } = await sb.from('baixas_pendentes').select('*').eq('id', baixaId).single();
-  if (!baixa) { alert('Baixa não encontrada!'); return; }
+  const { error } = await sb.rpc('cancelar_baixa_prestacao', { p_baixa_id: baixaId });
 
-  await sb.from('baixas_pendentes').update({ status: 'cancelada' }).eq('id', baixaId);
-
-  // Reverter apenas o valor desta baixa, preservando outras baixas parciais
-  const { data: parcelaCanc } = await sb.from('parcelas').select('valor_pago').eq('id', baixa.parcela_id).single();
-  const restante = Math.max(0, Math.round(((Number(parcelaCanc?.valor_pago) || 0) - Number(baixa.valor_recebido || 0)) * 100) / 100);
-  const updCancel = { pago: false, valor_pago: restante, data_pagamento: null, status: 'aberta' };
-  if (restante <= 0) { updCancel.forma_pagamento = null; updCancel.cobrador_id = null; }
-  await sb.from('parcelas').update(updCancel).eq('id', baixa.parcela_id);
-
-  if (baixa.forma_pagamento === 'dinheiro') {
-    const { data: caixa } = await sb.from('caixa_cobrador').select('saldo_esperado').eq('id', baixa.caixa_id).single();
-    await sb.from('caixa_cobrador').update({
-      saldo_esperado: Math.max(0, (caixa?.saldo_esperado || 0) - Number(baixa.valor_recebido))
-    }).eq('id', baixa.caixa_id);
+  if (error) {
+    Logger.error('prestacao', 'CANCELAR_BAIXA', 'Erro ao cancelar baixa', { supabase_code: error.code, error_message: error.message });
+    alert('Erro ao cancelar!');
+    return;
   }
 
   Logger.info('prestacao', 'CANCELAR_BAIXA', 'Baixa cancelada na prestação', { baixaId });
@@ -7908,46 +7756,23 @@ async function autorizarCaixa() {
 
   if (!confirm('Autorizar esta caixa? Todas as baixas pendentes serão confirmadas no sistema definitivo.')) return;
 
-  const { data: baixas } = await sb.from('baixas_pendentes').select('*')
-    .eq('caixa_id', caixaId).in('status', ['pendente', 'corrigida']);
+  // autorizar_caixa() faz tudo numa transação só: aprova as baixas em
+  // lote, grava o ledger definitivo em movimentacoes_cobranca, monta o
+  // snapshot de pendentes/remarcados e fecha a caixa — o loop de awaits
+  // não-atômico que existia aqui (uma falha no meio deixava o fechamento
+  // pela metade) não existe mais.
+  const { error } = await sb.rpc('autorizar_caixa', {
+    p_caixa_id: caixaId,
+    p_saldo_entregue: entregue
+  });
 
-  for (const b of (baixas || [])) {
-    // A parcela já foi atualizada no ato do recebimento (confirmarRecebimento)
-    // e em eventuais correções (salvarCorrecaoBaixa). Reaplicar o valor desta
-    // baixa aqui sobrescreveria o acumulado de baixas parciais anteriores.
-    await sb.from('movimentacoes_cobranca').insert({
-      cobrador_id: b.cobrador_id,
-      cliente_id: b.cliente_id,
-      tipo: 'cobranca',
-      valor: b.valor_recebido,
-      forma_pagamento: b.forma_pagamento
-    });
-
-    await sb.from('baixas_pendentes').update({ status: 'aprovada' }).eq('id', b.id);
+  if (error) {
+    Logger.error('prestacao', 'AUTORIZAR_CAIXA', 'Erro ao autorizar caixa', { supabase_code: error.code, error_message: error.message });
+    alert(error.message || 'Erro ao autorizar caixa!');
+    return;
   }
 
-  const { pendentes: pSnap, remarcados: rSnap, mapaNome: nSnap } = await calcularPendentesRemarcados(caixaId);
-  const snapshotPendentes = pSnap.map(p => ({
-    nome: nSnap[p.cliente_id] || '—',
-    numero: p.numero, total: p.total_parcelas,
-    venc: p.data_vencimento,
-    valor: Number(p.valor - (p.valor_pago||0))
-  }));
-  const snapshotRemarcados = rSnap.map(v => ({
-    nome: nSnap[v.cliente_id] || '—',
-    motivo: v.motivo, data: v.data_agendada, obs: v.observacao || null
-  }));
-
-  await sb.from('caixa_cobrador').update({
-    status: 'aprovado',
-    saldo_entregue: entregue,
-    autorizado_por: funcionarioLogado.id,
-    autorizado_em: new Date().toISOString(),
-    snapshot_pendentes: snapshotPendentes,
-    snapshot_remarcados: snapshotRemarcados
-  }).eq('id', caixaId);
-
-  Logger.info('prestacao', 'AUTORIZAR_CAIXA', 'Caixa autorizada', { caixaId, totalBaixas: (baixas || []).length });
+  Logger.info('prestacao', 'AUTORIZAR_CAIXA', 'Caixa autorizada', { caixaId });
   fecharModal('modal-prestacao');
   carregarPrestacaoContas();
   alert('Caixa autorizada com sucesso! Todas as baixas foram confirmadas.');
