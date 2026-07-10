@@ -136,6 +136,8 @@ returns table (
   cliente_id uuid,
   cliente_nome text,
   cliente_codigo text,
+  cliente_foto_casa text,
+  cliente_telefone text,
   localidade_id uuid,
   venda_id uuid,
   numero int,
@@ -219,7 +221,7 @@ begin
     left join remarques rq on rq.parcela_id = pa.id
   )
   select
-    c.parcela_id, c.cliente_id, cl.nome, cl.codigo, cl.localidade_id,
+    c.parcela_id, c.cliente_id, cl.nome, cl.codigo, cl.foto_casa, cl.telefone, cl.localidade_id,
     c.venda_id, c.numero, c.total_parcelas, c.valor, c.valor_pago,
     c.data_vencimento, c.data_efetiva, c.tipo,
     (c.venda_id is not null and c.venda_id not in (select vi.venda_id from vendas_interagidas vi)) as nova_venda

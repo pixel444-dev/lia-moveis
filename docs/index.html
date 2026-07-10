@@ -4223,105 +4223,66 @@ async function salvarVenda() {
     const equipeId = perfilAtivo.perfil === 'vendedor'
       ? (equipeAtiva?.id || null)
       : (document.getElementById('venda-equipe').value || null);
-    const dados = {
-      codigo: document.getElementById('venda-codigo').value,
-      cliente_id: clienteId,
-      vendedor_id: vendedorId,
-      tipo, produto, valor,
-      num_parcelas: tipo === 'entrada' ? parseInt(document.getElementById('venda-parcelas').value) || null : null,
-entrada: tipo === 'entrada' ? parseFloat(document.getElementById('venda-entrada').value) || 0 : 0,
-      observacao: document.getElementById('venda-obs').value.trim(),
-      equipe_id: equipeId,
-    };
-    let venda = null, error = null;
-    for (let tentativa = 0; tentativa < 3; tentativa++) {
-      const res = await sb.from('vendas').insert(dados).select().single();
-      venda = res.data; error = res.error;
-      if (!error) break;
-      if (error.code !== '23505') break;
-      Logger.warn('vendas', 'SALVAR_VENDA', 'Colisão 23505 na tentativa ' + (tentativa + 1), { codigo_colidido: dados.codigo });
-      dados.codigo = await gerarCodigoVenda();
-    }
+    const numParcelas = tipo === 'entrada' ? (parseInt(document.getElementById('venda-parcelas').value) || null) : null;
+    const entradaValor = tipo === 'entrada' ? (parseFloat(document.getElementById('venda-entrada').value) || 0) : 0;
+    const dataPrimeira = tipo === 'entrada' ? document.getElementById('venda-data-primeira').value : null;
+    const observacao = document.getElementById('venda-obs').value.trim();
+
+    // criar_venda() faz tudo numa transação atômica só, no backend: gera o
+    // código (com retry em colisão), insere a venda, gera as parcelas (com
+    // o resto da divisão absorvido pela última — corrige a sobra de
+    // centavos que a divisão simples de antes deixava sem tratamento),
+    // grava os itens, atualiza os totais da equipe e baixa o estoque do
+    // caminhão. Elimina as duas race conditions que existiam aqui (totais
+    // de equipe recalculados do zero a cada venda, leitura-e-escrita do
+    // estoque sem lock) e volta a checar a inadimplência crônica no
+    // servidor (a checagem de `window._clienteInadimplente` acima é só um
+    // atalho de UX pra não nem tentar quando já se sabe que vai falhar).
+    const { data: venda, error } = await sb.rpc('criar_venda', {
+      p_cliente_id: clienteId,
+      p_vendedor_id: vendedorId,
+      p_equipe_id: equipeId,
+      p_tipo: tipo,
+      p_produto: produto,
+      p_valor: valor,
+      p_num_parcelas: numParcelas,
+      p_entrada: entradaValor,
+      p_data_primeira_parcela: dataPrimeira || null,
+      p_observacao: observacao,
+      p_itens: itensVenda.itens.map(i => ({ produto: i.produto, quantidade: i.quantidade, produto_id: i.produtoId })),
+    });
+
     if (error) {
-      Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao inserir venda no banco', { supabase_code: error.code, supabase_msg: error.message, tipo: dados.tipo, equipe_id: dados.equipe_id, ultimo_codigo: dados.codigo });
-      alert('Erro ao registrar venda! Contate o suporte.'); return;
+      Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao registrar venda', { supabase_code: error.code, supabase_msg: error.message, tipo });
+      alert(error.message || 'Erro ao registrar venda! Contate o suporte.'); return;
     }
-    Logger.info('vendas', 'SALVAR_VENDA', 'Venda registrada com sucesso', { codigo: dados.codigo, tipo: dados.tipo, num_parcelas: dados.num_parcelas });
-    const parcelasResumo = [];
-    if (tipo === 'entrada' && dados.num_parcelas) {
-      const entradaValor = parseFloat(document.getElementById('venda-entrada').value) || 0;
-      const saldo = valor - entradaValor;
-      const vlrParcela = saldo / dados.num_parcelas;
-      const dataPrimeira = document.getElementById('venda-data-primeira').value;
-      for (let i = 0; i < dados.num_parcelas; i++) {
-        const dt = new Date(dataPrimeira + 'T12:00:00');
-        dt.setMonth(dt.getMonth() + i);
-        parcelasResumo.push({
-          venda_id: venda.id,
-          cliente_id: clienteId,
-          numero: i + 1,
-          total_parcelas: dados.num_parcelas,
-          valor: vlrParcela,
-          data_vencimento: dt.toISOString().split('T')[0],
-          pago: false,
-          status: 'aberta',
-          cobrador_id: null,
-        });
-      }
-      await sb.from('parcelas').insert(parcelasResumo);
-    }
-    // Atualizar totais da equipe
-    if (dados.equipe_id) {
-      const { data: vendasEquipe } = await sb.from('vendas')
-        .select('valor, tipo, entrada')
-        .eq('equipe_id', dados.equipe_id)
-        .neq('status', 'devolvida');
-      const ve = vendasEquipe || [];
-      const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(ve);
-      await sb.from('equipes').update({
-        total_avista: totalCaixa,
-        total_credito: totalCredito,
-        total_valor: totalGeral,
-        total_vendas: ve.length,
-      }).eq('id', dados.equipe_id);
-    }
+    Logger.info('vendas', 'SALVAR_VENDA', 'Venda registrada com sucesso', { codigo: venda.codigo, tipo, num_parcelas: numParcelas });
+
     fecharModalVenda();
-    // Registra os itens da venda (produto + quantidade)
-    const { error: errItens } = await sb.from('venda_itens').insert(
-      itensVenda.itens.map(i => ({ venda_id: venda.id, produto: i.produto, quantidade: i.quantidade, produto_id: i.produtoId }))
-    );
-    if (errItens) Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao salvar itens da venda', { supabase_code: errItens.code });
-    // For vendedor: decrementa o estoque do caminhão por item vendido
-    if (perfilAtivo.perfil === 'vendedor' && equipeAtiva?.caminhao_id) {
-      for (const it of itensVenda.itens) {
-        if (!it.produtoId) continue;
-        const { data: item } = await sb.from('caminhao_estoque').select('id, quantidade')
-          .eq('caminhao_id', equipeAtiva.caminhao_id).eq('produto_id', it.produtoId).maybeSingle();
-        if (item) {
-          await sb.from('caminhao_estoque').update({ quantidade: Math.max(0, item.quantidade - it.quantidade), atualizado_em: new Date().toISOString() }).eq('id', item.id);
-        }
-        await sb.from('movimentacoes_estoque').insert({
-          tipo: 'venda', produto_id: it.produtoId, quantidade: it.quantidade,
-          caminhao_id: equipeAtiva.caminhao_id, equipe_id: equipeAtiva.id, venda_id: venda.id,
-          responsavel_id: funcionarioLogado?.id || null,
-        });
-      }
-    }
     carregarDashboard();
+
+    let parcelasResumo = [];
+    if (tipo === 'entrada') {
+      const { data: parcelasCriadas } = await sb.from('parcelas')
+        .select('numero, total_parcelas, valor, data_vencimento')
+        .eq('venda_id', venda.id).order('numero');
+      parcelasResumo = parcelasCriadas || [];
+    }
+
     const [{ data: clienteResumo }, vendedorResumo] = await Promise.all([
       sb.from('clientes').select('nome, codigo, cpf, telefone, cidade').eq('id', clienteId).single(),
       vendedorId ? sb.from('funcionarios').select('nome').eq('id', vendedorId).single().then(r => r.data) : Promise.resolve(null),
     ]);
     await abrirResumoVenda({
       cliente: clienteResumo || {},
-      vendaCodigo: dados.codigo,
-      produto: dados.produto,
+      vendaCodigo: venda.codigo,
+      produto: produto,
       vendedorNome: vendedorResumo?.nome || '—',
       dataVenda: venda?.data_venda,
-      tipo: dados.tipo,
-      valor: dados.valor,
-      entrada: dados.entrada,
-      parcelas: dados.tipo === 'entrada' ? parcelasResumo : [],
+      tipo: tipo,
+      valor: valor,
+      entrada: entradaValor,
+      parcelas: parcelasResumo,
     });
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '💾 Finalizar venda'; }
@@ -5605,100 +5566,30 @@ async function renderCicloSelecionado(cicloChave) {
   }
 
   try {
-    const statusErro = {};
-    const [{ data: localidades, error: errLoc }, clientes, { data: visitas, error: errVis }] = await Promise.all([
+    // A classificação inteira (nova/normal/remarcada/atrasada) agora roda
+    // no backend, dentro de fichas_do_ciclo() (migration 0009) — mesma
+    // regra de antes, só que numa única RPC em vez de 4 buscas + cálculo
+    // no cliente.
+    const [{ data: localidades, error: errLoc }, { data: linhas, error: errFichas }] = await Promise.all([
       sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome'),
-      _clientesDoCobrador(undefined, statusErro),
-      buscarTudoPaginado(() => sb.from('visitas_agendadas')
-        .select('parcela_id, data_agendada, concluida, criado_em')
-        .eq('cobrador_id', funcionarioLogado.id).eq('concluida', false)
-        .order('criado_em', { ascending: false })),
+      sb.rpc('fichas_do_ciclo', { p_caixa_id: caixa.id, p_ciclo_chave: cicloChave }),
     ]);
-    // Sem isso, uma falha de rede aqui viraria "clientes: []" e a gente
-    // concluiria (errado) que o cobrador não tem ninguém pra cobrar,
-    // sobrescrevendo o cache bom com uma tela vazia incorreta.
-    if (errLoc || errVis || statusErro.houveErro) {
-      throw new Error('Falha ao buscar dados básicos da rota do cobrador');
-    }
-    const clienteIds = clientes.map(c => c.id);
-    if (!clienteIds.length) {
-      const semClientesHtml = '<p style="color:#888;text-align:center;padding:2rem;">Nenhum cliente na sua rota.</p>';
-      conteudo.innerHTML = _fichasStatusHtml(Date.now(), false) + semClientesHtml;
-      salvarCacheFichas(chaveCache, semClientesHtml);
-      return;
+    // Sem isso, uma falha de rede aqui sobrescreveria o cache bom com uma
+    // tela vazia incorreta.
+    if (errLoc || errFichas) {
+      throw new Error(errFichas?.message || errLoc?.message || 'Falha ao buscar dados básicos da rota do cobrador');
     }
 
-    const parcelas = await buscarInLotes(clienteIds, lote => sb.from('parcelas')
-      .select('id, cliente_id, venda_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
-      .in('cliente_id', lote).eq('pago', false).neq('status', 'devolvida').order('id'));
-
-    const mapaRemarque = {};
-    (visitas||[]).forEach(v => { if (v.parcela_id && !mapaRemarque[v.parcela_id]) mapaRemarque[v.parcela_id] = v.data_agendada; });
-
-    const inicio = new Date(caixa.ciclo_inicio + 'T12:00:00');
-    const fim = new Date(caixa.ciclo_fim + 'T12:00:00');
-
-    const mapaCliente = {};
-    (clientes||[]).forEach(c => mapaCliente[c.id] = c);
-
-    const fichas = [];
-    (parcelas||[]).forEach(p => {
-      const remarque = mapaRemarque[p.id];
-      const venc = new Date(p.data_vencimento + 'T12:00:00');
-      let dataEf, tipo;
-
-      if (remarque) {
-        dataEf = new Date(remarque + 'T12:00:00');
-        tipo = 'remarcada';
-        if (dataEf < inicio || dataEf > fim) return;
-        if (cicloDoDia(dataEf.getDate()).chave !== cicloChave) return;
-      } else if (venc >= inicio) {
-        dataEf = venc;
-        tipo = 'normal';
-        if (dataEf < inicio || dataEf > fim) return;
-        if (cicloDoDia(dataEf.getDate()).chave !== cicloChave) return;
-      } else {
-        dataEf = venc;
-        tipo = 'atrasada';
-      }
-
-      const cli = mapaCliente[p.cliente_id];
-      if (!cli) return;
-      fichas.push({
-        cliente: cli, parcela: p, dataEf, venc,
-        atrasada: tipo === 'atrasada',
-        remarcada: tipo === 'remarcada',
-        rolada: false
-      });
-    });
-
-    // Venda nova = nenhuma parcela cobrada E nenhuma visita registrada (cobrador ainda não mexeu)
-    const vendaIds = [...new Set(fichas.map(f => f.parcela.venda_id).filter(Boolean))];
-    const vendasInteragidas = new Set();
-    if (vendaIds.length) {
-      // 1) vendas com alguma parcela cobrada (total ou parcial)
-      const parcVendas = await buscarInLotes(vendaIds, lote => sb.from('parcelas')
-        .select('id, venda_id, pago, valor_pago')
-        .in('venda_id', lote).order('id'));
-      const parcelaToVenda = {};
-      parcVendas.forEach(p => {
-        parcelaToVenda[p.id] = p.venda_id;
-        if (p.pago || Number(p.valor_pago||0) > 0) vendasInteragidas.add(p.venda_id);
-      });
-      // 2) vendas onde o cobrador já registrou alguma visita ("não recebi" / remarcação)
-      const parcelaIds = parcVendas.map(p => p.id);
-      if (parcelaIds.length) {
-        const vis = await buscarInLotes(parcelaIds, lote => sb.from('visitas_agendadas')
-          .select('parcela_id')
-          .in('parcela_id', lote).order('parcela_id'));
-        vis.forEach(v => {
-          const vid = parcelaToVenda[v.parcela_id];
-          if (vid) vendasInteragidas.add(vid);
-        });
-      }
-    }
-    fichas.forEach(f => {
-      f.novaVenda = f.parcela.venda_id && !vendasInteragidas.has(f.parcela.venda_id);
+    const fichas = (linhas || []).map(function(r) {
+      return {
+        cliente: { id: r.cliente_id, nome: r.cliente_nome, codigo: r.cliente_codigo, localidade_id: r.localidade_id, foto_casa: r.cliente_foto_casa, telefone: r.cliente_telefone },
+        parcela: { id: r.parcela_id, numero: r.numero, total_parcelas: r.total_parcelas, valor: r.valor, valor_pago: r.valor_pago },
+        dataEf: new Date(r.data_efetiva + 'T12:00:00'),
+        venc: new Date(r.data_vencimento + 'T12:00:00'),
+        atrasada: r.tipo === 'atrasada',
+        remarcada: r.tipo === 'remarcada',
+        novaVenda: r.nova_venda,
+      };
     });
 
     if (!fichas.length) {
@@ -6922,19 +6813,6 @@ function intervaloCicloNoMes(ano, mes, chave) {
     case '30': return { inicio: new Date(ano, mes, 30, 12), fim: new Date(ano, mes+1, 4, 12) };
     case '05': return { inicio: new Date(ano, mes+1, 5, 12), fim: new Date(ano, mes+1, 9, 12) };
   }
-}
-
-async function resolverDataCobranca(parcelaId) {
-  const { data: p } = await sb.from('parcelas').select('data_vencimento').eq('id', parcelaId).single();
-  const { data: v } = await sb.from('visitas_agendadas')
-    .select('data_agendada').eq('parcela_id', parcelaId).eq('concluida', false)
-    .order('criado_em', { ascending: false }).limit(1);
-
-  const hoje = new Date(); hoje.setHours(12,0,0,0);
-  if (v && v[0]) return v[0].data_agendada;
-  const venc = new Date((p?.data_vencimento||'') + 'T12:00:00');
-  if (p?.data_vencimento && venc < hoje) return hoje.toISOString().split('T')[0];
-  return p?.data_vencimento || hoje.toISOString().split('T')[0];
 }
 
 async function totalRecebidoNoIntervalo(cobradorId, inicio, fim) {
