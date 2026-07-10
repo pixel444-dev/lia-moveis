@@ -3839,10 +3839,10 @@ async function salvarNovoClienteVenda() {
     if (!endereco) { alert('Preencha o endereço!'); return; }
     if (!cidade) { alert('Preencha a cidade!'); return; }
     if (!cobradorId) { alert('Selecione o cobrador responsável!'); return; }
-    if (!editId && !window._vncFotoBlob) { alert('Tire uma foto da casa do cliente!'); return; }
+    if (!window._vncFotoBlob && !window._vncFotoUrl) { alert('Tire uma foto da casa do cliente!'); return; }
     const lat = document.getElementById('vnc-latitude').value;
     const lng = document.getElementById('vnc-longitude').value;
-    if (!editId && (!lat || !lng)) {
+    if (!lat || !lng) {
       alert('Localização obrigatória! Clique em "Salvar localização atual" antes de continuar.');
       return;
     }
