@@ -464,7 +464,9 @@ begin
   -- "remarcados"), e o campo `venc` mostrado é sempre o vencimento
   -- original da parcela, não a data remarcada.
   with clientes_cobrador as (
-    select id from public.clientes_do_cobrador(v_caixa.cobrador_id)
+    -- mesmo detalhe de clientes_do_cobrador() retornar `setof uuid`
+    -- escalar — precisa do "as id" pra nomear a coluna (ver 0009).
+    select id from public.clientes_do_cobrador(v_caixa.cobrador_id) as id
   ),
   parcelas_abertas as (
     select p.*

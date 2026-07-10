@@ -173,7 +173,11 @@ begin
 
   return query
   with clientes_cobrador as (
-    select id from public.clientes_do_cobrador(v_caixa.cobrador_id)
+    -- clientes_do_cobrador() retorna `setof uuid` (tipo escalar, não uma
+    -- tabela com colunas nomeadas) — sem o "as id" aqui, a coluna do
+    -- resultado se chama igual à função (`clientes_do_cobrador`), não
+    -- `id`, e o `select id from ...` falha com "column id does not exist".
+    select id from public.clientes_do_cobrador(v_caixa.cobrador_id) as id
   ),
   parcelas_abertas as (
     select p.*
