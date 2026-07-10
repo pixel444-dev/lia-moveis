@@ -578,7 +578,11 @@ tr:hover td{background:#fafafa;}
       <div class="topbar-pg">
         <div class="page-title" style="margin:0">🏆 Ranking — crediário</div>
       </div>
-      <div style="font-size:13px;color:#888;margin-bottom:1rem;">Ranking do mês atual pelo valor vendido em crediário. Atualiza automaticamente.</div>
+      <div id="ranking-seletor-mes" style="display:none;margin-bottom:1rem;">
+        <label style="font-size:12px;color:#888;display:block;margin-bottom:4px;">Ver ranking do mês</label>
+        <select id="ranking-mes-select" onchange="trocarMesRanking(this.value)" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;min-width:220px;"></select>
+      </div>
+      <div id="ranking-subtitulo" style="font-size:13px;color:#888;margin-bottom:1rem;">Ranking do mês atual pelo valor vendido em crediário. Atualiza automaticamente.</div>
       <div id="ranking-conteudo">Carregando...</div>
     </div>
 
@@ -1501,6 +1505,8 @@ let equipesAtivas = [];
 let semanasAtual = [];
 let mesAtual = null;
 let mesEquipesSelecionadoId = null;
+let rankingMesSelecionadoId = null;
+let rankingMesAtualId = null;
 let equipeAtiva = null;
 let autorizacaoAtualId = null;
 let pollInterval = null;
@@ -1964,7 +1970,7 @@ function pg(nome, el) {
   if (nome === 'funcionarios') carregarFuncionarios();
   if (nome === 'produtos') carregarProdutos();
   if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarVendas(); });
-  if (nome === 'ranking') { carregarRanking(); rankingPollInterval = setInterval(carregarRanking, 15000); }
+  if (nome === 'ranking') { carregarRanking(); rankingPollInterval = setInterval(() => carregarRankingDoMes(rankingMesSelecionadoId), 15000); }
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'localidades') carregarLocalidades();
   if (nome === 'ciclos') carregarCiclos();
@@ -9443,12 +9449,50 @@ sb.auth.getSession().then(async ({ data: { session } }) => {
 // ===== MÓDULO RANKING DE VENDEDORES =====
 
 async function carregarRanking() {
+  const seletor = document.getElementById('ranking-seletor-mes');
+  if (perfilAtivo.perfil !== 'gestor') {
+    seletor.style.display = 'none';
+    rankingMesSelecionadoId = null;
+    await carregarRankingDoMes(null);
+    return;
+  }
+  // Toda vez que a página é (re)aberta, volta a mostrar o mês atual —
+  // navegar pro histórico é uma escolha explícita via seletor.
+  rankingMesSelecionadoId = null;
+  seletor.style.display = '';
+  await carregarRankingSeletorMes();
+  await carregarRankingDoMes(rankingMesSelecionadoId);
+}
+
+async function carregarRankingSeletorMes() {
+  const { data: meses } = await sb.from('meses_referencia').select('id, ano, mes, data_inicio, data_fim')
+    .order('ano', { ascending: false }).order('mes', { ascending: false });
+  const nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const hoje = dataLocalYMD();
+  const doMomento = (meses || []).find(m => m.data_inicio <= hoje && m.data_fim >= hoje);
+  rankingMesAtualId = doMomento ? doMomento.id : null;
+  if (!rankingMesSelecionadoId) {
+    rankingMesSelecionadoId = rankingMesAtualId || (meses?.[0]?.id || null);
+  }
+  const sel = document.getElementById('ranking-mes-select');
+  sel.innerHTML = (meses || []).map(m =>
+    `<option value="${m.id}"${m.id === rankingMesSelecionadoId ? ' selected' : ''}>${nomesMes[m.mes - 1]}/${m.ano}</option>`
+  ).join('');
+}
+
+function trocarMesRanking(mesId) {
+  rankingMesSelecionadoId = mesId;
+  carregarRankingDoMes(mesId);
+}
+
+async function carregarRankingDoMes(mesId) {
   const cont = document.getElementById('ranking-conteudo');
-  const { data, error } = await sb.rpc('ranking_vendedores_mes');
+  const sub = document.getElementById('ranking-subtitulo');
+  const { data, error } = await sb.rpc('ranking_vendedores_mes', { p_mes_id: mesId });
   if (error) { cont.innerHTML = '<p style="color:#c00;">Erro ao carregar ranking.</p>'; return; }
   const linhas = data || [];
   if (!linhas.length) {
-    cont.innerHTML = '<p style="color:#888;">Nenhum ciclo ou semana cadastrada para o mês atual — confira em "Meses / Ciclos".</p>';
+    cont.innerHTML = '<p style="color:#888;">Nenhum ciclo ou semana cadastrada para o mês selecionado — confira em "Meses / Ciclos".</p>';
     return;
   }
   const porSemana = {};
@@ -9459,6 +9503,13 @@ async function carregarRanking() {
     if (l.escopo === 'semana') porSemana[l.semana_id].itens.push(l);
   });
   const semanas = Object.values(porSemana).sort((a, b) => a.numero - b.numero);
+
+  if (sub) {
+    const ehMesAtual = mesId == null || mesId === rankingMesAtualId;
+    sub.textContent = ehMesAtual
+      ? 'Ranking do mês atual pelo valor vendido em crediário. Atualiza automaticamente.'
+      : 'Ranking do mês selecionado pelo valor vendido em crediário (histórico).';
+  }
 
   let html = '';
   semanas.forEach(sem => {
