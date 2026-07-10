@@ -6013,14 +6013,14 @@ function renderResumoParcelasCard(resumo, tituloTotal) {
 }
 
 // Lista única (paga + em aberto) na ordem recebida — sem separar as pagas no final.
-function renderParcelasMobileUnificado(parcelas, showVendaCodigo) {
+function renderParcelasMobileUnificado(parcelas) {
   const hoje = new Date();
   return parcelas.map(function(p) {
     const vencimento = new Date(p.data_vencimento + 'T12:00:00');
     const produto = (p.vendas && p.vendas.produto) ? p.vendas.produto : '';
     const produtoSafe = escJs(produto);
     const codigoVenda = (p.vendas && p.vendas.codigo) ? p.vendas.codigo : '';
-    const codigoBadge = (showVendaCodigo && codigoVenda) ? '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + escHtml(codigoVenda) + '</span></div>' : '';
+    const codigoBadge = codigoVenda ? '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + escHtml(codigoVenda) + '</span></div>' : '';
 
     if (p.pago) {
       const comprovante = p.comprovante_pix
@@ -6034,6 +6034,7 @@ function renderParcelasMobileUnificado(parcelas, showVendaCodigo) {
       html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📦 ' + escHtml(produto || '—') + '</div>';
       html += '<div style="font-size:13px;color:#555;margin-bottom:4px;">📅 Venceu: ' + vencimento.toLocaleDateString('pt-BR') + '</div>';
       html += '<div style="font-size:13px;color:#555;margin-bottom:6px;">✅ Recebido: ' + (p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—') + '</div>';
+      html += '<div style="font-size:12px;color:#888;margin-bottom:6px;">👤 Cobrador: ' + escHtml(p.funcionarios?.nome || '—') + '</div>';
       html += '<div style="font-size:18px;font-weight:700;color:#3B6D11;margin-bottom:10px;">R$ ' + Number(p.valor).toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>';
       html += comprovante;
       html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">';
@@ -6137,6 +6138,59 @@ async function verDetalhesParcela(parcelaId) {
   document.getElementById('modal-detalhe-parcela').style.display = 'flex';
 }
 
+// Uma única linha de tabela, usada tanto na visão "por venda" quanto "por
+// cliente" — garante que as duas visões (e a tela após dar/cancelar baixa
+// ou editar) mostrem sempre as mesmas colunas, na mesma ordem.
+function _linhaParcelaDesktop(p, hoje) {
+  const vencimento = new Date(p.data_vencimento + 'T12:00:00');
+  const valorPago = p.valor_pago || 0;
+  const codigoVenda = p.vendas?.codigo || '';
+  if (p.pago) {
+    const comprovante = p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : '';
+    return `<tr style="background:#EAF3DE;">
+      <td><span class="codigo-badge">${escHtml(codigoVenda||'—')}</span></td>
+      <td>${escHtml(p.vendas?.produto||'—')}</td>
+      <td>${p.numero}/${p.total_parcelas}</td>
+      <td>${vencimento.toLocaleDateString('pt-BR')}<div style="font-size:11px;color:#888;">Pago em ${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</div></td>
+      <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+      <td><span class="badge verde">Paga</span><div style="font-size:11px;color:#888;">${escHtml(p.funcionarios?.nome||'—')}</div>${comprovante}</td>
+      <td>
+        <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${escJs(codigoVenda)}')">Cancelar baixa</button>
+        <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button>
+        <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}',true,'${p.cliente_id}','${escJs(codigoVenda)}')">Editar</button>
+      </td>
+    </tr>`;
+  }
+  const atrasada = vencimento < hoje;
+  const saldo = p.valor - valorPago;
+  return `<tr style="background:${atrasada?'#FCEBEB':valorPago>0?'#FAEEDA':''}">
+    <td><span class="codigo-badge">${escHtml(codigoVenda||'—')}</span></td>
+    <td>${escHtml(p.vendas?.produto||'—')}</td>
+    <td>${p.numero}/${p.total_parcelas}</td>
+    <td style="color:${atrasada?'#A32D2D':'#1a1a1a'};font-weight:${atrasada?'500':'400'}">${vencimento.toLocaleDateString('pt-BR')}</td>
+    <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
+    <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
+    <td>
+      <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${escJs(p.vendas?.produto||'')}')">Dar baixa</button>
+      <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}')">Editar</button>
+    </td>
+  </tr>`;
+}
+
+// Reabre a visão de parcelas exatamente como ela estava (por venda ou por
+// cliente) — usada após dar baixa, cancelar baixa ou editar, para a tela
+// nunca "trocar" de visual sozinha.
+function atualizarParcelasView() {
+  const el = document.querySelector('#lista-parcelas-cliente [data-tipo-view]');
+  if (!el) return;
+  const nomeCliente = el.dataset.nomeCliente || '';
+  if (el.dataset.tipoView === 'venda') {
+    verParcelasVenda(el.dataset.vendaId, el.dataset.clienteId, nomeCliente, el.dataset.codigoVenda);
+  } else {
+    verParcelasCliente(el.dataset.clienteId, nomeCliente);
+  }
+}
+
 async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
   const { data, error } = await sb.from('parcelas')
     .select('*, vendas(codigo, produto, entrada), funcionarios(nome)')
@@ -6152,48 +6206,19 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
 
   let listaHtml;
   if (mobile) {
-    listaHtml = renderParcelasMobileUnificado(data, false);
+    listaHtml = renderParcelasMobileUnificado(data);
   } else {
     listaHtml = `<div class="tabela-wrap"><table>
-      <thead><tr><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
-      <tbody>${data.map(p => {
-        const vencimento = new Date(p.data_vencimento + 'T12:00:00');
-        const valorPago = p.valor_pago || 0;
-        if (p.pago) {
-          const comprovante = p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : '';
-          return `<tr style="background:#EAF3DE;">
-            <td>${p.numero}/${p.total_parcelas}</td>
-            <td>${vencimento.toLocaleDateString('pt-BR')}<div style="font-size:11px;color:#888;">Pago em ${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</div></td>
-            <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-            <td><span class="badge verde">Paga</span>${comprovante}</td>
-            <td>
-              <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${escJs(codigoVenda)}')">Cancelar baixa</button>
-              <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button>
-            </td>
-          </tr>`;
-        }
-        const atrasada = vencimento < hoje;
-        const saldo = p.valor - valorPago;
-        return `<tr style="background:${atrasada?'#FCEBEB':valorPago>0?'#FAEEDA':''}">
-          <td>${p.numero}/${p.total_parcelas}</td>
-          <td style="color:${atrasada?'#A32D2D':'#1a1a1a'};font-weight:${atrasada?'500':'400'}">${vencimento.toLocaleDateString('pt-BR')}</td>
-          <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
-          <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
-          <td>
-            <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${escJs(p.vendas?.produto||'')}')">Dar baixa</button>
-            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}')">Editar</button>
-          </td>
-        </tr>`;
-      }).join('')}
-      </tbody>
+      <thead><tr><th>Venda</th><th>Produto</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
+      <tbody>${data.map(p => _linhaParcelaDesktop(p, hoje)).join('')}</tbody>
     </table></div>`;
   }
 
   document.getElementById('lista-parcelas-cliente').innerHTML = `
     <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
       <div style="flex:3;min-width:280px;">
-        <div data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
-          Venda ${escHtml(codigoVenda)} — ${escHtml(nomeCliente)} — ${data.length} parcela(s), ${emAbertoQtd} em aberto
+        <div data-tipo-view="venda" data-venda-id="${escHtml(vendaId)}" data-cliente-id="${escHtml(clienteId)}" data-codigo-venda="${escHtml(codigoVenda)}" data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
+          ${escHtml(nomeCliente)} — ${data.length} parcela(s), ${emAbertoQtd} em aberto
         </div>
         ${listaHtml}
       </div>
@@ -6214,53 +6239,18 @@ async function verParcelasCliente(clienteId, nomeCliente) {
 
   let listaHtml;
   if (mobile) {
-    listaHtml = renderParcelasMobileUnificado(data, true);
+    listaHtml = renderParcelasMobileUnificado(data);
   } else {
     listaHtml = `<div class="tabela-wrap"><table>
       <thead><tr><th>Venda</th><th>Produto</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
-      <tbody>${data.map(p => {
-        const vencimento = new Date(p.data_vencimento + 'T12:00:00');
-        const valorPago = p.valor_pago || 0;
-        const codigoVenda = p.vendas?.codigo || '';
-        if (p.pago) {
-          const comprovante = p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : '';
-          return `<tr style="background:#EAF3DE;">
-            <td><span class="codigo-badge">${escHtml(codigoVenda||'—')}</span></td>
-            <td>${escHtml(p.vendas?.produto||'—')}</td>
-            <td>${p.numero}/${p.total_parcelas}</td>
-            <td>${vencimento.toLocaleDateString('pt-BR')}<div style="font-size:11px;color:#888;">Pago em ${p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—'}</div></td>
-            <td>R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
-            <td><span class="badge verde">Paga</span>${comprovante}</td>
-            <td>
-              <button class="btn" style="font-size:11px;padding:3px 8px;color:#854F0B;border-color:#FAC775;" onclick="cancelarBaixa('${p.id}','${p.cliente_id}','${escJs(codigoVenda)}')">Cancelar baixa</button>
-              <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="verDetalhesParcela('${p.id}')">Ver detalhes</button>
-              <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}',true,'${p.cliente_id}','${escJs(codigoVenda)}')">Editar</button>
-            </td>
-          </tr>`;
-        }
-        const atrasada = vencimento < hoje;
-        const saldo = p.valor - valorPago;
-        return `<tr style="background:${atrasada?'#FCEBEB':valorPago>0?'#FAEEDA':''}">
-          <td><span class="codigo-badge">${escHtml(codigoVenda||'—')}</span></td>
-          <td>${escHtml(p.vendas?.produto||'—')}</td>
-          <td>${p.numero}/${p.total_parcelas}</td>
-          <td style="color:${atrasada?'#A32D2D':'#1a1a1a'};font-weight:${atrasada?'500':'400'}">${vencimento.toLocaleDateString('pt-BR')}</td>
-          <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
-          <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
-          <td>
-            <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${escJs(p.vendas?.produto||'')}')">Dar baixa</button>
-            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}')">Editar</button>
-          </td>
-        </tr>`;
-      }).join('')}
-      </tbody>
+      <tbody>${data.map(p => _linhaParcelaDesktop(p, hoje)).join('')}</tbody>
     </table></div>`;
   }
 
   document.getElementById('lista-parcelas-cliente').innerHTML = `
     <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
       <div style="flex:3;min-width:280px;">
-        <div data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${escHtml(nomeCliente)} — ${data.length} parcela(s), ${emAbertoQtd} em aberto</div>
+        <div data-tipo-view="cliente" data-cliente-id="${escHtml(clienteId)}" data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${escHtml(nomeCliente)} — ${data.length} parcela(s), ${emAbertoQtd} em aberto</div>
         ${listaHtml}
       </div>
       <div style="flex:1;min-width:220px;max-width:280px;">
@@ -6354,9 +6344,7 @@ async function confirmarBaixa() {
       forma_pagamento: forma,
     });
     fecharModal('modal-baixa');
-    const nomeCliente = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
-    const clienteId = parcela?.cliente_id;
-    if (clienteId) verParcelasCliente(clienteId, nomeCliente);
+    atualizarParcelasView();
     carregarDashboard();
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Confirmar baixa'; }
@@ -9376,11 +9364,7 @@ async function cancelarBaixa(parcelaId, clienteId, codigoVenda) {
     alert('Erro ao cancelar baixa!'); return;
   }
   Logger.warn('cobrancas', 'CANCELAR_BAIXA', 'Baixa cancelada');
-  const { data: parcela } = await sb.from('parcelas').select('cliente_id, vendas(codigo)').eq('id', parcelaId).single();
-  if (parcela?.cliente_id) {
-    const nome = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
-    verParcelasCliente(parcela.cliente_id, nome);
-  }
+  atualizarParcelasView();
 }
 
 async function cancelarBaixaDoModal() {
@@ -9427,12 +9411,7 @@ async function salvarEdicaoParcela() {
     }
   }
   fecharModal('modal-editar-parcela');
-  const clienteIdEl = document.querySelector('#lista-parcelas-cliente');
-  if (clienteIdEl) {
-    const nome = document.querySelector('#lista-parcelas-cliente [data-nome-cliente]')?.dataset.nomeCliente || '';
-    const { data: parcela } = await sb.from('parcelas').select('cliente_id').eq('id', id).single();
-    if (parcela?.cliente_id) verParcelasCliente(parcela.cliente_id, nome);
-  }
+  atualizarParcelasView();
 }
 sb.auth.getSession().then(async ({ data: { session } }) => {
   if (!session) return;
