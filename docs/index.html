@@ -430,6 +430,7 @@ tr:hover td{background:#fafafa;}
     <div class="nav-grupo" id="nav-grupo-vendas">
       <div class="nav-sep">Vendas</div>
       <div class="nav-item" id="nav-vendas" data-page="vendas" onclick="pg('vendas',this)"><span class="nav-ico">🛒</span>Vendas</div>
+      <div class="nav-item" id="nav-ranking" data-page="ranking" onclick="pg('ranking',this)"><span class="nav-ico">🏆</span>Ranking</div>
       <div class="nav-item" id="nav-equipes" data-page="equipes" onclick="pg('equipes',this)"><span class="nav-ico">🚚</span>Equipes / Semanas</div>
       <div class="nav-item" id="nav-caminhoes" data-page="caminhoes" onclick="pg('caminhoes',this)"><span class="nav-ico">🚛</span>Caminhões</div>
       <div class="nav-item" id="nav-estoque" data-page="estoque" onclick="pg('estoque',this)"><span class="nav-ico">🏭</span>Estoque</div>
@@ -571,6 +572,14 @@ tr:hover td{background:#fafafa;}
         <button class="btn primario" onclick="buscarVendasFiltro()" style="padding:8px 16px;" title="Buscar">🔍</button>
       </div>
       <div id="lista-vendas">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-ranking">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">🏆 Ranking — crediário</div>
+      </div>
+      <div style="font-size:13px;color:#888;margin-bottom:1rem;">Ranking do mês atual pelo valor vendido em crediário. Atualiza automaticamente.</div>
+      <div id="ranking-conteudo">Carregando...</div>
     </div>
 
     <div class="page" id="page-equipes">
@@ -1491,6 +1500,7 @@ let equipeAtiva = null;
 let autorizacaoAtualId = null;
 let pollInterval = null;
 let gestorPollInterval = null;
+let rankingPollInterval = null;
 const isMobile = () => window.innerWidth <= 768;
 
 // === Logout automático por inatividade ===
@@ -1941,6 +1951,7 @@ function pg(nome, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + nome).classList.add('active');
   el.classList.add('active');
+  if (rankingPollInterval) { clearInterval(rankingPollInterval); rankingPollInterval = null; }
   if (nome === 'dashboard') carregarDashboard();
   if (nome === 'rotas') carregarRotas();
   if (nome === 'meses') carregarMeses();
@@ -1948,6 +1959,7 @@ function pg(nome, el) {
   if (nome === 'funcionarios') carregarFuncionarios();
   if (nome === 'produtos') carregarProdutos();
   if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarVendas(); });
+  if (nome === 'ranking') { carregarRanking(); rankingPollInterval = setInterval(carregarRanking, 15000); }
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'localidades') carregarLocalidades();
   if (nome === 'ciclos') carregarCiclos();
@@ -9422,6 +9434,64 @@ sb.auth.getSession().then(async ({ data: { session } }) => {
   }
   await checarObrigatoriedade2FAeEntrar(session.user);
 });
+
+// ===== MÓDULO RANKING DE VENDEDORES =====
+
+async function carregarRanking() {
+  const cont = document.getElementById('ranking-conteudo');
+  const { data, error } = await sb.rpc('ranking_vendedores_mes');
+  if (error) { cont.innerHTML = '<p style="color:#c00;">Erro ao carregar ranking.</p>'; return; }
+  const linhas = data || [];
+  if (!linhas.length) {
+    cont.innerHTML = '<p style="color:#888;">Nenhum ciclo aberto no momento.</p>';
+    return;
+  }
+  const porSemana = {};
+  const doMes = [];
+  linhas.forEach(l => {
+    if (l.escopo === 'mes') { doMes.push(l); return; }
+    if (!porSemana[l.semana_id]) porSemana[l.semana_id] = { numero: l.semana_numero, inicio: l.semana_inicio, fim: l.semana_fim, itens: [] };
+    porSemana[l.semana_id].itens.push(l);
+  });
+  const semanas = Object.values(porSemana).sort((a, b) => a.numero - b.numero);
+
+  let html = '';
+  semanas.forEach(sem => {
+    html += _renderBlocoRanking('Semana ' + sem.numero, _fmtBR(sem.inicio) + ' a ' + _fmtBR(sem.fim), sem.itens);
+  });
+  html += _renderBlocoRanking('🏁 Total do mês', '', doMes);
+  cont.innerHTML = html;
+}
+
+function _renderBlocoRanking(titulo, subtitulo, itens) {
+  const medalhas = { 1: '🥇', 2: '🥈', 3: '🥉' };
+  let html = '<div class="dash-secao" style="margin-bottom:1rem;">'
+    + '<div class="dash-secao-titulo">' + escHtml(titulo)
+    + (subtitulo ? ' <span style="font-weight:400;color:#aaa;font-size:12px;">' + escHtml(subtitulo) + '</span>' : '')
+    + '</div>';
+  if (!itens.length) {
+    html += '<div style="color:#aaa;font-size:13px;">Sem equipes nessa semana ainda.</div></div>';
+    return html;
+  }
+  const ordenados = [...itens].sort((a, b) => a.posicao - b.posicao);
+  const top = ordenados.slice(0, 3);
+  const eu = ordenados.find(i => i.eh_voce);
+
+  const linha = (i) => {
+    const destaque = i.eh_voce;
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:8px;margin-bottom:4px;'
+      + (destaque ? 'background:#F5F3FF;border:1px solid #D4CCEF;' : 'background:#fafafa;') + '">'
+      + '<span style="font-size:14px;">' + (medalhas[i.posicao] || (i.posicao + 'º')) + ' <strong>' + escHtml(i.nome) + '</strong>'
+      + (destaque ? ' <span class="badge azul" style="font-size:10px;">Você</span>' : '') + '</span>'
+      + (i.valor != null ? '<span style="font-size:14px;font-weight:700;color:#3B6D11;">R$ ' + Number(i.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + '</span>' : '')
+      + '</div>';
+  };
+
+  html += top.map(linha).join('');
+  if (eu && eu.posicao > 3) html += linha(eu);
+  html += '</div>';
+  return html;
+}
 
 // ===== MÓDULO EQUIPES / SEMANAS =====
 
