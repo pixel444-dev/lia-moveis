@@ -430,7 +430,11 @@ set search_path = public, extensions
 as $$
 declare
   v_caixa caixa_cobrador%rowtype;
-  v_gestor_id uuid := public.meu_funcionario_id();
+  -- caixa_cobrador.autorizado_por referencia perfis(id) (= auth.uid(), o
+  -- usuário autenticado), não funcionarios(id) como cobrador_id/
+  -- responsavel_id em outras tabelas — meu_funcionario_id() aqui violava
+  -- a FK.
+  v_gestor_id uuid := auth.uid();
   v_snapshot_pendentes jsonb;
   v_snapshot_remarcados jsonb;
 begin
