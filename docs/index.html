@@ -10331,8 +10331,14 @@ async function carregarMeses() {
   meses.forEach(m => {
     const semanas = (m.semanas_venda || []).sort((a, b) => a.numero - b.numero);
     const _hoje = new Date().toISOString().split('T')[0];
+    // Uma semana pode se estender 1 dia além do data_fim do mês (semana útil
+    // seg-sex vs. corte do ciclo no dia 9/10). Enquanto ainda houver semana
+    // não encerrada, o ciclo não deve aparecer como "Encerrado" mesmo que a
+    // data_fim dele já tenha passado — evita o badge do mês contradizer o
+    // badge da própria semana em aberto.
+    const temSemanaAberta = semanas.some(s => !s.encerrada);
     let statusBadge;
-    if (m.data_fim < _hoje) statusBadge = '<span style="background:#E5E7EB;color:#555;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Encerrado</span>';
+    if (m.data_fim < _hoje && !temSemanaAberta) statusBadge = '<span style="background:#E5E7EB;color:#555;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Encerrado</span>';
     else if (m.data_inicio <= _hoje) statusBadge = '<span style="background:#D1FAE5;color:#065F46;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Aberto</span>';
     else statusBadge = '<span style="background:#DBEAFE;color:#1E40AF;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;">Ativo</span>';
     const semZeroBadge = !semanas.length
