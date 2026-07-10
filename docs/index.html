@@ -9443,7 +9443,7 @@ async function carregarRanking() {
   if (error) { cont.innerHTML = '<p style="color:#c00;">Erro ao carregar ranking.</p>'; return; }
   const linhas = data || [];
   if (!linhas.length) {
-    cont.innerHTML = '<p style="color:#888;">Nenhum ciclo aberto no momento.</p>';
+    cont.innerHTML = '<p style="color:#888;">Nenhum ciclo ou semana cadastrada para o mês atual — confira em "Meses / Ciclos".</p>';
     return;
   }
   const porSemana = {};
@@ -9451,26 +9451,26 @@ async function carregarRanking() {
   linhas.forEach(l => {
     if (l.escopo === 'mes') { doMes.push(l); return; }
     if (!porSemana[l.semana_id]) porSemana[l.semana_id] = { numero: l.semana_numero, inicio: l.semana_inicio, fim: l.semana_fim, itens: [] };
-    porSemana[l.semana_id].itens.push(l);
+    if (l.escopo === 'semana') porSemana[l.semana_id].itens.push(l);
   });
   const semanas = Object.values(porSemana).sort((a, b) => a.numero - b.numero);
 
   let html = '';
   semanas.forEach(sem => {
-    html += _renderBlocoRanking('Semana ' + sem.numero, _fmtBR(sem.inicio) + ' a ' + _fmtBR(sem.fim), sem.itens);
+    html += _renderBlocoRanking('Semana ' + sem.numero, _fmtBR(sem.inicio) + ' a ' + _fmtBR(sem.fim), sem.itens, 'Sem equipes cadastradas nessa semana ainda.');
   });
-  html += _renderBlocoRanking('🏁 Total do mês', '', doMes);
+  html += _renderBlocoRanking('🏁 Total do mês', '', doMes, 'Sem vendas em crediário registradas ainda neste mês.');
   cont.innerHTML = html;
 }
 
-function _renderBlocoRanking(titulo, subtitulo, itens) {
+function _renderBlocoRanking(titulo, subtitulo, itens, msgVazio) {
   const medalhas = { 1: '🥇', 2: '🥈', 3: '🥉' };
   let html = '<div class="dash-secao" style="margin-bottom:1rem;">'
     + '<div class="dash-secao-titulo">' + escHtml(titulo)
     + (subtitulo ? ' <span style="font-weight:400;color:#aaa;font-size:12px;">' + escHtml(subtitulo) + '</span>' : '')
     + '</div>';
   if (!itens.length) {
-    html += '<div style="color:#aaa;font-size:13px;">Sem equipes nessa semana ainda.</div></div>';
+    html += '<div style="color:#aaa;font-size:13px;">' + escHtml(msgVazio || 'Sem dados ainda.') + '</div></div>';
     return html;
   }
   const ordenados = [...itens].sort((a, b) => a.posicao - b.posicao);
