@@ -9626,10 +9626,10 @@ function renderEquipes(semanas, equipes, somenteLeitura) {
           </div>
           <div class="eqsem-card-acoes">
             <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
-            ${!eq.encerrada && !somenteLeitura && perfilAtivo.perfil==='gestor'?`
-              <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirCarregarCaminhao('${eq.caminhao_id}')">+ Carregar</button>
-              <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirDevolverCD('${eq.caminhao_id}')">Devolver ao CD</button>
-              <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
+            ${!eq.encerrada && perfilAtivo.perfil==='gestor'?`
+              <button class="btn" style="font-size:11px;padding:3px 10px;${somenteLeitura?'opacity:.5;cursor:not-allowed;':''}" ${somenteLeitura?'disabled':''} onclick="abrirCarregarCaminhao('${eq.caminhao_id}')">+ Carregar</button>
+              <button class="btn" style="font-size:11px;padding:3px 10px;${somenteLeitura?'opacity:.5;cursor:not-allowed;':''}" ${somenteLeitura?'disabled':''} onclick="abrirDevolverCD('${eq.caminhao_id}')">Devolver ao CD</button>
+              <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;${somenteLeitura?'opacity:.5;cursor:not-allowed;':''}" ${somenteLeitura?'disabled':''} onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
             `:''}
           </div>
           <div id="detalhes-equipe-${eq.id}" class="eqsem-card-detalhes" style="display:none;"></div>
