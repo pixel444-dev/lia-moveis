@@ -6,10 +6,11 @@
 --
 -- Rode este script no SQL Editor do Supabase, depois da 0010.
 --
--- Realtime respeita RLS: as policies de SELECT criadas na migration 0010
--- (cobrador vê só o próprio, gestor vê tudo) já bastam pra que o gestor
--- receba eventos de todos os cobradores e cada cobrador só receba os
--- próprios — não precisa de nenhuma policy extra aqui.
+-- Realtime respeita RLS: as policies de SELECT já existentes nessas
+-- tabelas (`baixa_select`, `vis_select`, `caixa_select` — cobrador vê só o
+-- próprio, gestor vê tudo) já bastam pra que o gestor receba eventos de
+-- todos os cobradores e cada cobrador só receba os próprios — não precisa
+-- de nenhuma policy extra aqui.
 --
 -- Idempotente: pode rodar de novo sem erro se a tabela já estiver na
 -- publicação (`ALTER PUBLICATION ... ADD TABLE` puro dá erro em execução
