@@ -500,7 +500,65 @@ $$;
 revoke all on function public.autorizar_caixa(uuid, numeric) from public;
 grant execute on function public.autorizar_caixa(uuid, numeric) to authenticated;
 
--- 6) Tranca só as 2 tabelas onde o RLS de hoje tem um gap real de
+-- 6) Equivalente gestor de abrir_caixa_cobrador(): porta de
+--    `salvarCaixaManual()` (docs/index.html:7167-7221), usada na tela
+--    "Gerenciar caixa" pra criar ou estender manualmente a caixa de um
+--    cobrador específico. Sem esta função, o REVOKE do passo 7 deixaria
+--    até o gestor sem conseguir abrir/estender caixa manualmente.
+drop function if exists public.gestor_abrir_ou_estender_caixa(uuid, date, date);
+
+create function public.gestor_abrir_ou_estender_caixa(
+  p_cobrador_id uuid,
+  p_ciclo_inicio date,
+  p_ciclo_fim date
+)
+returns caixa_cobrador
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_caixa caixa_cobrador%rowtype;
+begin
+  if public.meu_perfil() <> 'gestor' then
+    raise exception 'Apenas gestor pode gerenciar caixa de cobrador.';
+  end if;
+  if p_ciclo_inicio is null or p_ciclo_fim is null then
+    raise exception 'Início e fim do ciclo são obrigatórios.';
+  end if;
+
+  select * into v_caixa from caixa_cobrador
+    where cobrador_id = p_cobrador_id and status = 'aberto'
+    limit 1;
+
+  if found then
+    update caixa_cobrador set ciclo_inicio = p_ciclo_inicio, ciclo_fim = p_ciclo_fim
+      where id = v_caixa.id
+      returning * into v_caixa;
+    return v_caixa;
+  end if;
+
+  begin
+    insert into caixa_cobrador (cobrador_id, ciclo_inicio, ciclo_fim, status)
+    values (p_cobrador_id, p_ciclo_inicio, p_ciclo_fim, 'aberto')
+    returning * into v_caixa;
+  exception when unique_violation then
+    -- Corrida com abrir_caixa_cobrador() do próprio cobrador: atualiza a
+    -- que acabou de ser criada em vez de falhar (mesmo tratamento do
+    -- salvarCaixaManual() atual, linhas 7188-7196).
+    update caixa_cobrador set ciclo_inicio = p_ciclo_inicio, ciclo_fim = p_ciclo_fim
+      where cobrador_id = p_cobrador_id and status = 'aberto'
+      returning * into v_caixa;
+  end;
+
+  return v_caixa;
+end;
+$$;
+
+revoke all on function public.gestor_abrir_ou_estender_caixa(uuid, date, date) from public;
+grant execute on function public.gestor_abrir_ou_estender_caixa(uuid, date, date) to authenticated;
+
+-- 7) Tranca só as 2 tabelas onde o RLS de hoje tem um gap real de
 --    autoaprovação (ver cabeçalho). DELETE não é tocado (já é gestor-only
 --    nas duas, via `caixa_delete_gestor`/`baixa_delete_gestor`).
 --    Nenhuma outra tabela desta migration tem grants alterados.
