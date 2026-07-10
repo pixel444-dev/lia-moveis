@@ -185,14 +185,18 @@ begin
     join clientes_cobrador cc on cc.id = p.cliente_id
     where not p.pago and coalesce(p.status, '') <> 'devolvida'
   ),
+  -- Colunas sem qualificar (ex.: "parcela_id" solto) aqui dentro dão erro
+  -- "column reference is ambiguous", porque RETURNS TABLE(parcela_id uuid,
+  -- venda_id uuid, ...) faz esses nomes virarem variáveis da função —
+  -- todo mundo precisa vir com alias de tabela.
   remarques as (
-    select distinct on (parcela_id) parcela_id, data_agendada
-    from visitas_agendadas
-    where cobrador_id = v_caixa.cobrador_id and not concluida
-    order by parcela_id, criado_em desc
+    select distinct on (va.parcela_id) va.parcela_id, va.data_agendada
+    from visitas_agendadas va
+    where va.cobrador_id = v_caixa.cobrador_id and not va.concluida
+    order by va.parcela_id, va.criado_em desc
   ),
   vendas_interagidas as (
-    select distinct venda_id from (
+    select distinct x.venda_id from (
       select p.venda_id
       from parcelas p
       where p.venda_id in (select pa.venda_id from parcelas_abertas pa where pa.venda_id is not null)
@@ -203,7 +207,7 @@ begin
       join parcelas p on p.id = v.parcela_id
       where p.venda_id in (select pa.venda_id from parcelas_abertas pa where pa.venda_id is not null)
     ) x
-    where venda_id is not null
+    where x.venda_id is not null
   ),
   classificadas as (
     select
