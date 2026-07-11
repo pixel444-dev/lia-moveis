@@ -1,5 +1,10 @@
 {
   "appId": "com.liamoveis.ascend",
   "appName": "Ascend",
-  "webDir": "docs"
+  "webDir": "docs",
+  "plugins": {
+    "CapacitorSQLite": {
+      "androidIsEncryption": true
+    }
+  }
 }
