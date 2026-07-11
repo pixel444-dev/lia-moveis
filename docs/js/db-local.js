@@ -34,9 +34,35 @@
           jaConectado = !!(r && r.result);
         } catch (e) { jaConectado = false; }
 
-        db = jaConectado
-          ? await sqliteConn.retrieveConnection(DB_NAME, false)
-          : await sqliteConn.createConnection(DB_NAME, false, 'no-encryption', 1, false);
+        if (jaConectado) {
+          db = await sqliteConn.retrieveConnection(DB_NAME, false);
+        } else {
+          // Garante uma senha de criptografia guardada com segurança pelo
+          // próprio plugin (Android Keystore / EncryptedSharedPreferences).
+          // Só roda uma vez por instalação — depois disso isSecretStored()
+          // sempre volta true e este bloco é pulado.
+          var segredo = await CapacitorSQLite.isSecretStored();
+          if (!segredo || !segredo.result) {
+            var senha = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '');
+            await CapacitorSQLite.setEncryptionSecret({ passphrase: senha });
+          }
+
+          // Modo da conexão: "encryption" cria o banco já criptografado — e,
+          // se já existir um arquivo em texto puro no disco (ex.: instalação
+          // anterior à fase 2, ainda sem criptografia), converte esse mesmo
+          // arquivo para criptografado em vez de perder o conteúdo. "secret"
+          // só é usado quando o banco já está criptografado (aberturas
+          // seguintes), sem tentar converter de novo.
+          var modo = 'encryption';
+          try {
+            var infoEnc = await CapacitorSQLite.isDatabaseEncrypted({ database: DB_NAME });
+            if (infoEnc && infoEnc.result) modo = 'secret';
+          } catch (e) {
+            // Banco ainda não existe em disco — segue com "encryption" (cria já criptografado).
+          }
+
+          db = await sqliteConn.createConnection(DB_NAME, true, modo, 1, false);
+        }
 
         await db.open();
 
