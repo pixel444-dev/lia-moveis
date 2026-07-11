@@ -335,6 +335,9 @@ tr:hover td{background:#fafafa;}
 .eqsem-card-linha strong{color:#333;}
 .eqsem-card-valor{font-size:16px;font-weight:700;color:#185FA5;margin-top:4px;}
 .eqsem-card-meta{font-size:11px;color:#999;}
+.eqsem-card-stats{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#666;margin-top:10px;padding-top:10px;border-top:1px dashed #e5e5e5;}
+.eqsem-card-stats-avista{color:#3B6D11;font-weight:600;}
+.eqsem-card-stats-credito{color:#185FA5;font-weight:600;}
 .eqsem-card-acoes{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
 .eqsem-card-detalhes{margin-top:12px;border-top:1px dashed #e5e5e5;padding-top:12px;}
 </style>
@@ -9654,6 +9657,11 @@ function renderEquipes(semanas, equipes, somenteLeitura) {
               ${eq.meta?`<div class="eqsem-card-meta">Meta: R$ ${Number(eq.meta).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>`:''}
             </div>
           </div>
+          <div class="eqsem-card-stats">
+            <span>${eq.total_vendas||0} venda${(eq.total_vendas||0)===1?'':'s'}</span>
+            <span class="eqsem-card-stats-avista">À vista: R$ ${Number(eq.total_avista||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
+            <span class="eqsem-card-stats-credito">Crediário: R$ ${Number(eq.total_credito||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>
+          </div>
           <div class="eqsem-card-acoes">
             <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
             ${!eq.encerrada && perfilAtivo.perfil==='gestor'?`
@@ -10013,15 +10021,21 @@ async function abrirEncerrarEquipe(equipeId) {
   const modal = document.getElementById('modal-encerrar-equipe');
 
   // Busca vendas da equipe — pode falhar se equipe_id não existir em vendas ainda
-  let totalVendido = 0, totalQtd = 0;
-  const { data: vendas, error: errVendas } = await sb.from('vendas').select('valor').eq('equipe_id', equipeId);
+  let totalVendido = 0, totalQtd = 0, totalAvista = 0, totalCreditoCalc = 0;
+  const { data: vendas, error: errVendas } = await sb.from('vendas')
+    .select('valor, tipo, entrada').eq('equipe_id', equipeId).neq('status', 'devolvida');
   if (!errVendas && vendas) {
-    totalVendido = vendas.reduce((a, v) => a + Number(v.valor), 0);
+    const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(vendas);
+    totalVendido = totalGeral;
+    totalAvista = totalCaixa;
+    totalCreditoCalc = totalCredito;
     totalQtd = vendas.length;
   }
 
   modal.dataset.totalVendas = totalQtd;
   modal.dataset.totalValor = totalVendido;
+  modal.dataset.totalAvista = totalAvista;
+  modal.dataset.totalCredito = totalCreditoCalc;
 
   document.getElementById('info-encerrar-vendas').innerHTML = `
     <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;">
@@ -10039,6 +10053,8 @@ async function confirmarEncerrarEquipe() {
   const modal = document.getElementById('modal-encerrar-equipe');
   const totalVendas = parseInt(modal.dataset.totalVendas) || 0;
   const totalValor = parseFloat(modal.dataset.totalValor) || 0;
+  const totalAvista = parseFloat(modal.dataset.totalAvista) || 0;
+  const totalCredito = parseFloat(modal.dataset.totalCredito) || 0;
 
   if (!confirm('Confirma o encerramento desta equipe?')) return;
 
@@ -10048,6 +10064,8 @@ async function confirmarEncerrarEquipe() {
     observacao: obs || null,
     total_vendas: totalVendas,
     total_valor: totalValor,
+    total_avista: totalAvista,
+    total_credito: totalCredito,
   }).eq('id', equipeId);
 
   if (error) {
