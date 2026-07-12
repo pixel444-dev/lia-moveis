@@ -714,6 +714,58 @@
     return filtrados.slice(0, 10);
   }
 
+  // Vendas ainda na fila (venda_criar, não sincronizadas) — pra tela de
+  // Vendas conseguir mostrar um card "salvo no aparelho, aguardando
+  // internet" na hora, em vez de a venda simplesmente sumir até sincronizar
+  // (o que passava a impressão de que não tinha sido registrada). Resolve
+  // nome de cliente/vendedor pelo cache já existente; quando não acha,
+  // mostra "—" — é só cosmético, a venda sincroniza do mesmo jeito.
+  async function vendasOfflinePendentes(equipeId) {
+    if (!_nativo() || !window.DbLocal) return [];
+    var ops = await DbLocal.listarOperacoesPendentes();
+    var pendentes = ops.filter(function (op) { return op.tipo === 'venda_criar'; });
+    if (!pendentes.length) return [];
+
+    var clientesCache = await _clientesDoCacheUnificado();
+    var membrosPorEquipe = {};
+
+    var resultado = [];
+    for (var i = 0; i < pendentes.length; i++) {
+      var op = pendentes[i];
+      var payload = null;
+      try { payload = JSON.parse(op.payload); } catch (e) { continue; }
+      var params = payload && payload.params;
+      if (!params) continue;
+      if (equipeId && String(params.p_equipe_id) !== String(equipeId)) continue;
+
+      var cliente = clientesCache.find(function (c) { return String(c.id) === String(params.p_cliente_id); });
+
+      var vendedorNome = null;
+      if (params.p_equipe_id) {
+        if (!(params.p_equipe_id in membrosPorEquipe)) {
+          membrosPorEquipe[params.p_equipe_id] = await DbLocal.lerDoCache('equipe_membros:' + params.p_equipe_id);
+        }
+        var membro = membrosPorEquipe[params.p_equipe_id].find(function (m) { return String(m.funcionario_id) === String(params.p_vendedor_id); });
+        vendedorNome = (membro && membro.funcionarios && membro.funcionarios.nome) || null;
+      }
+
+      resultado.push({
+        id: 'offline-' + op.id,
+        codigo: null,
+        cliente_id: params.p_cliente_id,
+        clientes: cliente ? { nome: cliente.nome, codigo: cliente.codigo } : null,
+        funcionarios: vendedorNome ? { nome: vendedorNome } : null,
+        produto: params.p_produto,
+        valor: params.p_valor,
+        tipo: params.p_tipo,
+        num_parcelas: params.p_num_parcelas,
+        data_venda: op.criado_em,
+        _offline_pendente: true,
+      });
+    }
+    return resultado;
+  }
+
   function avisoOfflineHtml(texto) {
     return '<div style="background:#FAEEDA;border:1px solid #FAC775;color:#854F0B;border-radius:10px;'
       + 'padding:10px 14px;margin-bottom:10px;font-size:13px;">📴 '
@@ -758,6 +810,7 @@
     statusInadimplenciaDoCache: statusInadimplenciaDoCache,
     salvarMunicipiosNoCache: salvarMunicipiosNoCache,
     buscarMunicipiosNoCache: buscarMunicipiosNoCache,
+    vendasOfflinePendentes: vendasOfflinePendentes,
     avisoOfflineHtml: avisoOfflineHtml,
   };
 })();

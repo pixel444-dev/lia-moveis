@@ -1401,6 +1401,14 @@ if (window.NetStatus) {
   });
 }
 
+// Sincronização terminou (ver sync.js): se a tela de Vendas estiver aberta,
+// recarrega pra trocar os cards "⏳ aguardando internet" pelos definitivos
+// (código real, data do servidor) sem precisar o usuário fazer nada.
+window.addEventListener('sync:concluido', function () {
+  const paginaAtiva = document.querySelector('.page.active')?.id?.replace('page-', '');
+  if (paginaAtiva === 'vendas' && typeof carregarVendas === 'function') carregarVendas();
+});
+
 // ─── ESCAPE / ANTI-XSS ────────────────────────────────────────
 // Todo texto vindo do banco (nomes, endereços, produtos, etc.) é
 // preenchido por usuários e NUNCA pode ser injetado cru no HTML.
@@ -4734,6 +4742,10 @@ async function salvarVenda() {
       if (window.OfflineFlow && NetStatus.ehErroDeRede(error) && await OfflineFlow.vendaOffline(paramsVenda)) {
         alert('📴 Sem conexão — venda salva no aparelho. Será registrada (com código e parcelas) quando a internet voltar.');
         fecharModalVenda();
+        // Mostra o card "⏳ aguardando internet" na hora, sem precisar
+        // reabrir a tela (carregarVendas() já sabe qual lista carregar
+        // conforme o perfil — ver seu início).
+        carregarVendas();
         return;
       }
       Logger.error('vendas', 'SALVAR_VENDA', 'Falha ao registrar venda', { supabase_code: error.code, supabase_msg: error.message, tipo });
@@ -5032,6 +5044,11 @@ async function carregarVendasVendedor() {
     vendas = vendas || [];
     if (window.OfflineFlow) OfflineFlow.salvarVendasEquipeNoCache(equipeAtiva.id, vendas);
   }
+  // Vendas ainda na fila (feitas offline, esperando internet): aparecem no
+  // topo com um card diferenciado (ver renderVendas) até sincronizarem de
+  // verdade — sem isso a venda simplesmente sumia da lista até sincronizar.
+  const pendentes = window.OfflineFlow ? await OfflineFlow.vendasOfflinePendentes(equipeAtiva.id) : [];
+  vendas = pendentes.concat(vendas);
   if (!vendas.length) {
     lista.innerHTML = avisoOffline + '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 1rem;color:#999;"><div style="font-size:64px;margin-bottom:16px;">🛒</div><div style="font-size:18px;font-weight:600;color:#888;">Nenhuma venda ainda</div><div style="font-size:14px;margin-top:8px;color:#aaa;">Clique em <strong style="color:#185FA5;">+ Nova venda</strong> para registrar a primeira!</div></div>';
     return;
@@ -5249,13 +5266,25 @@ function renderVendas(lista) {
     if (v.tipo === 'parcela') return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#EEEDFE;color:#3C3489;">Parcela avulsa</span>';
     return '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;background:#FCEBEB;color:#A32D2D;">Devolução</span>';
   };
+  // Card "pendente" (venda_criar ainda na fila offline, ver
+  // vendasOfflinePendentes): visual vermelho de propósito — não é erro, é
+  // pra dar confiança de que a venda foi salva enquanto espera internet pra
+  // sincronizar de verdade. Sem id real ainda, então não é clicável e não
+  // tem ações (devolver/cancelar só fazem sentido pra venda já no servidor).
+  const badgePendente = '<span style="display:inline-block;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:700;background:#A32D2D;color:#fff;">⏳ Aguardando internet</span>';
   const podeEditar = perfilAtivo.perfil === 'gestor';
   if (isMobile()) {
-    document.getElementById('lista-vendas').innerHTML = lista.map(v => `
-      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.05);cursor:pointer;" onclick="${podeEditar?`abrirEditarVenda('${v.id}')`:`abrirResumoVendaPorId('${v.id}')`}">
+    document.getElementById('lista-vendas').innerHTML = lista.map(v => {
+      const pendente = !!v._offline_pendente;
+      const estilo = pendente
+        ? 'background:#FCEBEB;border:1.5px solid #e3a3a3;border-radius:14px;padding:16px;margin-bottom:12px;'
+        : 'background:#fff;border:1px solid #e0e0e0;border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.05);cursor:pointer;';
+      const onClickAttr = pendente ? '' : `onclick="${podeEditar?`abrirEditarVenda('${v.id}')`:`abrirResumoVendaPorId('${v.id}')`}"`;
+      return `
+      <div style="${estilo}" ${onClickAttr}>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
           <span style="background:#f0f0f0;color:#555;padding:3px 10px;border-radius:8px;font-size:12px;font-family:monospace;font-weight:600;">#${escHtml(v.codigo||'—')}</span>
-          ${tipoBadge(v)}
+          ${pendente ? badgePendente : tipoBadge(v)}
         </div>
         <div style="font-size:17px;font-weight:700;margin-bottom:6px;color:#1a1a1a;">👤 ${escHtml(v.clientes?.nome||'—')}</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:#666;margin-bottom:10px;">
@@ -5263,37 +5292,44 @@ function renderVendas(lista) {
           <span>👨‍💼 ${escHtml(v.funcionarios?.nome||'—')}</span>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:flex-end;">
-          <div style="font-size:22px;font-weight:800;color:#3B6D11;">💰 R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+          <div style="font-size:22px;font-weight:800;color:${pendente?'#A32D2D':'#3B6D11'};">💰 R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
           <div style="font-size:12px;color:#aaa;">📅 ${new Date(v.data_venda).toLocaleDateString('pt-BR')}</div>
         </div>
-        ${v.status!=='devolvida' && perfilAtivo.perfil==='gestor' ? `
+        ${pendente ? '<div style="margin-top:10px;font-size:11px;color:#A32D2D;">💾 Salva no aparelho — sincroniza sozinha quando a internet voltar.</div>' : ''}
+        ${!pendente && v.status!=='devolvida' && perfilAtivo.perfil==='gestor' ? `
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;" onclick="event.stopPropagation()">
             <button class="btn" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px;color:#854F0B;border-color:#FAC775;" onclick="abrirDevolucao('${v.id}','${escJs(v.codigo)}','${escJs(v.produto||'')}')">↩️ Devolver</button>
             <button class="btn" style="padding:12px;font-size:14px;font-weight:600;border-radius:10px;color:#A32D2D;border-color:#f5c6c6;" onclick="cancelarVenda('${v.id}','${escJs(v.codigo)}')">❌ Cancelar</button>
           </div>` : ''}
-      </div>`).join('');
+      </div>`;
+    }).join('');
     return;
   }
   document.getElementById('lista-vendas').innerHTML = `
     <div class="tabela-wrap"><table>
       <thead><tr><th>Código</th><th>Data</th><th>Cliente</th><th>Produto</th><th>Vendedor</th><th>Tipo</th><th>Valor</th><th>Parcelas</th><th>Ações</th></tr></thead>
-      <tbody>${lista.map(v => `
-        <tr style="cursor:pointer;" onclick="${podeEditar?`abrirEditarVenda('${v.id}')`:`abrirResumoVendaPorId('${v.id}')`}">
+      <tbody>${lista.map(v => {
+        const pendente = !!v._offline_pendente;
+        const rowStyle = pendente ? 'background:#FCEBEB;' : 'cursor:pointer;';
+        const onClickAttr = pendente ? '' : `onclick="${podeEditar?`abrirEditarVenda('${v.id}')`:`abrirResumoVendaPorId('${v.id}')`}"`;
+        return `
+        <tr style="${rowStyle}" ${onClickAttr}>
           <td><span class="codigo-badge">${escHtml(v.codigo||'—')}</span></td>
           <td>${new Date(v.data_venda).toLocaleDateString('pt-BR')}</td>
           <td>${escHtml(v.clientes?.nome||'—')} <span style="font-size:10px;color:#aaa;">${v.clientes?.codigo?'#'+v.clientes.codigo:''}</span></td>
           <td>${escHtml(v.produto||'—')}</td>
           <td>${escHtml(v.funcionarios?.nome||'—')}</td>
-          <td>${tipoBadge(v)}</td>
-          <td style="font-weight:700;color:#3B6D11;">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+          <td>${pendente ? badgePendente : tipoBadge(v)}</td>
+          <td style="font-weight:700;color:${pendente?'#A32D2D':'#3B6D11'};">R$ ${Number(v.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
           <td>${v.num_parcelas ? v.num_parcelas+'x' : '—'}</td>
           <td onclick="event.stopPropagation()">
-            ${v.status!=='devolvida' ? (perfilAtivo.perfil==='gestor' ? `
+            ${pendente ? '<span style="font-size:11px;color:#A32D2D;">💾 No aparelho</span>' : (v.status!=='devolvida' ? (perfilAtivo.perfil==='gestor' ? `
               <button class="btn" style="font-size:11px;padding:5px 10px;color:#854F0B;border-color:#FAC775;border-radius:8px;" onclick="abrirDevolucao('${v.id}','${escJs(v.codigo)}','${escJs(v.produto||'')}')">↩️ Devolver</button>
               <button class="btn" style="font-size:11px;padding:5px 10px;color:#A32D2D;border-color:#f5c6c6;border-radius:8px;margin-left:4px;" onclick="cancelarVenda('${v.id}','${escJs(v.codigo)}')">❌ Cancelar</button>
-            ` : '') : `<span style="font-size:11px;color:#A32D2D;font-weight:600;">Devolvida</span>`}
+            ` : '') : `<span style="font-size:11px;color:#A32D2D;font-weight:600;">Devolvida</span>`)}
           </td>
-        </tr>`).join('')}
+        </tr>`;
+      }).join('')}
       </tbody>
     </table></div>`;
 }
