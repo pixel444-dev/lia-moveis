@@ -60,18 +60,21 @@
             await CapacitorSQLite.setEncryptionSecret({ passphrase: senha });
           }
 
-          // Modo da conexão: "encryption" cria o banco já criptografado — e,
-          // se já existir um arquivo em texto puro no disco (ex.: instalação
-          // anterior à fase 2, ainda sem criptografia), converte esse mesmo
-          // arquivo para criptografado em vez de perder o conteúdo. "secret"
-          // só é usado quando o banco já está criptografado (aberturas
-          // seguintes), sem tentar converter de novo.
-          var modo = 'encryption';
+          // Modo da conexão: "secret" cria o banco do zero já criptografado
+          // (quando ainda não existe arquivo) OU só abre um banco que já
+          // está criptografado (aberturas seguintes) — em ambos os casos é
+          // um simples openOrCreateDatabase com a senha guardada. "encryption"
+          // só serve para CONVERTER um arquivo que já existe em texto puro
+          // (ex.: instalação anterior à fase 2, sem criptografia) — o plugin
+          // lança erro "not found" se tentar usar esse modo num banco que
+          // ainda não existe, então só entra aqui quando isDatabaseEncrypted
+          // confirma que o arquivo existe e está em texto puro.
+          var modo = 'secret';
           try {
             var infoEnc = await CapacitorSQLite.isDatabaseEncrypted({ database: DB_NAME });
-            if (infoEnc && infoEnc.result) modo = 'secret';
+            if (infoEnc && infoEnc.result === false) modo = 'encryption';
           } catch (e) {
-            // Banco ainda não existe em disco — segue com "encryption" (cria já criptografado).
+            // Banco ainda não existe em disco — mantém "secret" (cria já criptografado).
           }
 
           try {
