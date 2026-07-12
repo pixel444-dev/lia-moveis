@@ -405,6 +405,33 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
+<!-- SINCRONIZAÇÃO INICIAL (vendedor, app nativo, com internet) — bloqueia o
+     acesso ao app até equipe/estoque/produtos/cidades estarem salvos no
+     aparelho, pra garantir que o modo offline tenha o que precisa. -->
+<div class="login-wrap" id="tela-sincronizando" style="display:none;">
+  <div class="login-card">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:1.5rem;">
+      <svg width="64" height="64" viewBox="0 0 50 50">
+        <rect width="50" height="50" rx="12" fill="#0C447C"/>
+        <polyline points="10,38 20,24 30,31 40,12" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="34,12 40,12 40,18" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="40" cy="12" r="3" fill="white"/>
+      </svg>
+      <div style="font-size:26px;font-weight:700;color:#0C447C;">Ascend</div>
+    </div>
+    <div style="font-size:15px;font-weight:700;color:#0C447C;margin-bottom:.35rem;">🔄 Sincronizando dados</div>
+    <div id="sync-inicial-status" style="font-size:13px;color:#666;margin-bottom:1.25rem;">Preparando para funcionar offline...</div>
+    <div style="background:#eee;border-radius:999px;height:10px;overflow:hidden;">
+      <div id="sync-inicial-barra" style="background:#185FA5;width:0%;height:100%;border-radius:999px;transition:width .3s ease;"></div>
+    </div>
+    <div id="sync-inicial-pct" style="font-size:12px;color:#888;margin-top:6px;">0%</div>
+    <div id="sync-inicial-aviso" style="display:none;margin-top:1.25rem;font-size:12px;color:#854F0B;background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px;text-align:left;">
+      Isso está demorando mais que o normal — verifique sua conexão. Você pode continuar mesmo assim, mas alguns dados podem não estar disponíveis offline ainda.
+    </div>
+    <button id="sync-inicial-continuar" style="display:none;width:100%;margin-top:.75rem;background:none;border:1px solid #ddd;padding:10px;border-radius:8px;font-size:13px;color:#666;cursor:pointer;" onclick="_continuarSemAguardarSincronizacaoInicial()">Continuar mesmo assim</button>
+  </div>
+</div>
+
 <!-- TOPBAR MOBILE -->
 <div id="topbar-mobile" style="display:none;">
   <button id="btn-hamburger" onclick="toggleMenu()">
@@ -1907,8 +1934,17 @@ async function iniciarSessao(user, dadosPrefetched) {
   document.getElementById('info-usuario-logado').innerHTML =
     `<div style="font-weight:500;color:#1a1a1a;">${escHtml(funcionarioLogado.nome)}</div><div style="color:#888;font-size:11px;">${perfilLabel}</div>`;
   document.getElementById('tela-login').style.display = 'none';
-  document.getElementById('app').style.display = 'flex';
-  document.getElementById('topbar-mobile').style.removeProperty('display');
+  // Vendedor no app nativo com internet agora: entra na tela de
+  // sincronização (bloqueia até 100%) em vez do app direto — ver o "if
+  // (perfilAtivo.perfil === 'vendedor')" mais abaixo. Nos outros casos
+  // (gestor, cobrador, vendedor offline/web) nada muda: app aparece na hora.
+  const aguardaSincronizacaoInicial = perfilAtivo.perfil === 'vendedor'
+    && typeof _appEhNativo === 'function' && _appEhNativo()
+    && window.NetStatus && NetStatus.estaOnline();
+  if (!aguardaSincronizacaoInicial) {
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('topbar-mobile').style.removeProperty('display');
+  }
   document.getElementById('msg-login').innerHTML = '';
   reiniciarTimerInatividade();
   // Perfil salvo por aparelho — é o que permite entrar em modo offline em
@@ -1935,7 +1971,13 @@ async function iniciarSessao(user, dadosPrefetched) {
     });
   }
   if (perfilAtivo.perfil === 'vendedor') {
-    prefetchOfflineVendedor();
+    if (aguardaSincronizacaoInicial) {
+      await _aguardarSincronizacaoInicialVendedor();
+      document.getElementById('app').style.display = 'flex';
+      document.getElementById('topbar-mobile').style.removeProperty('display');
+    } else {
+      prefetchOfflineVendedor();
+    }
     setInterval(async () => {
       const equipeAntes = equipeAtiva?.id || null;
       await carregarEquipeAtivaVendedor();
@@ -5099,21 +5141,91 @@ async function carregarEquipeAtivaVendedor() {
 
 // Chamado uma vez no login do vendedor (com internet): puxa e grava no
 // aparelho tudo que o vendedor precisa pra vender offline depois — equipe
-// ativa (já feito por carregarEquipeAtivaVendedor), catálogo de produtos,
-// estoque do caminhão da equipe e o time (nomes/papéis dos membros). Sem
-// isso o primeiro acesso offline não teria nada carregado ainda.
-async function prefetchOfflineVendedor() {
+// ativa (já feito por carregarEquipeAtivaVendedor), cidades, catálogo de
+// produtos, estoque do caminhão da equipe e o time (nomes/papéis dos
+// membros). Sem isso o primeiro acesso offline não teria nada carregado
+// ainda. onProgress(pct, texto) é opcional — usado pela tela de
+// sincronização inicial (ver _aguardarSincronizacaoInicialVendedor) pra
+// mostrar uma barra de progresso de verdade em vez de um spinner genérico.
+async function prefetchOfflineVendedor(onProgress) {
+  const marcar = (pct, texto) => { try { if (onProgress) onProgress(pct, texto); } catch (e) { /* progresso é cosmético */ } };
+
+  marcar(10, 'Carregando sua equipe...');
   await carregarEquipeAtivaVendedor();
+
   // Independe de ter equipe ativa: o cadastro de cliente (que exige cidade
   // válida) pode acontecer mesmo em semanas sem viagem, e cacheado uma vez
-  // dura muito tempo (tabela quase estática).
-  prefetchMunicipiosOffline();
-  if (!equipeAtiva?.id) return;
+  // dura muito tempo (tabela quase estática — normalmente só lê do bundle
+  // embutido no app, rápido, ver prefetchMunicipiosOffline).
+  marcar(30, 'Carregando cidades...');
+  await prefetchMunicipiosOffline();
+
+  if (!equipeAtiva?.id) { marcar(100, 'Tudo pronto!'); return; }
+
+  marcar(60, 'Carregando estoque do caminhão...');
   await carregarFonteItensVenda(); // já grava produtos + estoque do caminhão no cache
+
+  marcar(85, 'Carregando membros da equipe...');
   const { data: membros, error } = await sb.from('equipe_membros')
     .select('funcionario_id, papel, funcionarios(nome)')
     .eq('equipe_id', equipeAtiva.id);
   if (!error && window.OfflineFlow) OfflineFlow.salvarMembrosEquipeNoCache(equipeAtiva.id, membros || []);
+
+  marcar(100, 'Tudo pronto!');
+}
+
+// ─── Tela de sincronização inicial (bloqueia acesso até 100%) ────
+// Só entra em cena pro vendedor, no app nativo, com internet no momento do
+// login — sem internet não tem o que baixar (o vendedor entra direto com o
+// que já tinha salvo, como sempre) e no build web não existe cache local
+// pra alimentar. Depois de alguns segundos ainda rodando, libera um botão
+// de "continuar mesmo assim" — o prefetch continua em segundo plano, só
+// para de bloquear a tela (evita prender o vendedor numa tela travada se a
+// conexão estiver ruim, que é justamente quando ele mais precisa do app).
+let _resolverEsperaSincronizacaoInicial = null;
+
+function _continuarSemAguardarSincronizacaoInicial() {
+  if (_resolverEsperaSincronizacaoInicial) {
+    _resolverEsperaSincronizacaoInicial();
+    _resolverEsperaSincronizacaoInicial = null;
+  }
+}
+
+async function _aguardarSincronizacaoInicialVendedor() {
+  const tela = document.getElementById('tela-sincronizando');
+  const statusEl = document.getElementById('sync-inicial-status');
+  const barraEl = document.getElementById('sync-inicial-barra');
+  const pctEl = document.getElementById('sync-inicial-pct');
+  const avisoEl = document.getElementById('sync-inicial-aviso');
+  const btnContinuar = document.getElementById('sync-inicial-continuar');
+
+  barraEl.style.width = '0%';
+  pctEl.textContent = '0%';
+  statusEl.textContent = 'Preparando para funcionar offline...';
+  avisoEl.style.display = 'none';
+  btnContinuar.style.display = 'none';
+  tela.style.display = 'flex';
+
+  let concluiu = false;
+  const prefetchPromise = prefetchOfflineVendedor((pct, texto) => {
+    barraEl.style.width = Math.min(100, pct) + '%';
+    pctEl.textContent = Math.min(100, Math.round(pct)) + '%';
+    if (texto) statusEl.textContent = texto;
+  }).catch(() => { /* prefetchOfflineVendedor já é defensivo internamente */ })
+    .then(() => { concluiu = true; });
+
+  const escapePromise = new Promise((resolve) => {
+    _resolverEsperaSincronizacaoInicial = resolve;
+    setTimeout(() => {
+      if (concluiu) return;
+      avisoEl.style.display = 'block';
+      btnContinuar.style.display = 'block';
+    }, 12000);
+  });
+
+  await Promise.race([prefetchPromise, escapePromise]);
+  _resolverEsperaSincronizacaoInicial = null;
+  tela.style.display = 'none';
 }
 
 function fecharModalVenda() {
