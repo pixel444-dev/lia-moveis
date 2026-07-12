@@ -46,6 +46,11 @@ do mesmo HTML/JS que já roda no navegador.
      novas (Scoped Storage / Photo Picker), o seletor de arquivos do sistema não
      exige essas permissões, então elas foram limitadas via `maxSdkVersion` para
      não gerar avisos desnecessários em lojas/lint.
+   - `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` (Fase 3) — necessárias para
+     a captura de GPS no cadastro de cliente (tela de venda do vendedor). Sem
+     elas declaradas aqui, a permissão de localização nem aparece pra autorizar
+     em Configurações → Apps → Ascend → Permissões — o Android só lista
+     permissões que o app declarou pedir.
 
 ## ⚠️ Build/abertura no Android Studio — não testado neste ambiente
 
@@ -239,6 +244,33 @@ sincronização, que reusam o mesmo payload gravado na fila). `criar_venda()`
 checa a chave antes de inserir; se já existir uma venda com aquela chave,
 devolve ela em vez de criar outra. Retrocompatível: o parâmetro é opcional
 (default `null`), não muda nada pra quem não manda.
+
+**Cidade do cliente offline** (`_buscarMunicipios`): o autocomplete de cidade
+(cadastro de cliente, telas Clientes e Vendas) consultava `municipios` ao
+vivo no Supabase e, sem rede, devolvia lista vazia silenciosamente — o
+formulário exige selecionar uma cidade da lista (`municipio_id` só é
+preenchido pelo clique num item do dropdown), então isso travava por
+completo o cadastro de cliente offline. `municipios` é uma tabela pequena e
+praticamente estática (todo o Brasil, ~5600 linhas): `prefetchMunicipiosOffline()`
+baixa ela inteira (paginada) e grava no cache no login do vendedor e do
+cobrador; `_buscarMunicipios()` cai pro cache quando a consulta falha por
+rede, com o mesmo critério de busca (prefixo do nome, sem acento/case).
+
+**GPS não pedia permissão** (`capturarLocalizacao`): o app usava
+`navigator.geolocation` puro (API do navegador). Dentro do WebView do
+Capacitor, essa API não consegue disparar o diálogo nativo de permissão do
+Android — e como o `AndroidManifest.xml` nem declarava `ACCESS_FINE_LOCATION`/
+`ACCESS_COARSE_LOCATION`, a permissão de Localização nem aparecia pra
+autorizar em Configurações → Apps. Trocado pelo plugin oficial
+`@capacitor/geolocation` (vendorizado em `docs/js/vendor/capacitor-geolocation.js`,
+mesmo esquema do `@capacitor/network`/`@capacitor-community/sqlite` —
+precisa de `docs/js/vendor/capacitor-synapse.js` como dependência interna do
+pacote, carregado antes dele), que integra com o pedido de permissão em
+tempo de execução do Android de verdade. Na versão web (GitHub Pages) o
+plugin cai no `navigator.geolocation` do navegador por baixo dos panos —
+comportamento idêntico ao de antes. Permissões adicionadas ao manifest (ver
+Fase 0 acima). **Depois de puxar esta mudança, rode `npm install` (novo
+pacote em `package.json`) antes de `npx cap sync android`.**
 
 ## Roteiro de testes em dispositivo real (Fase 1 + Fase 2: offline + SQLite + criptografia)
 
