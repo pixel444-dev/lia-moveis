@@ -289,6 +289,21 @@ comportamento idêntico ao de antes. Permissões adicionadas ao manifest (ver
 Fase 0 acima). **Depois de puxar esta mudança, rode `npm install` (novo
 pacote em `package.json`) antes de `npx cap sync android`.**
 
+**Tela de sincronização inicial** (`_aguardarSincronizacaoInicialVendedor`):
+até aqui, `prefetchOfflineVendedor()` rodava "em segundo plano" no login —
+o app já ficava utilizável antes do prefetch terminar, então uma queda de
+rede bem na hora do primeiro login podia deixar o vendedor sem equipe/
+estoque/produtos salvos, sem ele saber. Agora, só quando é vendedor +
+app nativo + tem internet no momento do login, aparece uma tela cheia
+"🔄 Sincronizando dados" com barra de progresso (equipe → cidades →
+estoque do caminhão → membros da equipe, 4 passos) que bloqueia o acesso
+ao app até 100%. Sem internet no login (sessão offline recuperada) ou na
+versão web, esse bloqueio não existe — não haveria o que baixar mesmo.
+Depois de 12s ainda rodando, aparece um botão "Continuar mesmo assim"
+(o prefetch continua tentando em segundo plano, só para de travar a tela)
+— evita prender o vendedor numa tela de carregamento se a conexão estiver
+ruim, que é justamente quando ele mais precisa conseguir usar o app.
+
 ## Roteiro de testes em dispositivo real (Fase 1 + Fase 2: offline + SQLite + criptografia)
 
 Nada da camada offline (`docs/js/db-local.js`) foi validado em Android de verdade
