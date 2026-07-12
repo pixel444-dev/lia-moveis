@@ -76,6 +76,12 @@
         // troca o registro temporário do cache pelo definitivo
         if (payload.clienteId) await DbLocal.removerDoCache('clientes', payload.clienteId);
         await DbLocal.salvarNoCache('clientes', [novo]);
+        // Uma venda enfileirada no mesmo momento (cliente novo + venda na
+        // mesma visita, ambos offline) referencia o id temporário — grava o
+        // de-para pro handler de venda_criar resolver antes de chamar a RPC.
+        if (payload.clienteId && /^offline-/.test(String(payload.clienteId))) {
+          await DbLocal.salvarNoCache('cliente_id_map', [{ id: payload.clienteId, real_id: clienteId }]);
+        }
       } else {
         var resUpd = await sb.from('clientes').update(payload.dados).eq('id', clienteId);
         if (resUpd.error) throw erroDeBanco(resUpd.error);
@@ -159,7 +165,21 @@
   // payload: { params } — exatamente os parâmetros da RPC criar_venda,
   // que é atômica no servidor (código, parcelas, itens, estoque, equipe).
   Sync.registrarHandler('venda_criar', async function (payload) {
-    var res = await sb.rpc('criar_venda', payload.params);
+    var params = payload.params;
+    // Cliente cadastrado na mesma visita, também offline: params.p_cliente_id
+    // ainda é o id temporário "offline-...". A fila é processada em ordem de
+    // criação (cliente_upsert sempre foi enfileirado antes desta venda), então
+    // o de-para gravado pelo handler de cliente_upsert já deveria existir —
+    // se não existir ainda (ex.: aquele registro falhou e está reagendado),
+    // um erro comum (não de rede, não definitivo) mantém esta venda pendente
+    // pro próximo ciclo em vez de descartá-la.
+    if (params.p_cliente_id && /^offline-/.test(String(params.p_cliente_id))) {
+      var mapa = await DbLocal.lerDoCache('cliente_id_map');
+      var achado = mapa.find(function (m) { return m.id === params.p_cliente_id; });
+      if (!achado) throw new Error('Cliente cadastrado offline nesta venda ainda não sincronizou.');
+      params = Object.assign({}, params, { p_cliente_id: achado.real_id });
+    }
+    var res = await sb.rpc('criar_venda', params);
     if (res.error) throw erroDeBanco(res.error);
   });
 
@@ -533,6 +553,140 @@
     try { await _salvarMesclandoNoCache('clientes', lista); } catch (e) { /* cache é melhor esforço */ }
   }
 
+  // ─── Cache do vendedor (equipe, estoque do caminhão, catálogo) ──
+  // Mesma ideia do cache do cobrador acima: grava a cada consulta online
+  // bem-sucedida, lê quando a consulta falha por rede. "equipe_ativa" e
+  // "produtos" guardam um registro por chave lógica (não por linha do
+  // Supabase) — por isso viram um único item de array na hora de salvar.
+
+  // equipe null é um estado válido (vendedor sem equipe ativa nesta semana)
+  // e também precisa ser cacheado — senão uma equipe antiga ficaria presa
+  // no cache pra sempre e o app ofereceria vender pra um caminhão errado.
+  async function salvarEquipeAtivaNoCache(funcionarioId, equipe) {
+    if (!_nativo() || !window.DbLocal || !funcionarioId) return;
+    try { await DbLocal.salvarNoCache('equipe_ativa', [{ id: String(funcionarioId), equipe: equipe || null }]); }
+    catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function equipeAtivaDoCache(funcionarioId) {
+    if (!_nativo() || !window.DbLocal || !funcionarioId) return null;
+    var lista = await DbLocal.lerDoCache('equipe_ativa');
+    var achado = lista.find(function (r) { return String(r.id) === String(funcionarioId); });
+    return (achado && achado.equipe) || null;
+  }
+
+  async function salvarEstoqueCaminhaoNoCache(caminhaoId, lista) {
+    if (!_nativo() || !window.DbLocal || !caminhaoId || !Array.isArray(lista)) return;
+    try {
+      var tabela = 'caminhao_estoque:' + caminhaoId;
+      var comId = lista.filter(function (i) { return i && i.produto_id != null; })
+        .map(function (i) { return Object.assign({}, i, { id: i.produto_id }); });
+      // Substitui o snapshot inteiro (não mescla) — quantidade é sempre a
+      // mais recente da consulta, nunca faz sentido somar/mesclar entre
+      // consultas diferentes como acontece com o cadastro de clientes.
+      await DbLocal.salvarNoCache(tabela, comId);
+    } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function estoqueCaminhaoDoCache(caminhaoId) {
+    if (!_nativo() || !window.DbLocal || !caminhaoId) return null;
+    var lista = await DbLocal.lerDoCache('caminhao_estoque:' + caminhaoId);
+    return lista.length ? lista : null;
+  }
+
+  async function salvarProdutosCatalogoNoCache(lista) {
+    if (!_nativo() || !window.DbLocal || !Array.isArray(lista) || !lista.length) return;
+    try { await DbLocal.salvarNoCache('produtos', lista); } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function produtosCatalogoDoCache() {
+    if (!_nativo() || !window.DbLocal) return null;
+    var lista = await DbLocal.lerDoCache('produtos');
+    return lista.length ? lista : null;
+  }
+
+  async function salvarMembrosEquipeNoCache(equipeId, lista) {
+    if (!_nativo() || !window.DbLocal || !equipeId || !Array.isArray(lista)) return;
+    try {
+      var comId = lista.filter(function (m) { return m && m.funcionario_id != null; })
+        .map(function (m) { return Object.assign({}, m, { id: m.funcionario_id }); });
+      await DbLocal.salvarNoCache('equipe_membros:' + equipeId, comId);
+    } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function membrosEquipeDoCache(equipeId) {
+    if (!_nativo() || !window.DbLocal || !equipeId) return null;
+    var lista = await DbLocal.lerDoCache('equipe_membros:' + equipeId);
+    return lista.length ? lista : null;
+  }
+
+  async function salvarVendasEquipeNoCache(equipeId, lista) {
+    if (!_nativo() || !window.DbLocal || !equipeId || !Array.isArray(lista)) return;
+    try { await DbLocal.salvarNoCache('vendas_equipe:' + equipeId, lista); }
+    catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function vendasEquipeDoCache(equipeId) {
+    if (!_nativo() || !window.DbLocal || !equipeId) return null;
+    var lista = await DbLocal.lerDoCache('vendas_equipe:' + equipeId);
+    return lista.length ? lista : null;
+  }
+
+  // Namespace separado da consulta acima: a tela "Minha equipe" pede um
+  // subconjunto de campos diferente (e já filtra "devolvida" na query) — não
+  // dá pra compartilhar o mesmo cache sem um formato virar inconsistente
+  // com o outro.
+  async function salvarVendasSemanaEquipeNoCache(equipeId, lista) {
+    if (!_nativo() || !window.DbLocal || !equipeId || !Array.isArray(lista)) return;
+    try { await DbLocal.salvarNoCache('vendas_equipe_semana:' + equipeId, lista); }
+    catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function vendasSemanaEquipeDoCache(equipeId) {
+    if (!_nativo() || !window.DbLocal || !equipeId) return null;
+    var lista = await DbLocal.lerDoCache('vendas_equipe_semana:' + equipeId);
+    return lista.length ? lista : null;
+  }
+
+  // Busca de cliente por CPF offline (tela de Vendas) — mesma unificação de
+  // cache usada na busca por nome/código (_clientesDoCacheUnificado), só
+  // que filtrando por CPF exato (dígitos).
+  async function clienteDoCachePorCPF(cpf) {
+    if (!_nativo() || !window.DbLocal) return null;
+    var alvo = String(cpf || '').replace(/\D/g, '');
+    if (!alvo) return null;
+    var todos = await _clientesDoCacheUnificado();
+    return todos.find(function (c) { return String(c.cpf || '').replace(/\D/g, '') === alvo; }) || null;
+  }
+
+  async function clienteDoCachePorCodigo(codigo) {
+    if (!_nativo() || !window.DbLocal) return null;
+    var alvo = String(codigo || '').trim();
+    if (!alvo) return null;
+    var todos = await _clientesDoCacheUnificado();
+    return todos.find(function (c) { return String(c.codigo || '').trim() === alvo; }) || null;
+  }
+
+  // Aproxima o resultado de verificar_cliente_por_cpf() usando as parcelas
+  // que já estão salvas no aparelho (mesma regra de UX do fluxo online: uma
+  // parcela em aberto vencida já conta como atraso). temDados=false avisa o
+  // chamador que não há parcela nenhuma em cache pra esse cliente — ou seja,
+  // não dá pra garantir que ele está em dia, só que não sabemos.
+  async function statusInadimplenciaDoCache(clienteId) {
+    if (!_nativo() || !window.DbLocal || !clienteId) return { temDados: false, qtdAtrasadas: 0, valorAtrasado: 0 };
+    var todas = await DbLocal.lerDoCache('parcelas');
+    var doCliente = todas.filter(function (p) { return String(p.cliente_id) === String(clienteId); });
+    if (!doCliente.length) return { temDados: false, qtdAtrasadas: 0, valorAtrasado: 0 };
+    var hojeISO = new Date().toISOString().slice(0, 10);
+    var atrasadas = doCliente.filter(function (p) {
+      return !p.pago && p.status !== 'devolvida' && String(p.data_vencimento || '').slice(0, 10) < hojeISO;
+    });
+    var valorAtrasado = atrasadas.reduce(function (soma, p) {
+      return soma + (Number(p.valor) || 0) - (Number(p.valor_pago) || 0);
+    }, 0);
+    return { temDados: true, qtdAtrasadas: atrasadas.length, valorAtrasado: Math.round(valorAtrasado * 100) / 100 };
+  }
+
   function avisoOfflineHtml(texto) {
     return '<div style="background:#FAEEDA;border:1px solid #FAC775;color:#854F0B;border-radius:10px;'
       + 'padding:10px 14px;margin-bottom:10px;font-size:13px;">📴 '
@@ -560,6 +714,21 @@
     carteiraDoCache: carteiraDoCache,
     salvarParcelasNoCache: salvarParcelasNoCache,
     salvarClientesNoCache: salvarClientesNoCache,
+    salvarEquipeAtivaNoCache: salvarEquipeAtivaNoCache,
+    equipeAtivaDoCache: equipeAtivaDoCache,
+    salvarEstoqueCaminhaoNoCache: salvarEstoqueCaminhaoNoCache,
+    estoqueCaminhaoDoCache: estoqueCaminhaoDoCache,
+    salvarProdutosCatalogoNoCache: salvarProdutosCatalogoNoCache,
+    produtosCatalogoDoCache: produtosCatalogoDoCache,
+    salvarMembrosEquipeNoCache: salvarMembrosEquipeNoCache,
+    membrosEquipeDoCache: membrosEquipeDoCache,
+    salvarVendasEquipeNoCache: salvarVendasEquipeNoCache,
+    vendasEquipeDoCache: vendasEquipeDoCache,
+    salvarVendasSemanaEquipeNoCache: salvarVendasSemanaEquipeNoCache,
+    vendasSemanaEquipeDoCache: vendasSemanaEquipeDoCache,
+    clienteDoCachePorCPF: clienteDoCachePorCPF,
+    clienteDoCachePorCodigo: clienteDoCachePorCodigo,
+    statusInadimplenciaDoCache: statusInadimplenciaDoCache,
     avisoOfflineHtml: avisoOfflineHtml,
   };
 })();
