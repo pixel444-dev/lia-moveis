@@ -12,6 +12,14 @@
 <script src="js/vendor/capacitor-core.js"></script>
 <script src="js/vendor/capacitor-community-sqlite.js"></script>
 <script src="js/vendor/capacitor-network.js"></script>
+<script src="js/vendor/capacitor-synapse.js"></script>
+<!-- capacitor-geolocation.js espera uma variável global "synapse" (dependência
+     interna do pacote @capacitor/geolocation para interop com OutSystems, que
+     este app não usa) — o próprio vendor de synapse expõe isso como
+     "outsystemsSynapse", então essa linha só faz a ponte com o nome que o
+     plugin de geolocalização espera encontrar. -->
+<script>var synapse = window.outsystemsSynapse;</script>
+<script src="js/vendor/capacitor-geolocation.js"></script>
 <script src="js/net-status.js"></script>
 <script src="js/db-local.js"></script>
 <script src="js/sync.js"></script>
@@ -1905,6 +1913,9 @@ async function iniciarSessao(user, dadosPrefetched) {
   if (perfilAtivo.perfil === 'cobrador') {
     aplicarPermissoes(perfilAtivo.perfil);
     carregarDashboard();
+    // Cobrador também cadastra cliente em campo (tela Clientes exige cidade
+    // válida da lista) — mesmo aquecimento de cache do vendedor.
+    prefetchMunicipiosOffline();
     return;
   }
   aplicarPermissoes(perfilAtivo.perfil);
@@ -2289,10 +2300,35 @@ function _resetLocStatus() {
   document.getElementById('vnc-localizacao-endereco').value = '';
 }
 
+// Dentro do app Android, o navigator.geolocation puro do WebView não
+// consegue disparar o diálogo de permissão do sistema (por isso a permissão
+// nem aparecia pra autorizar em Configurações — o app nunca tinha pedido de
+// verdade). O plugin nativo @capacitor/geolocation resolve isso: ele integra
+// com o pedido de permissão em tempo de execução do Android. Na versão web
+// (GitHub Pages) o próprio plugin cai no navigator.geolocation do navegador
+// por baixo dos panos — mesmo comportamento de antes.
+function _geoPlugin() {
+  return (window.capacitorGeolocationPluginCapacitor && window.capacitorGeolocationPluginCapacitor.Geolocation) || null;
+}
+
+function _appEhNativo() {
+  return typeof Capacitor !== 'undefined' && typeof Capacitor.getPlatform === 'function' && Capacitor.getPlatform() !== 'web';
+}
+
+function _mensagemErroLocalizacao(erro) {
+  var code = erro && erro.code;
+  var msg = String((erro && erro.message) || '');
+  if (code === 1 || /denied|permission/i.test(msg)) return '❌ Permissão de localização negada. Ative em Configurações do aparelho → Apps → Ascend → Permissões → Localização.';
+  if (code === 2 || /unavailable|disabled|indispon/i.test(msg)) return '❌ GPS indisponível. Verifique se a localização está ativada no aparelho.';
+  if (code === 3 || /timeout/i.test(msg)) return '❌ Tempo esgotado. Tente novamente em um local aberto.';
+  return '❌ Erro ao capturar localização.' + (msg ? ' (' + msg + ')' : '');
+}
+
 async function capturarLocalizacao() {
   var statusEl = document.getElementById('loc-status');
+  var geo = _geoPlugin();
 
-  if (!navigator.geolocation) {
+  if (!geo && !navigator.geolocation) {
     statusEl.innerHTML = '❌ Seu celular não suporta GPS.';
     statusEl.style.background = '#FCEBEB';
     statusEl.style.borderColor = '#f5c6c6';
@@ -2305,42 +2341,63 @@ async function capturarLocalizacao() {
   statusEl.style.borderColor = '#FAC775';
   statusEl.style.color = '#854F0B';
 
-  navigator.geolocation.getCurrentPosition(
-    async function(pos) {
-      var lat = pos.coords.latitude;
-      var lng = pos.coords.longitude;
-      var precisao = Math.round(pos.coords.accuracy);
+  function mostrarErro(msg) {
+    statusEl.innerHTML = msg;
+    statusEl.style.background = '#FCEBEB';
+    statusEl.style.borderColor = '#f5c6c6';
+    statusEl.style.color = '#A32D2D';
+  }
 
-      document.getElementById('vnc-latitude').value = lat;
-      document.getElementById('vnc-longitude').value = lng;
+  async function processarPosicao(pos) {
+    var lat = pos.coords.latitude;
+    var lng = pos.coords.longitude;
+    var precisao = Math.round(pos.coords.accuracy);
 
-      try {
-        var resp = await fetch(
-          'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&accept-language=pt-BR'
-        );
-        var data = await resp.json();
-        var endereco = data.display_name || (lat.toFixed(6) + ', ' + lng.toFixed(6));
-        document.getElementById('vnc-localizacao-endereco').value = endereco;
-        statusEl.innerHTML = '✅ Localização capturada!<br><span style="font-size:11px;color:#555;">' + endereco.substring(0, 80) + '...</span><br><span style="font-size:10px;color:#888;">Precisão: ~' + precisao + 'm</span>';
-      } catch (e) {
-        document.getElementById('vnc-localizacao-endereco').value = lat.toFixed(6) + ', ' + lng.toFixed(6);
-        statusEl.innerHTML = '✅ Localização capturada!<br><span style="font-size:11px;color:#555;">Lat: ' + lat.toFixed(6) + ' · Lng: ' + lng.toFixed(6) + '</span><br><span style="font-size:10px;color:#888;">Precisão: ~' + precisao + 'm</span>';
+    document.getElementById('vnc-latitude').value = lat;
+    document.getElementById('vnc-longitude').value = lng;
+
+    try {
+      var resp = await fetch(
+        'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&accept-language=pt-BR'
+      );
+      var data = await resp.json();
+      var endereco = data.display_name || (lat.toFixed(6) + ', ' + lng.toFixed(6));
+      document.getElementById('vnc-localizacao-endereco').value = endereco;
+      statusEl.innerHTML = '✅ Localização capturada!<br><span style="font-size:11px;color:#555;">' + endereco.substring(0, 80) + '...</span><br><span style="font-size:10px;color:#888;">Precisão: ~' + precisao + 'm</span>';
+    } catch (e) {
+      document.getElementById('vnc-localizacao-endereco').value = lat.toFixed(6) + ', ' + lng.toFixed(6);
+      statusEl.innerHTML = '✅ Localização capturada!<br><span style="font-size:11px;color:#555;">Lat: ' + lat.toFixed(6) + ' · Lng: ' + lng.toFixed(6) + '</span><br><span style="font-size:10px;color:#888;">Precisão: ~' + precisao + 'm</span>';
+    }
+
+    statusEl.style.background = '#EAF3DE';
+    statusEl.style.borderColor = '#c0dd97';
+    statusEl.style.color = '#3B6D11';
+  }
+
+  if (geo) {
+    try {
+      if (_appEhNativo()) {
+        var perm = await geo.checkPermissions();
+        if (perm.location !== 'granted' && perm.coarseLocation !== 'granted') {
+          perm = await geo.requestPermissions();
+        }
+        if (perm.location === 'denied' && perm.coarseLocation === 'denied') {
+          mostrarErro('❌ Permissão de localização negada. Ative em Configurações do aparelho → Apps → Ascend → Permissões → Localização.');
+          return;
+        }
       }
+      var pos = await geo.getCurrentPosition({ enableHighAccuracy: true, timeout: 15000 });
+      await processarPosicao(pos);
+    } catch (erro) {
+      mostrarErro(_mensagemErroLocalizacao(erro));
+    }
+    return;
+  }
 
-      statusEl.style.background = '#EAF3DE';
-      statusEl.style.borderColor = '#c0dd97';
-      statusEl.style.color = '#3B6D11';
-    },
-    function(erro) {
-      var msg = 'Erro ao capturar localização.';
-      if (erro.code === 1) msg = '❌ Permissão de localização negada. Ative o GPS nas configurações do celular.';
-      if (erro.code === 2) msg = '❌ GPS indisponível. Verifique se o GPS está ativado.';
-      if (erro.code === 3) msg = '❌ Tempo esgotado. Tente novamente em um local aberto.';
-      statusEl.innerHTML = msg;
-      statusEl.style.background = '#FCEBEB';
-      statusEl.style.borderColor = '#f5c6c6';
-      statusEl.style.color = '#A32D2D';
-    },
+  // Fallback — só chega aqui se o vendor do plugin não carregou por algum motivo.
+  navigator.geolocation.getCurrentPosition(
+    function (pos) { processarPosicao(pos); },
+    function (erro) { mostrarErro(_mensagemErroLocalizacao(erro)); },
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
 }
@@ -2956,7 +3013,38 @@ async function _buscarMunicipios(termo) {
     .ilike('nome', termo + '%')
     .order('nome')
     .limit(10);
+  if (res.error) {
+    // Sem rede: cai pro cache local (ver prefetchMunicipiosOffline, chamado
+    // no login do vendedor) em vez de devolver lista vazia silenciosamente —
+    // era exatamente isso que travava o cadastro de cliente offline (nenhuma
+    // cidade nunca aparecia pra selecionar).
+    if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(res.error)) {
+      return await OfflineFlow.buscarMunicipiosNoCache(termo);
+    }
+    return [];
+  }
   return res.data || [];
+}
+
+// Tabela pequena e praticamente estática (todo o Brasil, ~5600 municípios) —
+// baixa inteira uma vez (paginada) e grava no cache pra alimentar
+// _buscarMunicipios() offline. Chamado no login (prefetchOfflineVendedor);
+// no app web/não-nativo os helpers de OfflineFlow são no-ops baratos.
+async function prefetchMunicipiosOffline() {
+  if (!_appEhNativo() || !window.OfflineFlow) return;
+  try {
+    var todos = [];
+    var offset = 0;
+    var limite = 1000;
+    while (true) {
+      var { data, error } = await sb.from('municipios').select('codigo_ibge, nome, estados(uf)').range(offset, offset + limite - 1);
+      if (error || !data || !data.length) break;
+      todos.push(...data);
+      if (data.length < limite) break;
+      offset += limite;
+    }
+    if (todos.length) await OfflineFlow.salvarMunicipiosNoCache(todos);
+  } catch (e) { /* prefetch é melhor esforço */ }
 }
 
 function _mostrarDropdownCidade(inputId, dropdownId, ufId, municipioIdProp, itens) {
@@ -4948,6 +5036,10 @@ async function carregarEquipeAtivaVendedor() {
 // isso o primeiro acesso offline não teria nada carregado ainda.
 async function prefetchOfflineVendedor() {
   await carregarEquipeAtivaVendedor();
+  // Independe de ter equipe ativa: o cadastro de cliente (que exige cidade
+  // válida) pode acontecer mesmo em semanas sem viagem, e cacheado uma vez
+  // dura muito tempo (tabela quase estática).
+  prefetchMunicipiosOffline();
   if (!equipeAtiva?.id) return;
   await carregarFonteItensVenda(); // já grava produtos + estoque do caminhão no cache
   const { data: membros, error } = await sb.from('equipe_membros')

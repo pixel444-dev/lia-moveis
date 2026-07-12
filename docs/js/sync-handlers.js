@@ -687,6 +687,33 @@
     return { temDados: true, qtdAtrasadas: atrasadas.length, valorAtrasado: Math.round(valorAtrasado * 100) / 100 };
   }
 
+  // Cache do autocomplete de cidade (cadastro de cliente, telas Clientes e
+  // Vendas): a tabela `municipios` é pequena e praticamente estática (todo o
+  // Brasil, ~5600 linhas) — dá pra baixar inteira uma vez (prefetchMunicipios-
+  // Offline, no index.html) e buscar localmente depois, sem depender de rede
+  // toda vez que o vendedor digita uma cidade.
+  async function salvarMunicipiosNoCache(lista) {
+    if (!_nativo() || !window.DbLocal || !Array.isArray(lista) || !lista.length) return;
+    try {
+      var comId = lista.filter(function (m) { return m && m.codigo_ibge != null; })
+        .map(function (m) { return Object.assign({}, m, { id: m.codigo_ibge }); });
+      await DbLocal.salvarNoCache('municipios', comId);
+    } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  // Replica o critério do ilike('nome', termo + '%') do servidor (prefixo,
+  // sem diferenciar maiúsculas/minúsculas) — mesmo comportamento visto pelo
+  // usuário, só que lendo do aparelho em vez do Supabase.
+  async function buscarMunicipiosNoCache(termo) {
+    if (!_nativo() || !window.DbLocal) return [];
+    var t = String(termo || '').trim().toLowerCase();
+    if (!t) return [];
+    var todos = await DbLocal.lerDoCache('municipios');
+    var filtrados = todos.filter(function (m) { return String(m.nome || '').toLowerCase().indexOf(t) === 0; });
+    filtrados.sort(function (a, b) { return String(a.nome || '').localeCompare(String(b.nome || '')); });
+    return filtrados.slice(0, 10);
+  }
+
   function avisoOfflineHtml(texto) {
     return '<div style="background:#FAEEDA;border:1px solid #FAC775;color:#854F0B;border-radius:10px;'
       + 'padding:10px 14px;margin-bottom:10px;font-size:13px;">📴 '
@@ -729,6 +756,8 @@
     clienteDoCachePorCPF: clienteDoCachePorCPF,
     clienteDoCachePorCodigo: clienteDoCachePorCodigo,
     statusInadimplenciaDoCache: statusInadimplenciaDoCache,
+    salvarMunicipiosNoCache: salvarMunicipiosNoCache,
+    buscarMunicipiosNoCache: buscarMunicipiosNoCache,
     avisoOfflineHtml: avisoOfflineHtml,
   };
 })();
