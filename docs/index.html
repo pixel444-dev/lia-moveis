@@ -1957,9 +1957,6 @@ async function iniciarSessao(user, dadosPrefetched) {
   if (perfilAtivo.perfil === 'cobrador') {
     aplicarPermissoes(perfilAtivo.perfil);
     carregarDashboard();
-    // Cobrador também cadastra cliente em campo (tela Clientes exige cidade
-    // válida da lista) — mesmo aquecimento de cache do vendedor.
-    prefetchMunicipiosOffline();
     return;
   }
   aplicarPermissoes(perfilAtivo.perfil);
@@ -3057,95 +3054,38 @@ window._vncMunicipioId = null;
 var _cliCidadeTimer = null;
 var _vncCidadeTimer = null;
 
-async function _buscarMunicipios(termo) {
-  var res = await sb.from('municipios')
-    .select('codigo_ibge, nome, estados(uf)')
-    .ilike('nome', termo + '%')
-    .order('nome')
-    .limit(10);
-  if (res.error) {
-    // Sem rede: cai pro cache local (ver prefetchMunicipiosOffline, chamado
-    // no login do vendedor) em vez de devolver lista vazia silenciosamente —
-    // era exatamente isso que travava o cadastro de cliente offline (nenhuma
-    // cidade nunca aparecia pra selecionar).
-    if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(res.error)) {
-      return await OfflineFlow.buscarMunicipiosNoCache(termo);
-    }
-    return [];
+// Autocomplete de cidade lê direto do arquivo embutido no app (docs/data/
+// municipios-br.json — dataset do IBGE, ~5600 municípios), nunca do
+// Supabase. É dado estático (uma cidade nova no Brasil é rara, e quando
+// acontece precisa atualizar os dois lugares mesmo, já que é a mesma fonte
+// — ver nota no MOBILE_SETUP.md), então não vale a pena depender de rede
+// nem duplicar num cache SQLite: o arquivo já É a cópia local, igual em
+// qualquer plataforma (nativo ou web) e em qualquer situação (online ou
+// offline). Carregado uma vez por sessão (memória), sob demanda.
+var _municipiosBundlePromise = null;
+function _carregarMunicipiosBundle() {
+  if (!_municipiosBundlePromise) {
+    _municipiosBundlePromise = fetch('data/municipios-br.json')
+      .then(function (resp) { return resp.ok ? resp.json() : []; })
+      .catch(function () { return []; });
   }
-  return res.data || [];
+  return _municipiosBundlePromise;
 }
+// Aquece o cache em memória cedo (não precisa esperar login) — na hora que
+// o vendedor abrir o formulário de cliente, o mais provável é já estar pronto.
+_carregarMunicipiosBundle();
 
-// Tabela pequena e praticamente estática (todo o Brasil, ~5600 municípios) —
-// baixa inteira uma vez (paginada) e grava no cache pra alimentar
-// _buscarMunicipios() offline. Chamado em todo login (prefetchOfflineVendedor
-// e no branch do cobrador em iniciarSessao) — mas iniciarSessao() roda em
-// todo BOOT do app com sessão válida, não só em login novo de verdade (ver
-// sb.auth.getSession().then(...) mais abaixo). Sem a trava abaixo, o app
-// baixaria as ~5600 linhas de novo toda vez que fosse aberto — a trava só
-// busca de novo se o cache ainda está vazio (primeiro acesso/reinstalação)
-// ou se já passou muito tempo da última vez; nas outras aberturas nem chega
-// a tocar no Supabase. Na versão web/não-nativa, OfflineFlow é no-op barato.
-var MUNICIPIOS_PREFETCH_INTERVALO_DIAS = 30;
-
-// Semeia o cache local direto do arquivo embutido no app (docs/data/
-// municipios-br.json — dataset público do IBGE, ~5600 municípios). É um
-// asset local do próprio pacote (copiado pro APK igual index.html/JS),
-// então o fetch() funciona mesmo 100% offline, sem precisar de internet
-// nem depender do Supabase — útil já na primeira abertura do app, antes de
-// qualquer sincronização. Devolve true se conseguiu semear.
-async function _semearMunicipiosDoBundle() {
-  try {
-    var resp = await fetch('data/municipios-br.json');
-    if (!resp.ok) return false;
-    var lista = await resp.json();
-    if (!Array.isArray(lista) || !lista.length) return false;
-    var comEstado = lista.map(function (m) {
-      return { codigo_ibge: m.codigo_ibge, nome: m.nome, estados: { uf: m.uf } };
-    });
-    await OfflineFlow.salvarMunicipiosNoCache(comEstado);
-    return true;
-  } catch (e) { return false; }
-}
-
-async function prefetchMunicipiosOffline() {
-  if (!_appEhNativo() || !window.OfflineFlow || !window.DbLocal) return;
-  try {
-    var cacheAtual = await DbLocal.lerDoCache('municipios');
-
-    if (!cacheAtual.length) {
-      // Primeira vez neste aparelho: tenta semear do bundle embutido antes
-      // de gastar rede com o Supabase (o bundle é a mesma fonte/formato,
-      // então cobre o caso comum sem round-trip nenhum).
-      var semeado = await _semearMunicipiosDoBundle();
-      if (semeado) {
-        localStorage.setItem('ascend_municipios_prefetch_ts', String(Date.now()));
-        return;
-      }
-    }
-
-    var ultimaBusca = Number(localStorage.getItem('ascend_municipios_prefetch_ts') || 0);
-    var diasDesde = (Date.now() - ultimaBusca) / (1000 * 60 * 60 * 24);
-    if (cacheAtual.length > 0 && diasDesde < MUNICIPIOS_PREFETCH_INTERVALO_DIAS) return;
-
-    // Backstop: mantém o cache alinhado com o Supabase (fonte da verdade —
-    // outras partes do sistema, como importação de clientes, dependem da
-    // tabela lá) a cada 30 dias, ou se por algum motivo o bundle acima falhou.
-    var todos = [];
-    var offset = 0;
-    var limite = 1000;
-    while (true) {
-      var { data, error } = await sb.from('municipios').select('codigo_ibge, nome, estados(uf)').range(offset, offset + limite - 1);
-      if (error || !data || !data.length) break;
-      todos.push(...data);
-      if (data.length < limite) break;
-      offset += limite;
-    }
-    if (todos.length) {
-      await OfflineFlow.salvarMunicipiosNoCache(todos);
-      localStorage.setItem('ascend_municipios_prefetch_ts', String(Date.now()));
-    }
-  } catch (e) { /* prefetch é melhor esforço */ }
+async function _buscarMunicipios(termo) {
+  var t = String(termo || '').trim().toLowerCase();
+  if (!t) return [];
+  var lista = await _carregarMunicipiosBundle();
+  var filtrados = lista.filter(function (m) { return String(m.nome || '').toLowerCase().indexOf(t) === 0; });
+  filtrados.sort(function (a, b) { return String(a.nome || '').localeCompare(String(b.nome || '')); });
+  // Mesmo formato que a consulta ao Supabase devolvia (m.estados.uf), pra
+  // não precisar mexer em quem consome o resultado (_mostrarDropdownCidade).
+  return filtrados.slice(0, 10).map(function (m) {
+    return { codigo_ibge: m.codigo_ibge, nome: m.nome, estados: { uf: m.uf } };
+  });
 }
 
 function _mostrarDropdownCidade(inputId, dropdownId, ufId, municipioIdProp, itens) {
@@ -5141,28 +5081,25 @@ async function carregarEquipeAtivaVendedor() {
 
 // Chamado uma vez no login do vendedor (com internet): puxa e grava no
 // aparelho tudo que o vendedor precisa pra vender offline depois — equipe
-// ativa (já feito por carregarEquipeAtivaVendedor), cidades, catálogo de
-// produtos, estoque do caminhão da equipe e o time (nomes/papéis dos
-// membros). Sem isso o primeiro acesso offline não teria nada carregado
-// ainda. onProgress(pct, texto) é opcional — usado pela tela de
-// sincronização inicial (ver _aguardarSincronizacaoInicialVendedor) pra
-// mostrar uma barra de progresso de verdade em vez de um spinner genérico.
+// ativa (já feito por carregarEquipeAtivaVendedor), catálogo de produtos,
+// estoque do caminhão da equipe e o time (nomes/papéis dos membros). Cidade
+// não entra aqui — _buscarMunicipios() já lê direto de um arquivo embutido
+// no app, sem depender de login nem de rede. Sem isso o primeiro acesso
+// offline não teria nada carregado ainda. onProgress(pct, texto) é
+// opcional — usado pela tela de sincronização inicial (ver
+// _aguardarSincronizacaoInicialVendedor) pra mostrar uma barra de progresso
+// de verdade em vez de um spinner genérico.
 async function prefetchOfflineVendedor(onProgress) {
   const marcar = (pct, texto) => { try { if (onProgress) onProgress(pct, texto); } catch (e) { /* progresso é cosmético */ } };
 
-  marcar(10, 'Carregando sua equipe...');
+  marcar(15, 'Carregando sua equipe...');
   await carregarEquipeAtivaVendedor();
-
-  // Independe de ter equipe ativa: o cadastro de cliente (que exige cidade
-  // válida) pode acontecer mesmo em semanas sem viagem, e cacheado uma vez
-  // dura muito tempo (tabela quase estática — normalmente só lê do bundle
-  // embutido no app, rápido, ver prefetchMunicipiosOffline).
-  marcar(30, 'Carregando cidades...');
-  await prefetchMunicipiosOffline();
+  // Cidade do cliente não depende disto — _buscarMunicipios() lê direto do
+  // arquivo embutido no app (docs/data/municipios-br.json), sem rede.
 
   if (!equipeAtiva?.id) { marcar(100, 'Tudo pronto!'); return; }
 
-  marcar(60, 'Carregando estoque do caminhão...');
+  marcar(55, 'Carregando estoque do caminhão...');
   await carregarFonteItensVenda(); // já grava produtos + estoque do caminhão no cache
 
   marcar(85, 'Carregando membros da equipe...');

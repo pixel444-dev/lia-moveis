@@ -250,28 +250,25 @@ devolve ela em vez de criar outra. Retrocompatível: o parâmetro é opcional
 vivo no Supabase e, sem rede, devolvia lista vazia silenciosamente — o
 formulário exige selecionar uma cidade da lista (`municipio_id` só é
 preenchido pelo clique num item do dropdown), então isso travava por
-completo o cadastro de cliente offline. `municipios` é uma tabela pequena e
-praticamente estática (todo o Brasil, ~5600 linhas). Duas camadas:
-- `docs/data/municipios-br.json` — o dataset do IBGE (município → UF)
-  embutido no próprio pacote do app (~300 KB, copiado pro APK junto com
-  `index.html`/JS pelo `cap sync`, igual qualquer outro asset). Na primeira
-  vez que o cache local está vazio, `_semearMunicipiosDoBundle()` lê esse
-  arquivo com `fetch()` — funciona mesmo sem internet nenhuma, porque é um
-  asset local do WebView, não uma chamada de rede de verdade — e semeia o
-  cache na hora, sem depender do Supabase.
-- Se por algum motivo o bundle falhar (ou uma vez a cada 30 dias, como
-  backstop de atualização), `prefetchMunicipiosOffline()` busca a tabela
-  inteira do Supabase (paginada) — mantém o cache alinhado com a fonte da
-  verdade, já que outras partes do sistema (importação de clientes, rotas)
-  dependem da tabela lá.
+completo o cadastro de cliente offline.
 
-Ambas rodam no login do vendedor e do cobrador; `_buscarMunicipios()` cai
-pro cache quando a consulta ao vivo falha por rede, com o mesmo critério de
-busca (prefixo do nome, sem diferenciar maiúsculas/minúsculas). Se a base de
-municípios no Supabase for atualizada (raro), regenere
-`docs/data/municipios-br.json` a partir dela para manter os dois em sincronia
-— o arquivo atual foi gerado a partir de um dump SQL fornecido junto com o
-schema de `municipios`/`estados`.
+Simplificado depois: `_buscarMunicipios()` não consulta mais o Supabase em
+nenhuma situação — lê direto de `docs/data/municipios-br.json`, o dataset do
+IBGE (município → UF, ~5600 linhas, ~300 KB) embutido no próprio pacote do
+app (copiado pro APK junto com `index.html`/JS pelo `cap sync`, igual
+qualquer outro asset). `_carregarMunicipiosBundle()` faz um único `fetch()`
+desse arquivo por sessão (cacheado em memória, sem SQLite envolvido — não
+precisa, é asset estático do próprio app) e `_buscarMunicipios()` filtra em
+JS com o mesmo critério de antes (prefixo do nome, sem diferenciar
+maiúsculas/minúsculas). Funciona identicamente online e offline, e em
+qualquer plataforma (nativo ou web) — não existe mais um caminho "com
+Supabase" e outro "sem Supabase" pra essa busca.
+
+Cidade nova no Brasil é raríssima, e quando acontecer é preciso atualizar os
+dois lugares mesmo (o dump SQL usado pra gerar este arquivo é a mesma fonte
+do `municipios`/`estados` do Supabase) — não haveria ganho em manter uma
+sincronização automática entre os dois só pra esse caso raro. Se a base for
+atualizada, regenere `docs/data/municipios-br.json` a partir do novo dump.
 
 **GPS não pedia permissão** (`capturarLocalizacao`): o app usava
 `navigator.geolocation` puro (API do navegador). Dentro do WebView do
@@ -295,9 +292,10 @@ o app já ficava utilizável antes do prefetch terminar, então uma queda de
 rede bem na hora do primeiro login podia deixar o vendedor sem equipe/
 estoque/produtos salvos, sem ele saber. Agora, só quando é vendedor +
 app nativo + tem internet no momento do login, aparece uma tela cheia
-"🔄 Sincronizando dados" com barra de progresso (equipe → cidades →
-estoque do caminhão → membros da equipe, 4 passos) que bloqueia o acesso
-ao app até 100%. Sem internet no login (sessão offline recuperada) ou na
+"🔄 Sincronizando dados" com barra de progresso (equipe → estoque do
+caminhão → membros da equipe, 3 passos — cidade não depende de rede, ver
+`_buscarMunicipios` acima) que bloqueia o acesso ao app até 100%. Sem
+internet no login (sessão offline recuperada) ou na
 versão web, esse bloqueio não existe — não haveria o que baixar mesmo.
 Depois de 12s ainda rodando, aparece um botão "Continuar mesmo assim"
 (o prefetch continua tentando em segundo plano, só para de travar a tela)
