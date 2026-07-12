@@ -3028,11 +3028,24 @@ async function _buscarMunicipios(termo) {
 
 // Tabela pequena e praticamente estática (todo o Brasil, ~5600 municípios) —
 // baixa inteira uma vez (paginada) e grava no cache pra alimentar
-// _buscarMunicipios() offline. Chamado no login (prefetchOfflineVendedor);
-// no app web/não-nativo os helpers de OfflineFlow são no-ops baratos.
+// _buscarMunicipios() offline. Chamado em todo login (prefetchOfflineVendedor
+// e no branch do cobrador em iniciarSessao) — mas iniciarSessao() roda em
+// todo BOOT do app com sessão válida, não só em login novo de verdade (ver
+// sb.auth.getSession().then(...) mais abaixo). Sem a trava abaixo, o app
+// baixaria as ~5600 linhas de novo toda vez que fosse aberto — a trava só
+// busca de novo se o cache ainda está vazio (primeiro acesso/reinstalação)
+// ou se já passou muito tempo da última vez; nas outras aberturas nem chega
+// a tocar no Supabase. Na versão web/não-nativa, OfflineFlow é no-op barato.
+var MUNICIPIOS_PREFETCH_INTERVALO_DIAS = 30;
+
 async function prefetchMunicipiosOffline() {
-  if (!_appEhNativo() || !window.OfflineFlow) return;
+  if (!_appEhNativo() || !window.OfflineFlow || !window.DbLocal) return;
   try {
+    var cacheAtual = await DbLocal.lerDoCache('municipios');
+    var ultimaBusca = Number(localStorage.getItem('ascend_municipios_prefetch_ts') || 0);
+    var diasDesde = (Date.now() - ultimaBusca) / (1000 * 60 * 60 * 24);
+    if (cacheAtual.length > 0 && diasDesde < MUNICIPIOS_PREFETCH_INTERVALO_DIAS) return;
+
     var todos = [];
     var offset = 0;
     var limite = 1000;
@@ -3043,7 +3056,10 @@ async function prefetchMunicipiosOffline() {
       if (data.length < limite) break;
       offset += limite;
     }
-    if (todos.length) await OfflineFlow.salvarMunicipiosNoCache(todos);
+    if (todos.length) {
+      await OfflineFlow.salvarMunicipiosNoCache(todos);
+      localStorage.setItem('ascend_municipios_prefetch_ts', String(Date.now()));
+    }
   } catch (e) { /* prefetch é melhor esforço */ }
 }
 
