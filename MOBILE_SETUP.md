@@ -251,10 +251,27 @@ vivo no Supabase e, sem rede, devolvia lista vazia silenciosamente — o
 formulário exige selecionar uma cidade da lista (`municipio_id` só é
 preenchido pelo clique num item do dropdown), então isso travava por
 completo o cadastro de cliente offline. `municipios` é uma tabela pequena e
-praticamente estática (todo o Brasil, ~5600 linhas): `prefetchMunicipiosOffline()`
-baixa ela inteira (paginada) e grava no cache no login do vendedor e do
-cobrador; `_buscarMunicipios()` cai pro cache quando a consulta falha por
-rede, com o mesmo critério de busca (prefixo do nome, sem acento/case).
+praticamente estática (todo o Brasil, ~5600 linhas). Duas camadas:
+- `docs/data/municipios-br.json` — o dataset do IBGE (município → UF)
+  embutido no próprio pacote do app (~300 KB, copiado pro APK junto com
+  `index.html`/JS pelo `cap sync`, igual qualquer outro asset). Na primeira
+  vez que o cache local está vazio, `_semearMunicipiosDoBundle()` lê esse
+  arquivo com `fetch()` — funciona mesmo sem internet nenhuma, porque é um
+  asset local do WebView, não uma chamada de rede de verdade — e semeia o
+  cache na hora, sem depender do Supabase.
+- Se por algum motivo o bundle falhar (ou uma vez a cada 30 dias, como
+  backstop de atualização), `prefetchMunicipiosOffline()` busca a tabela
+  inteira do Supabase (paginada) — mantém o cache alinhado com a fonte da
+  verdade, já que outras partes do sistema (importação de clientes, rotas)
+  dependem da tabela lá.
+
+Ambas rodam no login do vendedor e do cobrador; `_buscarMunicipios()` cai
+pro cache quando a consulta ao vivo falha por rede, com o mesmo critério de
+busca (prefixo do nome, sem diferenciar maiúsculas/minúsculas). Se a base de
+municípios no Supabase for atualizada (raro), regenere
+`docs/data/municipios-br.json` a partir dela para manter os dois em sincronia
+— o arquivo atual foi gerado a partir de um dump SQL fornecido junto com o
+schema de `municipios`/`estados`.
 
 **GPS não pedia permissão** (`capturarLocalizacao`): o app usava
 `navigator.geolocation` puro (API do navegador). Dentro do WebView do

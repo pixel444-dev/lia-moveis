@@ -3038,14 +3038,49 @@ async function _buscarMunicipios(termo) {
 // a tocar no Supabase. Na versão web/não-nativa, OfflineFlow é no-op barato.
 var MUNICIPIOS_PREFETCH_INTERVALO_DIAS = 30;
 
+// Semeia o cache local direto do arquivo embutido no app (docs/data/
+// municipios-br.json — dataset público do IBGE, ~5600 municípios). É um
+// asset local do próprio pacote (copiado pro APK igual index.html/JS),
+// então o fetch() funciona mesmo 100% offline, sem precisar de internet
+// nem depender do Supabase — útil já na primeira abertura do app, antes de
+// qualquer sincronização. Devolve true se conseguiu semear.
+async function _semearMunicipiosDoBundle() {
+  try {
+    var resp = await fetch('data/municipios-br.json');
+    if (!resp.ok) return false;
+    var lista = await resp.json();
+    if (!Array.isArray(lista) || !lista.length) return false;
+    var comEstado = lista.map(function (m) {
+      return { codigo_ibge: m.codigo_ibge, nome: m.nome, estados: { uf: m.uf } };
+    });
+    await OfflineFlow.salvarMunicipiosNoCache(comEstado);
+    return true;
+  } catch (e) { return false; }
+}
+
 async function prefetchMunicipiosOffline() {
   if (!_appEhNativo() || !window.OfflineFlow || !window.DbLocal) return;
   try {
     var cacheAtual = await DbLocal.lerDoCache('municipios');
+
+    if (!cacheAtual.length) {
+      // Primeira vez neste aparelho: tenta semear do bundle embutido antes
+      // de gastar rede com o Supabase (o bundle é a mesma fonte/formato,
+      // então cobre o caso comum sem round-trip nenhum).
+      var semeado = await _semearMunicipiosDoBundle();
+      if (semeado) {
+        localStorage.setItem('ascend_municipios_prefetch_ts', String(Date.now()));
+        return;
+      }
+    }
+
     var ultimaBusca = Number(localStorage.getItem('ascend_municipios_prefetch_ts') || 0);
     var diasDesde = (Date.now() - ultimaBusca) / (1000 * 60 * 60 * 24);
     if (cacheAtual.length > 0 && diasDesde < MUNICIPIOS_PREFETCH_INTERVALO_DIAS) return;
 
+    // Backstop: mantém o cache alinhado com o Supabase (fonte da verdade —
+    // outras partes do sistema, como importação de clientes, dependem da
+    // tabela lá) a cada 30 dias, ou se por algum motivo o bundle acima falhou.
     var todos = [];
     var offset = 0;
     var limite = 1000;
