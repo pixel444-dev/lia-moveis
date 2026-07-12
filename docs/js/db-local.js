@@ -28,6 +28,19 @@
         var SQLiteConnection = capacitorCapacitorSQLite.SQLiteConnection;
         sqliteConn = new SQLiteConnection(CapacitorSQLite);
 
+        // sqliteConn.isConnection()/.retrieveConnection() só consultam um
+        // Map local dessa instância JS — não o estado real do lado nativo.
+        // Como a página pode recarregar (novo app open, location.reload etc.)
+        // sem o processo Android morrer, o nativo pode continuar com a
+        // conexão "ascend_offline" aberta de uma sessão anterior enquanto
+        // esse Map nasce vazio. checkConnectionsConsistency() reconcilia os
+        // dois lados: como o Map local está vazio, ele fecha qualquer
+        // conexão nativa órfã, evitando "Connection ... already exists" no
+        // createConnection() logo abaixo.
+        try {
+          await sqliteConn.checkConnectionsConsistency();
+        } catch (e) { /* segue mesmo se falhar aqui — createConnection cairia no catch geral */ }
+
         var jaConectado = false;
         try {
           var r = await sqliteConn.isConnection(DB_NAME, false);
@@ -61,7 +74,19 @@
             // Banco ainda não existe em disco — segue com "encryption" (cria já criptografado).
           }
 
-          db = await sqliteConn.createConnection(DB_NAME, true, modo, 1, false);
+          try {
+            db = await sqliteConn.createConnection(DB_NAME, true, modo, 1, false);
+          } catch (errCreate) {
+            // Segunda rede de segurança: se mesmo depois do
+            // checkConnectionsConsistency() o nativo ainda disser que a
+            // conexão já existe, fecha a conexão nativa diretamente (isso
+            // sim é uma chamada real, não olha o Map local) e tenta criar
+            // de novo, uma única vez.
+            var msgCreate = (errCreate && errCreate.message) || String(errCreate);
+            if (!/already exists/i.test(msgCreate)) throw errCreate;
+            try { await sqliteConn.closeConnection(DB_NAME, false); } catch (e) { /* ignora */ }
+            db = await sqliteConn.createConnection(DB_NAME, true, modo, 1, false);
+          }
         }
 
         await db.open();
