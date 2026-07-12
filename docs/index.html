@@ -557,6 +557,9 @@ tr:hover td{background:#fafafa;}
       <div id="aviso-sem-equipe" style="display:none;background:#FAEEDA;border:1px solid #FAC775;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem;font-size:14px;color:#854F0B;line-height:1.5;">
         ⚠️ Você não está em nenhuma equipe ativa esta semana. Entre em contato com o gestor para ser adicionado a uma equipe.
       </div>
+      <div id="aviso-equipe-offline" style="display:none;background:#FAEEDA;border:1px solid #FAC775;border-radius:12px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#854F0B;">
+        📴 Sem conexão — mostrando a equipe e o estoque do caminhão salvos no aparelho. Podem estar desatualizados.
+      </div>
       <div class="busca-wrap" id="busca-vendas-wrap">
         <select id="vendas-filtro-tipo" onchange="trocarFiltroGenerico('vendas')" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:170px;">
           <option value="tudo">Pesquisar por: Tudo</option>
@@ -1913,7 +1916,7 @@ async function iniciarSessao(user, dadosPrefetched) {
     });
   }
   if (perfilAtivo.perfil === 'vendedor') {
-    carregarEquipeAtivaVendedor();
+    prefetchOfflineVendedor();
     setInterval(async () => {
       const equipeAntes = equipeAtiva?.id || null;
       await carregarEquipeAtivaVendedor();
@@ -2377,6 +2380,12 @@ async function gerarCodigoCliente() {
 }
 
 async function gerarCodigoVenda() {
+  // Mesmo raciocínio de gerarCodigoCliente(): offline não existe gerador
+  // confiável (o fallback abaixo tentaria uma query que também falharia e
+  // devolveria "1"). É só um código de exibição no formulário — o real sai
+  // do proximo_codigo_venda() rodado no servidor por criar_venda() na hora
+  // da sincronização.
+  if (window.NetStatus && !NetStatus.estaOnline()) return '';
   const { data, error } = await sb.rpc('proximo_codigo_venda');
   if (error || !data) {
     Logger.error('vendas', 'gerarCodigoVenda', 'Falha na RPC proximo_codigo_venda', { error_message: error?.message });
@@ -3066,12 +3075,26 @@ async function carregarMembrosEquipeSelect() {
     sel.innerHTML = '<option value="">Nenhuma equipe ativa</option>';
     return;
   }
-  const { data: membros } = await sb.from('equipe_membros')
+  const { data: membrosRaw, error } = await sb.from('equipe_membros')
     .select('funcionario_id, papel, funcionarios(id, nome)')
     .eq('equipe_id', equipeAtiva.id);
+  let membros = membrosRaw;
+  if (error) {
+    // Sem cache aqui não pode virar dropdown vazio — sem vendedor selecionado
+    // salvarVenda() bloqueia a venda inteira. Reaproveita o cache gravado por
+    // prefetchOfflineVendedor()/carregarEquipeVendedor() (mesmo formato de
+    // linha: funcionario_id, papel, funcionarios).
+    membros = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error))
+      ? await OfflineFlow.membrosEquipeDoCache(equipeAtiva.id) : null;
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarMembrosEquipeNoCache(equipeAtiva.id, membrosRaw || []);
+  }
   sel.innerHTML = '<option value="">Selecione o vendedor *</option>' +
     (membros||[]).map(m =>
-      `<option value="${m.funcionarios.id}">${escHtml(m.funcionarios.nome)} ${m.papel === 'chefe' ? '(Chefe)' : '(Ajudante)'}</option>`
+      // funcionario_id === funcionarios.id (é a FK) — usar funcionario_id
+      // direto evita depender de "funcionarios(id, ...)" estar no select,
+      // já que o cache offline pode ter vindo de uma consulta mais enxuta.
+      `<option value="${m.funcionario_id}">${escHtml(m.funcionarios?.nome || '')} ${m.papel === 'chefe' ? '(Chefe)' : '(Ajudante)'}</option>`
     ).join('');
 }
 
@@ -3396,8 +3419,15 @@ async function excluirProduto(id, nome) {
 }
 
 async function carregarProdutosCatalogo() {
-  const { data } = await sb.from('produtos').select('id, nome, preco').eq('ativo', true).order('nome');
+  const { data, error } = await sb.from('produtos').select('id, nome, preco').eq('ativo', true).order('nome');
+  if (error) {
+    const doCache = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error))
+      ? await OfflineFlow.produtosCatalogoDoCache() : null;
+    window._produtosCatalogo = doCache || window._produtosCatalogo || [];
+    return window._produtosCatalogo;
+  }
   window._produtosCatalogo = data || [];
+  if (window.OfflineFlow) OfflineFlow.salvarProdutosCatalogoNoCache(window._produtosCatalogo);
   return window._produtosCatalogo;
 }
 
@@ -3914,9 +3944,17 @@ async function buscarClientePorCPF() {
   if (codigoBusca) {
     const { data: clientePorCodigo, error: errCodigo } = await sb.from('clientes')
       .select('cpf').eq('codigo', codigoBusca).maybeSingle();
-    if (errCodigo) { alert(errCodigo.message || 'Erro ao buscar cliente pelo código.'); return; }
-    if (!clientePorCodigo) { div.innerHTML = '<div class="cliente-nao-encontrado">Nenhum cliente encontrado com esse código.</div>'; return; }
-    document.getElementById('venda-cpf-busca').value = clientePorCodigo.cpf || '';
+    if (errCodigo) {
+      if (!(window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errCodigo))) {
+        alert(errCodigo.message || 'Erro ao buscar cliente pelo código.'); return;
+      }
+      const doCache = await OfflineFlow.clienteDoCachePorCodigo(codigoBusca);
+      if (!doCache) { div.innerHTML = '<div class="cliente-nao-encontrado">📴 Sem conexão e este código não está salvo no aparelho.</div>'; return; }
+      document.getElementById('venda-cpf-busca').value = doCache.cpf || '';
+    } else {
+      if (!clientePorCodigo) { div.innerHTML = '<div class="cliente-nao-encontrado">Nenhum cliente encontrado com esse código.</div>'; return; }
+      document.getElementById('venda-cpf-busca').value = clientePorCodigo.cpf || '';
+    }
   }
 
   const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
@@ -3945,10 +3983,43 @@ async function buscarClientePorCPF() {
   if (!validarCPF(cpf)) { div.innerHTML = '<div class="cliente-nao-encontrado">✗ CPF inválido. Verifique e tente novamente.</div>'; return; }
   const cpfDigits = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g,'');
   const { data, error } = await sb.rpc('verificar_cliente_por_cpf', { p_cpf: cpfDigits });
-  if (error) { alert(error.message || 'Erro ao verificar CPF.'); return; }
-  const info = Array.isArray(data) ? data[0] : data;
+  let info, offlineAprox = false;
+  if (error) {
+    if (!(window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error))) {
+      alert(error.message || 'Erro ao verificar CPF.'); return;
+    }
+    // Sem rede: só dá pra confirmar clientes que já passaram pelo cache
+    // deste aparelho (busca geral, carteira etc.) — não existe cópia de
+    // toda a base de clientes offline. Se não achar, não dá pra garantir
+    // que o cliente não existe no servidor (evita cadastro duplicado).
+    const cached = await OfflineFlow.clienteDoCachePorCPF(cpfDigits);
+    if (!cached) {
+      div.innerHTML = '<div class="cliente-nao-encontrado">📴 Sem conexão — este CPF não está salvo no aparelho. Se for cliente novo, preencha os dados abaixo; se já for cadastrado, confirme com internet para não duplicar.</div>';
+      document.getElementById('form-dados-venda').style.display = 'none';
+      document.getElementById('btn-salvar-venda').style.display = 'none';
+      await carregarCobradoresSelect('vnc-cobrador');
+      document.getElementById('form-novo-cliente-venda').style.display = 'block';
+      ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { document.getElementById(id).value = ''; });
+      document.getElementById('msg-telefone-vnc').innerHTML = '';
+      document.getElementById('vnc-telefone').classList.remove('erro');
+      document.getElementById('msg-nascimento-vnc').innerHTML = '';
+      document.getElementById('vnc-nascimento').classList.remove('erro');
+      _resetVncCidade();
+      document.getElementById('vnc-edit-id').value = '';
+      window._vncFotoUrl = null;
+      removerFotoVnc();
+      _setTituloFormClienteVenda(false);
+      _resetLocStatus();
+      return;
+    }
+    const aprox = await OfflineFlow.statusInadimplenciaDoCache(cached.id);
+    info = { existe: true, cliente_id: cached.id, nome: cached.nome, codigo: cached.codigo, qtd_atrasadas: aprox.qtdAtrasadas, valor_atrasado: aprox.valorAtrasado, _semDadosAtraso: !aprox.temDados };
+    offlineAprox = true;
+  } else {
+    info = Array.isArray(data) ? data[0] : data;
+  }
   // info: { existe, cliente_id, nome, codigo, qtd_atrasadas, valor_atrasado }
-  Logger.info('vendas', 'BUSCAR_CLIENTE_CPF', 'Busca por CPF', { encontrado: !!info?.existe });
+  Logger.info('vendas', 'BUSCAR_CLIENTE_CPF', 'Busca por CPF', { encontrado: !!info?.existe, offline: offlineAprox });
 
   if (info?.existe) {
     document.getElementById('venda-cliente-id').value = info.cliente_id;
@@ -3984,7 +4055,10 @@ async function buscarClientePorCPF() {
       return;
     }
 
-    div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>`;
+    const avisoOfflineAprox = offlineAprox
+      ? `<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:8px 12px;margin-bottom:.5rem;font-size:12px;color:#854F0B;">📴 Sem conexão — dados do cliente salvos no aparelho${info._semDadosAtraso ? ' (não foi possível confirmar parcelas em atraso; será validado ao sincronizar)' : ''}.</div>`
+      : '';
+    div.innerHTML = avisoOfflineAprox + `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>`;
     window._clienteInadimplente = false;
     await mostrarEdicaoClienteVenda(info.cliente_id);
   } else {
@@ -4067,7 +4141,7 @@ async function salvarNovoClienteVenda() {
     localizacao_endereco: document.getElementById('vnc-localizacao-endereco').value || null,
   };
 
-  let clienteId, clienteNome, clienteCodigo;
+  let clienteId, clienteNome, clienteCodigo, offlineEnfileirado = false;
   if (editId) {
     // Alguns perfis (ex.: vendedor) podem não ter permissão de leitura completa
     // do cliente (RLS), então o formulário pode não ter vindo pré-preenchido.
@@ -4077,25 +4151,59 @@ async function salvarNovoClienteVenda() {
     ['telefone', 'data_nascimento', 'bairro', 'referencia', 'cobrador_id', 'latitude', 'longitude', 'localizacao_endereco'].forEach(campo => {
       if (dados[campo]) dadosUpdate[campo] = dados[campo];
     });
-    await sb.from('clientes').update(dadosUpdate).eq('id', editId);
-    clienteId = editId;
-    const { data: atualizado } = await sb.from('clientes').select('nome, codigo').eq('id', editId).single();
-    clienteNome = atualizado?.nome || nome;
-    clienteCodigo = atualizado?.codigo || window._clienteEncontradoCodigo || '';
+    const { error: errUpd } = await sb.from('clientes').update(dadosUpdate).eq('id', editId);
+    if (errUpd) {
+      if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errUpd)) {
+        window._fotoCasaBlob = window._vncFotoBlob || null;
+        offlineEnfileirado = await OfflineFlow.salvarClienteOffline(editId, dadosUpdate);
+        window._fotoCasaBlob = null;
+      }
+      if (!offlineEnfileirado) {
+        Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao atualizar cliente (venda)', { supabase_code: errUpd.code });
+        alert('Erro ao salvar cliente! Tente novamente.'); return;
+      }
+      clienteId = editId;
+      clienteNome = dados.nome;
+      clienteCodigo = window._clienteEncontradoCodigo || '';
+    } else {
+      clienteId = editId;
+      const { data: atualizado } = await sb.from('clientes').select('nome, codigo').eq('id', editId).single();
+      clienteNome = atualizado?.nome || nome;
+      clienteCodigo = atualizado?.codigo || window._clienteEncontradoCodigo || '';
+    }
   } else {
     const codigo = await gerarCodigoCliente();
     const { data, error } = await sb.from('clientes').insert({ ...dados, codigo, cpf }).select().single();
     if (error) {
-      Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao inserir cliente (venda)', { supabase_code: error.code, tem_foto: !!window._vncFotoBlob });
-      alert('Erro ao cadastrar cliente.'); return;
+      if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error)) {
+        // Id temporário gerado aqui (em vez de deixar o helper escolher) para
+        // já sabermos com que id preencher venda-cliente-id — se o vendedor
+        // seguir direto para a venda (fluxo comum: cliente novo + venda na
+        // mesma visita), o handler de venda_criar resolve esse id pro
+        // definitivo na hora de sincronizar (ver cliente_id_map).
+        const idOffline = 'offline-' + crypto.randomUUID();
+        window._fotoCasaBlob = window._vncFotoBlob || null;
+        offlineEnfileirado = await OfflineFlow.salvarClienteOffline(idOffline, { ...dados, cpf });
+        window._fotoCasaBlob = null;
+        if (offlineEnfileirado) {
+          clienteId = idOffline;
+          clienteNome = dados.nome;
+          clienteCodigo = '';
+        }
+      }
+      if (!offlineEnfileirado) {
+        Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao inserir cliente (venda)', { supabase_code: error.code, tem_foto: !!window._vncFotoBlob });
+        alert('Erro ao cadastrar cliente.'); return;
+      }
+    } else {
+      Logger.info('clientes', 'SALVAR_CLIENTE', 'Cliente cadastrado pelo vendedor');
+      clienteId = data.id;
+      clienteNome = data.nome;
+      clienteCodigo = data.codigo;
     }
-    Logger.info('clientes', 'SALVAR_CLIENTE', 'Cliente cadastrado pelo vendedor');
-    clienteId = data.id;
-    clienteNome = data.nome;
-    clienteCodigo = data.codigo;
   }
 
-  if (window._vncFotoBlob && clienteId) {
+  if (window._vncFotoBlob && clienteId && !offlineEnfileirado) {
     const path = `clientes/${clienteId}.webp`;
     const tamanhoKbVnc = Math.round(window._vncFotoBlob.size / 1024);
     const { error: errUp } = await sb.storage.from('fotos-clientes').upload(path, window._vncFotoBlob, { contentType: 'image/webp', upsert: true });
@@ -4110,7 +4218,10 @@ async function salvarNovoClienteVenda() {
   }
 
   document.getElementById('venda-cliente-id').value = clienteId;
-  document.getElementById('resultado-busca-cliente').innerHTML = `<div class="cliente-encontrado">✓ ${editId ? 'Cliente atualizado' : 'Cliente cadastrado'}: <strong>${clienteNome}</strong> — Código ${clienteCodigo}</div>`;
+  const avisoOfflineCliente = offlineEnfileirado
+    ? '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:8px 12px;margin-bottom:.5rem;font-size:12px;color:#854F0B;">📴 Sem conexão — cliente salvo no aparelho. Será enviado ao servidor quando a internet voltar.</div>'
+    : '';
+  document.getElementById('resultado-busca-cliente').innerHTML = avisoOfflineCliente + `<div class="cliente-encontrado">✓ ${editId ? 'Cliente atualizado' : 'Cliente cadastrado'}: <strong>${clienteNome}</strong>${clienteCodigo ? ' — Código ' + clienteCodigo : ''}</div>`;
   document.getElementById('vnc-edit-id').value = '';
   document.getElementById('form-novo-cliente-venda').style.display = 'none';
   await mostrarFormVenda();
@@ -4171,8 +4282,16 @@ async function carregarFonteItensVenda() {
   await carregarProdutosCatalogo();
   if (perfilAtivo.perfil === 'vendedor') {
     if (!equipeAtiva?.caminhao_id) { window._fonteItensVenda = []; return; }
-    const { data: estoque } = await sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', equipeAtiva.caminhao_id);
-    window._fonteItensVenda = (estoque || [])
+    const { data: estoque, error } = await sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', equipeAtiva.caminhao_id);
+    let linhas;
+    if (error) {
+      linhas = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error))
+        ? await OfflineFlow.estoqueCaminhaoDoCache(equipeAtiva.caminhao_id) : null;
+    } else {
+      linhas = estoque || [];
+      if (window.OfflineFlow) OfflineFlow.salvarEstoqueCaminhaoNoCache(equipeAtiva.caminhao_id, linhas);
+    }
+    window._fonteItensVenda = (linhas || [])
       .map(e => ({ nome: e.produtos?.nome || '', produtoId: e.produto_id, disponivel: e.quantidade }))
       .filter(f => f.nome && f.disponivel > 0);
   } else {
@@ -4314,7 +4433,11 @@ async function editarClienteNoModal(clienteId) {
   // certo em vez de criar um cadastro duplicado.
   document.getElementById('vnc-edit-id').value = clienteId;
   _setTituloFormClienteVenda(true);
-  const { data } = await sb.from('clientes').select('*').eq('id', clienteId).single();
+  const { data: dataOnline, error: errCliente } = await sb.from('clientes').select('*').eq('id', clienteId).single();
+  let data = dataOnline;
+  if (!data && errCliente && window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errCliente)) {
+    data = await OfflineFlow.clienteDoCache(clienteId);
+  }
   const aviso = document.getElementById('aviso-dados-nao-carregados');
   if (!data) {
     if (aviso) aviso.style.display = 'block';
@@ -4442,6 +4565,13 @@ async function salvarVenda() {
     // estoque sem lock) e volta a checar a inadimplência crônica no
     // servidor (a checagem de `window._clienteInadimplente` acima é só um
     // atalho de UX pra não nem tentar quando já se sabe que vai falhar).
+    //
+    // p_idempotency_key: gerada uma vez aqui e reenviada igual em cada
+    // tentativa (inclusive nas tentativas de sincronização offline, que
+    // reusam este mesmo objeto — ver OfflineFlow.vendaOffline) — se a
+    // resposta desta chamada se perder DEPOIS do servidor já ter gravado a
+    // venda, o retry devolve a venda existente em vez de duplicar código,
+    // parcelas e baixa de estoque (ver migration 0018).
     const paramsVenda = {
       p_cliente_id: clienteId,
       p_vendedor_id: vendedorId,
@@ -4454,6 +4584,7 @@ async function salvarVenda() {
       p_data_primeira_parcela: dataPrimeira || null,
       p_observacao: observacao,
       p_itens: itensVenda.itens.map(i => ({ produto: i.produto, quantidade: i.quantidade, produto_id: i.produtoId })),
+      p_idempotency_key: crypto.randomUUID(),
     };
     const { data: venda, error } = await sb.rpc('criar_venda', paramsVenda);
 
@@ -4724,6 +4855,8 @@ function atualizarAvisoEquipe() {
     // Gestor não pertence a equipes — aviso nunca se aplica
     const aviso = document.getElementById('aviso-sem-equipe');
     if (aviso) aviso.style.display = 'none';
+    const avisoOffline = document.getElementById('aviso-equipe-offline');
+    if (avisoOffline) avisoOffline.style.display = 'none';
     const btnNova = document.getElementById('btn-nova-venda');
     if (btnNova) btnNova.style.display = 'block';
     return;
@@ -4731,6 +4864,8 @@ function atualizarAvisoEquipe() {
   const semEquipe = !equipeAtiva || equipeAtiva.encerrada === true;
   const aviso = document.getElementById('aviso-sem-equipe');
   if (aviso) aviso.style.display = semEquipe ? 'block' : 'none';
+  const avisoOffline = document.getElementById('aviso-equipe-offline');
+  if (avisoOffline) avisoOffline.style.display = (!semEquipe && window._equipeAtivaOffline) ? 'block' : 'none';
   const btnNova = document.getElementById('btn-nova-venda');
   if (btnNova) btnNova.style.display = semEquipe ? 'none' : 'block';
 }
@@ -4747,18 +4882,29 @@ async function carregarVendasVendedor() {
     .select('*, clientes(nome, codigo), funcionarios(nome)')
     .eq('equipe_id', equipeAtiva.id)
     .order('data_venda', { ascending: false });
-  if (error) { lista.innerHTML = 'Erro ao carregar.'; return; }
-  const vendas = data || [];
+  let vendas = data;
+  let avisoOffline = '';
+  if (error) {
+    vendas = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error))
+      ? await OfflineFlow.vendasEquipeDoCache(equipeAtiva.id) : null;
+    if (!vendas) { lista.innerHTML = 'Erro ao carregar.'; return; }
+    avisoOffline = OfflineFlow.avisoOfflineHtml();
+  } else {
+    vendas = vendas || [];
+    if (window.OfflineFlow) OfflineFlow.salvarVendasEquipeNoCache(equipeAtiva.id, vendas);
+  }
   if (!vendas.length) {
-    lista.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 1rem;color:#999;"><div style="font-size:64px;margin-bottom:16px;">🛒</div><div style="font-size:18px;font-weight:600;color:#888;">Nenhuma venda ainda</div><div style="font-size:14px;margin-top:8px;color:#aaa;">Clique em <strong style="color:#185FA5;">+ Nova venda</strong> para registrar a primeira!</div></div>';
+    lista.innerHTML = avisoOffline + '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 1rem;color:#999;"><div style="font-size:64px;margin-bottom:16px;">🛒</div><div style="font-size:18px;font-weight:600;color:#888;">Nenhuma venda ainda</div><div style="font-size:14px;margin-top:8px;color:#aaa;">Clique em <strong style="color:#185FA5;">+ Nova venda</strong> para registrar a primeira!</div></div>';
     return;
   }
   renderVendas(vendas);
+  if (avisoOffline) lista.insertAdjacentHTML('afterbegin', avisoOffline);
 }
 
 async function carregarEquipeAtivaVendedor() {
   if (perfilAtivo?.perfil !== 'vendedor') return;
   if (!perfilAtivo?.funcionario_id) { equipeAtiva = null; return; }
+  window._equipeAtivaOffline = false;
   try {
     const { data: membros, error: errM } = await sb.from('equipe_membros')
       .select('equipe_id')
@@ -4766,7 +4912,11 @@ async function carregarEquipeAtivaVendedor() {
     if (errM) throw errM;
 
     const ids = (membros || []).map(m => m.equipe_id);
-    if (!ids.length) { equipeAtiva = null; return; }
+    if (!ids.length) {
+      equipeAtiva = null;
+      if (window.OfflineFlow) await OfflineFlow.salvarEquipeAtivaNoCache(perfilAtivo.funcionario_id, null);
+      return;
+    }
 
     const { data: equipes, error: errE } = await sb.from('equipes')
       .select('*, caminhoes(identificacao, placa), semanas_venda(numero, data_inicio, data_fim)')
@@ -4776,10 +4926,34 @@ async function carregarEquipeAtivaVendedor() {
     if (errE) throw errE;
 
     equipeAtiva = (equipes && equipes[0]) || null;
+    if (window.OfflineFlow) await OfflineFlow.salvarEquipeAtivaNoCache(perfilAtivo.funcionario_id, equipeAtiva);
   } catch (e) {
+    // Sem rede: usa a última equipe/caminhão conhecidos salvos no aparelho
+    // (inclusive "nenhuma equipe", ver salvarEquipeAtivaNoCache) — sem isso
+    // o vendedor não conseguiria nem abrir o formulário de venda offline.
+    if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(e)) {
+      equipeAtiva = await OfflineFlow.equipeAtivaDoCache(perfilAtivo.funcionario_id);
+      window._equipeAtivaOffline = true;
+      return;
+    }
     Logger.error('vendas', 'CARREGAR_EQUIPE_ATIVA', 'Falha ao carregar equipe ativa', { error_message: e?.message });
     equipeAtiva = null;
   }
+}
+
+// Chamado uma vez no login do vendedor (com internet): puxa e grava no
+// aparelho tudo que o vendedor precisa pra vender offline depois — equipe
+// ativa (já feito por carregarEquipeAtivaVendedor), catálogo de produtos,
+// estoque do caminhão da equipe e o time (nomes/papéis dos membros). Sem
+// isso o primeiro acesso offline não teria nada carregado ainda.
+async function prefetchOfflineVendedor() {
+  await carregarEquipeAtivaVendedor();
+  if (!equipeAtiva?.id) return;
+  await carregarFonteItensVenda(); // já grava produtos + estoque do caminhão no cache
+  const { data: membros, error } = await sb.from('equipe_membros')
+    .select('funcionario_id, papel, funcionarios(nome)')
+    .eq('equipe_id', equipeAtiva.id);
+  if (!error && window.OfflineFlow) OfflineFlow.salvarMembrosEquipeNoCache(equipeAtiva.id, membros || []);
 }
 
 function fecharModalVenda() {
@@ -9978,12 +10152,21 @@ async function carregarEquipeVendedor() {
 
   const equipe = equipeAtiva;
   const semana = equipe.semanas_venda; // vem do select em carregarEquipeAtivaVendedor
+  let avisoOffline = '';
 
   // Só buscar os membros (não incluídos no equipeAtiva global)
-  const { data: membrosRaw } = await sb.from('equipe_membros')
+  const { data: membrosRaw, error: errM } = await sb.from('equipe_membros')
     .select('funcionario_id, papel, funcionarios(nome)')
     .eq('equipe_id', equipe.id);
-  const membros = membrosRaw || [];
+  let membros = membrosRaw;
+  if (errM) {
+    membros = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errM))
+      ? await OfflineFlow.membrosEquipeDoCache(equipe.id) : null;
+    if (membros) avisoOffline = OfflineFlow.avisoOfflineHtml();
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarMembrosEquipeNoCache(equipe.id, membrosRaw || []);
+  }
+  membros = membros || [];
   equipe.equipe_membros = membros; // disponibiliza para o render de membros
 
   const meuMembro = membros.find(m => m.funcionario_id === funcionarioLogado.id);
@@ -9995,12 +10178,31 @@ async function carregarEquipeVendedor() {
     infoEl.innerHTML = `Semana ${semana.numero} — <strong>${di}</strong> a <strong>${df}</strong>`;
   }
 
-  const [{ data: estoque }, { data: vendasBruto, error: errV }] = await Promise.all([
+  const [{ data: estoqueRaw, error: errE }, { data: vendasBruto, error: errV }] = await Promise.all([
     sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', equipe.caminhao_id),
     sb.from('vendas').select('id, codigo, produto, valor, tipo, entrada, data_venda, vendedor_id, clientes(nome), funcionarios(nome)').eq('equipe_id', equipe.id).neq('status', 'devolvida').order('data_venda', { ascending: false }),
   ]);
 
-  const vendasEquipe = errV ? [] : (vendasBruto || []);
+  let estoque = estoqueRaw;
+  if (errE) {
+    estoque = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errE))
+      ? await OfflineFlow.estoqueCaminhaoDoCache(equipe.caminhao_id) : null;
+    if (estoque) avisoOffline = OfflineFlow.avisoOfflineHtml();
+    estoque = estoque || [];
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarEstoqueCaminhaoNoCache(equipe.caminhao_id, estoqueRaw || []);
+  }
+
+  let vendasEquipe;
+  if (errV) {
+    vendasEquipe = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errV))
+      ? await OfflineFlow.vendasSemanaEquipeDoCache(equipe.id) : null;
+    if (vendasEquipe) avisoOffline = OfflineFlow.avisoOfflineHtml();
+    vendasEquipe = vendasEquipe || [];
+  } else {
+    vendasEquipe = vendasBruto || [];
+    if (window.OfflineFlow) OfflineFlow.salvarVendasSemanaEquipeNoCache(equipe.id, vendasEquipe);
+  }
   const { totalCaixa, totalCredito, totalGeral } = calcularTotaisEquipe(vendasEquipe);
   const meta = equipe.meta;
   const pct = meta ? Math.min(100, (totalGeral / meta) * 100) : null;
@@ -10167,7 +10369,7 @@ async function carregarEquipeVendedor() {
     html += '<p style="color:#888;font-size:13px;padding:.25rem 0;">Nenhuma venda registrada nesta semana.</p>';
   }
 
-  listaEl.innerHTML = html;
+  listaEl.innerHTML = avisoOffline + html;
 }
 
 async function toggleDetalhesEquipe(equipeId) {

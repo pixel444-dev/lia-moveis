@@ -161,12 +161,84 @@ Chromium headless (rede 100% bloqueada): boot limpo, login renderiza, camada
 offline inerte.
 
 **Limitações conhecidas (aceitas nesta fase):**
-- Venda/recebimento via RPC: se a resposta se perder DEPOIS do servidor gravar
-  (janela mínima), o retry pode duplicar — a RPC não tem chave de idempotência
-  (melhoria futura no backend).
+- Recebimento via RPC (`registrar_recebimento`, fluxo do cobrador): se a
+  resposta se perder DEPOIS do servidor gravar (janela mínima), o retry pode
+  duplicar — essa RPC ainda não tem chave de idempotência (`criar_venda` já
+  ganhou a dela na Fase 3, ver abaixo — mesma melhoria pendente aqui).
 - Painéis de saldo/desempenho/ciclos do cobrador e dashboard do gestor não têm
   cache — degradam com aviso. A rota por localidades usa as parcelas salvas.
 - Fila é por aparelho: sincroniza no próximo login de quem gravou.
+
+## Fase 3 — modo offline completo do vendedor (equipe, estoque do caminhão, venda de ponta a ponta)
+
+A Fase 2 já enfileirava `venda_criar` quando a chamada de `criar_venda()`
+falhava por rede, mas o resto da tela de Vendas do vendedor ainda dependia de
+consultas ao vivo sem cache — na prática, o vendedor só conseguia *tentar*
+vender offline se já tivesse aberto a tela com internet pouco antes, o
+cadastro de cliente novo dentro do fluxo de venda não caía na fila (só o da
+tela Clientes caía) e não havia nenhum "aquecimento" do aparelho no primeiro
+login. Esta fase fecha essas lacunas:
+
+**Pré-carregamento no login** (`prefetchOfflineVendedor()`, chamado em vez de
+só `carregarEquipeAtivaVendedor()` quando `perfilAtivo.perfil === 'vendedor'`):
+com internet, no primeiro login (e em todo login seguinte) o app já busca e
+grava no aparelho a equipe ativa, o catálogo de produtos, o estoque do
+caminhão da equipe e os membros do time — tudo que a tela de Vendas precisa
+pra funcionar sem rede depois.
+
+**Novos namespaces de cache** (`docs/js/sync-handlers.js`, mesmo mecanismo de
+`cache_registros` da Fase 2): `equipe_ativa` (uma linha por vendedor, inclui o
+estado "sem equipe ativa" — não deixa uma equipe antiga presa no cache),
+`caminhao_estoque:<id do caminhão>`, `produtos`, `equipe_membros:<id da
+equipe>`, `vendas_equipe:<id da equipe>` (tela Vendas) e
+`vendas_equipe_semana:<id da equipe>` (tela "Minha equipe", campos e filtro
+diferentes — cache separado de propósito). Todas as telas que liam essas
+consultas ao vivo (`carregarEquipeAtivaVendedor`, `carregarFonteItensVenda`,
+`carregarProdutosCatalogo`, `carregarEquipeVendedor`, `carregarVendasVendedor`,
+`carregarMembrosEquipeSelect`) agora gravam no sucesso e caem pro cache
+quando a consulta falha por rede, com a pílula "📴 Sem conexão" já usada nas
+outras telas.
+
+**Cliente novo/edição dentro da tela de Vendas** (`salvarNovoClienteVenda`):
+antes só a tela Clientes enfileirava `cliente_upsert` offline; o cadastro
+feito no meio do fluxo de venda (o caminho mais comum pra um vendedor de
+porta em porta) simplesmente falhava sem internet. Agora usa o mesmo
+`OfflineFlow.salvarClienteOffline`, incluindo a foto da casa.
+
+**Cliente novo + venda na mesma visita, ambos offline**: esse é o fluxo mais
+comum de um vendedor de porta em porta, então precisa funcionar sem rede.
+Problema: a venda referencia o cliente pelo id, mas um cliente cadastrado
+offline só ganha id de verdade na sincronização — um id temporário
+(`offline-<uuid>`) é gerado em `salvarNovoClienteVenda` e usado no lugar.
+Resolvido com um de-para (`cache_registros` tabela `cliente_id_map`): o
+handler de `cliente_upsert` grava `{id temporário → id real}` assim que a
+sincronização cria o cliente de verdade; o handler de `venda_criar`, se
+`p_cliente_id` ainda for um id temporário, resolve pelo de-para antes de
+chamar a RPC. Como a fila sincroniza em ordem de criação, o cadastro do
+cliente sempre roda antes da venda que o referencia.
+
+**Busca de cliente por CPF/código offline** (`buscarClientePorCPF`): sem
+rede, busca no cache local (mesmo cache unificado da tela Clientes) em vez de
+só falhar. Se não achar no cache, não assume que o cliente não existe (não
+há cópia da base inteira de clientes no aparelho) — pede confirmação com
+internet antes de cadastrar de novo, pra não duplicar. Quando acha, aproxima
+o status de inadimplência usando as parcelas que já estiverem salvas daquele
+cliente (mesma regra da UI online: qualquer parcela vencida em aberto conta);
+se não houver parcela nenhuma em cache pra esse cliente, não bloqueia a venda
+(a validação de verdade — bloqueio crônico de 30 dias — roda no servidor via
+`criar_venda()` de qualquer forma, na sincronização).
+
+**Idempotência de `criar_venda()`** (`supabase/migrations/0018_venda_idempotencia_offline.sql`):
+fechava a limitação conhecida da Fase 2 — se o retry de uma venda offline
+batesse justo na janela em que a resposta anterior se perdeu depois do
+servidor já ter gravado, a venda duplicava (código novo, parcelas novas,
+SEGUNDA baixa de estoque do caminhão). Agora `salvarVenda()` gera um
+`p_idempotency_key` (uuid) ao montar os parâmetros da RPC — o mesmo valor é
+reenviado em toda tentativa daquela operação (inclusive nos retries de
+sincronização, que reusam o mesmo payload gravado na fila). `criar_venda()`
+checa a chave antes de inserir; se já existir uma venda com aquela chave,
+devolve ela em vez de criar outra. Retrocompatível: o parâmetro é opcional
+(default `null`), não muda nada pra quem não manda.
 
 ## Roteiro de testes em dispositivo real (Fase 1 + Fase 2: offline + SQLite + criptografia)
 
