@@ -110,6 +110,64 @@ cd android && ./gradlew assembleRelease         # build de release (requer assin
 Ou simplesmente abra o Android Studio (`npx cap open android`) e rode/gere o
 build por lá.
 
+## Fase 2 funcional — modo offline de verdade (cache, fila e sincronização)
+
+A infraestrutura das fases 1/2 (SQLite criptografado) agora está **ligada às
+telas**. Arquitetura, em 4 arquivos novos + edições cirúrgicas no `index.html`:
+
+| Arquivo | Papel |
+|---|---|
+| `docs/js/net-status.js` | `window.NetStatus` — detecção de conectividade (plugin `@capacitor/network` no app; fallback `navigator.onLine` na web) + indicador visual (pílula no rodapé: offline / sincronizando / N pendentes). `ehErroDeRede(err)` decide se uma falha foi por falta de rede. |
+| `docs/js/sync.js` | `window.Sync` — motor genérico: lê a fila (`fila_operacoes`), despacha por tipo para um handler, marca `sincronizado`/`erro`/`descartada`. Erro de rede/token interrompe a rodada sem punir a operação; erro de negócio conta tentativa (máx. 8) e erro definitivo (códigos 22/23/42/P0/PGRST116) descarta com o motivo em `erro_msg`. Trava `window._syncLiberado`: só roda logado (senão o RLS recusaria tudo). Gatilhos: login, volta da rede (após `refreshSession()`), varredura a cada 90 s. |
+| `docs/js/sync-handlers.js` | Handlers de cada tipo de operação + `window.OfflineFlow` (helpers que o `index.html` usa para entrar no modo offline). |
+| `docs/js/db-local.js` | Ganhou `registrarTentativa`, `contarOperacoesPendentes`, `removerDoCache`, `atualizarPayloadOperacao` (progresso parcial de handler persistido no payload). |
+
+**Tipos de operação na fila** (`fila_operacoes.tipo`):
+
+- `cliente_upsert` — cadastro/edição de cliente offline. Cliente novo ganha id
+  temporário `offline-<uuid>` no cache; o código real é gerado na sincronização
+  (`gerarCodigoCliente` online). Foto da casa vai em base64 no payload. Editar
+  offline um cliente ainda pendente **mescla na mesma operação** (não duplica).
+  Duas etapas persistidas: insert → foto (retry não insere de novo).
+- `baixa_parcela` — baixa da tela de Cobranças. Revalida a parcela no servidor
+  na hora de sincronizar (parcial que cobre o saldo vira completa; parcela já
+  baixada por outra pessoa → descartada com motivo). Duas etapas: update da
+  parcela → insert da movimentação de caixa.
+- `recebimento_registrar` — fluxo de campo do cobrador (RPC atômica
+  `registrar_recebimento`). Comprovante PIX tirado offline vai em base64; o
+  upload usa nome fixo sorteado no enfileiramento (idempotente) e o progresso é
+  persistido (retry não sobe o arquivo duas vezes).
+- `venda_criar` — parâmetros exatos da RPC atômica `criar_venda`; erro de regra
+  de negócio (ex.: inadimplência) descarta com o motivo guardado.
+- `teste` — legado do autoteste das fases 1/2; sincroniza como no-op e limpa a fila.
+
+**Cache local** (`cache_registros.tabela`): `clientes` (busca geral + ficha),
+`clientes_cobrador:<id do cobrador>` (carteira), `parcelas`, 
+`funcionarios:cobradores` (select do modal de baixa). Gravado a cada consulta
+online bem-sucedida (mesclando campos, para uma consulta "pobre" não apagar o
+que uma "rica" salvou); lido quando a consulta falha por rede. Escritas offline
+atualizam o cache de forma otimista (`_offline_pendente: true`).
+
+**Login offline**: o perfil (`meus_dados_login`) fica salvo por usuário no
+aparelho após cada login online. No boot sem rede: sessão persistida do
+supabase-js é recuperada (mesmo com access token expirado) e o app entra com o
+perfil salvo — o bug antigo de "Perfil não encontrado" + signOut offline morreu.
+Primeiro acesso continua exigindo internet. Logout com fila pendente pede
+confirmação (a fila só sincroniza com o dono logado).
+
+**Web (GitHub Pages) intacta**: sem SQLite nativo, `enfileirarOperacao` devolve
+null e todos os fluxos offline caem nos erros normais de antes. Validado com
+Chromium headless (rede 100% bloqueada): boot limpo, login renderiza, camada
+offline inerte.
+
+**Limitações conhecidas (aceitas nesta fase):**
+- Venda/recebimento via RPC: se a resposta se perder DEPOIS do servidor gravar
+  (janela mínima), o retry pode duplicar — a RPC não tem chave de idempotência
+  (melhoria futura no backend).
+- Painéis de saldo/desempenho/ciclos do cobrador e dashboard do gestor não têm
+  cache — degradam com aviso. A rota por localidades usa as parcelas salvas.
+- Fila é por aparelho: sincroniza no próximo login de quem gravou.
+
 ## Roteiro de testes em dispositivo real (Fase 1 + Fase 2: offline + SQLite + criptografia)
 
 Nada da camada offline (`docs/js/db-local.js`) foi validado em Android de verdade
@@ -161,14 +219,26 @@ Se aparecer `[DB LOCAL] Falha ao inicializar banco local...` em vez disso, o
 banco local não subiu — copie a mensagem de erro completa (o `console.error`
 já loga o erro nativo inteiro) e investigamos a partir disso.
 
-### 5. Confirmar o autoteste da fila
-Faça login. Espere ~2 segundos e procure no console:
-```
-[DB LOCAL] Teste OK - N operações pendentes na fila
-```
-`N` deve aumentar em 1 a cada novo login (cada `testarDbLocal()` enfileira um
-registro de teste nunca sincronizado) — isso confirma que a gravação **e** a
-persistência entre sessões estão funcionando.
+### 5. Confirmar o ciclo offline completo (substitui o antigo autoteste)
+O autoteste da fase 1 foi removido — agora o teste é o fluxo real:
+
+1. **Aqueça o cache com internet**: faça login (cobrador), abra a busca, toque
+   num cliente, abra as parcelas dele. Console deve mostrar `[SYNC]` limpando
+   os registros `teste` antigos da fila.
+2. **Modo avião.** Feche e reabra o app: deve entrar direto (login offline,
+   sem "Perfil não encontrado") com a pílula "📴 Sem conexão" no rodapé.
+3. Busque o mesmo cliente (vem do cache), abra as parcelas, **registre um
+   recebimento** (teste também com PIX + foto do comprovante). Esperado:
+   alerta "salvo no aparelho", parcela aparece como paga, pílula mostra
+   operação na fila. Cadastre também um cliente novo (código fica vazio —
+   sai na sincronização).
+4. Feche o app, reabra ainda em modo avião: fila e cache devem persistir.
+5. **Desligue o modo avião** com o app aberto. Em segundos o console deve
+   mostrar `[SYNC] Iniciando ...` e `[SYNC] Concluído: N sincronizada(s)`;
+   a pílula some. Confira no Supabase: parcela baixada, movimentação/baixa
+   pendente criada, cliente novo com código real, comprovante no bucket.
+6. Repita o passo 3 e, antes de voltar a internet, faça logout: deve aparecer
+   a confirmação de "operações não sincronizadas".
 
 ### 6. Confirmar que o banco está realmente criptografado (não só configurado)
 Com o app já aberto pelo menos uma vez (pra o arquivo existir):
@@ -194,11 +264,12 @@ normalmente, confirmando que o arquivo antigo foi convertido em vez de travar
 a abertura. Se este é seu primeiro teste em dispositivo, pule este passo (não
 existe banco antigo pra migrar).
 
-### 8. Regressão geral do sistema
+### 8. Regressão geral do sistema (com internet)
 Login, navegue por 2-3 telas (Clientes, Vendas, Cobranças), tire uma foto de
-comprovante (valida as permissões de Câmera da Fase 0), faça logout. Nada
-disso deveria ter mudado de comportamento — Fases 1 e 2 são só infraestrutura,
-ainda não ligadas às telas.
+comprovante (valida as permissões de Câmera da Fase 0), faça logout. Com
+internet, tudo continua batendo direto no Supabase como antes — a camada
+offline só entra quando uma chamada falha por rede (e, no sucesso, alimenta o
+cache em segundo plano, o que não muda nada visível).
 
 ## Próximos passos sugeridos (fora do escopo desta fase)
 

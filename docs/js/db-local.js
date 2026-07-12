@@ -218,6 +218,48 @@
     }
   }
 
+  // Falha de negócio (não de rede) ao sincronizar: conta a tentativa e
+  // guarda o motivo. A operação continua elegível para retry (status
+  // 'erro' entra em listarOperacoesPendentes) até o motor decidir descartar.
+  async function registrarTentativa(id, erroMsg) {
+    var conexao = getDb();
+    if (!conexao) return;
+    await conexao.run(
+      "UPDATE fila_operacoes SET status = 'erro', tentativas = tentativas + 1, erro_msg = ? WHERE id = ?",
+      [erroMsg || null, id]
+    );
+  }
+
+  async function contarOperacoesPendentes() {
+    var conexao = getDb();
+    if (!conexao) return 0;
+    var res = await conexao.query(
+      "SELECT COUNT(*) AS n FROM fila_operacoes WHERE status IN ('pendente', 'erro')"
+    );
+    return Number((res && res.values && res.values[0] && res.values[0].n) || 0);
+  }
+
+  async function removerDoCache(tabela, registroId) {
+    var conexao = getDb();
+    if (!conexao) return;
+    await conexao.run(
+      'DELETE FROM cache_registros WHERE tabela = ? AND registro_id = ?',
+      [tabela, String(registroId)]
+    );
+  }
+
+  // Permite a um handler de sincronização persistir progresso parcial no
+  // próprio payload (ex.: baixa em 2 passos — parcela atualizada, falta a
+  // movimentação de caixa) para o retry não repetir o passo já aplicado.
+  async function atualizarPayloadOperacao(id, payload) {
+    var conexao = getDb();
+    if (!conexao) return;
+    await conexao.run(
+      'UPDATE fila_operacoes SET payload = ? WHERE id = ?',
+      [JSON.stringify(payload), id]
+    );
+  }
+
   async function salvarFotoPendente(operacaoId, caminhoLocal, bucket, nomeDestino) {
     var conexao = getDb();
     if (!conexao) return null;
@@ -253,6 +295,10 @@
     enfileirarOperacao: enfileirarOperacao,
     listarOperacoesPendentes: listarOperacoesPendentes,
     atualizarStatusOperacao: atualizarStatusOperacao,
+    registrarTentativa: registrarTentativa,
+    contarOperacoesPendentes: contarOperacoesPendentes,
+    removerDoCache: removerDoCache,
+    atualizarPayloadOperacao: atualizarPayloadOperacao,
     salvarFotoPendente: salvarFotoPendente,
     listarFotosPendentes: listarFotosPendentes,
     testarDbLocal: testarDbLocal
