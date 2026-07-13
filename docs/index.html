@@ -4437,16 +4437,26 @@ async function salvarNovoClienteVenda() {
     ['telefone', 'data_nascimento', 'bairro', 'referencia', 'cobrador_id', 'latitude', 'longitude', 'localizacao_endereco'].forEach(campo => {
       if (dados[campo]) dadosUpdate[campo] = dados[campo];
     });
-    const { error: errUpd } = await sb.from('clientes').update(dadosUpdate).eq('id', editId);
+    const { error: errUpdRaw, count: linhasAfetadas } = await sb.from('clientes').update(dadosUpdate, { count: 'exact' }).eq('id', editId);
+    // error vem null mesmo quando o RLS barra a linha em silêncio (0 linhas
+    // afetadas) — sem conferir o count (que reflete o "UPDATE n" do Postgres,
+    // sem depender da policy de SELECT), não dá pra distinguir "salvou" de
+    // "RLS bloqueou e não salvou nada".
+    const errUpd = errUpdRaw || (linhasAfetadas === 0
+      ? { code: 'RLS_ZERO_ROWS', message: 'Nenhuma linha atualizada — permissão insuficiente para editar este cliente.' }
+      : null);
     if (errUpd) {
-      if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errUpd)) {
+      if (errUpdRaw && window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errUpdRaw)) {
         window._fotoCasaBlob = window._vncFotoBlob || null;
         offlineEnfileirado = await OfflineFlow.salvarClienteOffline(editId, dadosUpdate);
         window._fotoCasaBlob = null;
       }
       if (!offlineEnfileirado) {
         Logger.error('clientes', 'SALVAR_CLIENTE', 'Falha ao atualizar cliente (venda)', { supabase_code: errUpd.code });
-        alert('Erro ao salvar cliente! Tente novamente.'); return;
+        alert(errUpd.code === 'RLS_ZERO_ROWS'
+          ? 'Não foi possível salvar os dados deste cliente (sem permissão). Fale com o gestor antes de continuar — a foto e os dados digitados NÃO foram salvos.'
+          : 'Erro ao salvar cliente! Tente novamente.');
+        return;
       }
       clienteId = editId;
       clienteNome = dados.nome;
@@ -4499,7 +4509,11 @@ async function salvarNovoClienteVenda() {
     } else {
       Logger.info('clientes', 'UPLOAD_FOTO', 'Foto enviada com sucesso (venda)', { tamanho_kb: tamanhoKbVnc });
       const { data: pub } = sb.storage.from('fotos-clientes').getPublicUrl(path);
-      await sb.from('clientes').update({ foto_casa: pub.publicUrl }).eq('id', clienteId);
+      const { error: errFoto, count: linhaFotoCount } = await sb.from('clientes').update({ foto_casa: pub.publicUrl }, { count: 'exact' }).eq('id', clienteId);
+      if (errFoto || linhaFotoCount === 0) {
+        Logger.error('clientes', 'UPLOAD_FOTO', 'Foto enviada mas não vinculada ao cliente (RLS?)', { supabase_code: errFoto?.code, cliente_id: clienteId });
+        alert('A foto foi enviada, mas não foi possível vinculá-la ao cadastro do cliente (sem permissão). Avise o gestor.');
+      }
     }
   }
 
