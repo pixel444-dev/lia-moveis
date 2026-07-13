@@ -251,64 +251,103 @@ tr:hover td{background:#fafafa;}
   .eqsem-card-top{flex-direction:column;}
   .eqsem-card-top>div:last-child{text-align:left !important;width:100%;margin-top:8px;padding-top:8px;border-top:1px dashed #eee;}
 }
-/* Dashboard gestor */
-.dash-pills{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem;}
-.dash-pill{padding:6px 14px;border-radius:20px;border:1px solid #ccc;background:#fff;font-size:13px;cursor:pointer;color:#444;}
-.dash-pill:hover{border-color:#185FA5;color:#185FA5;}
-.dash-pill-ativo{border-color:#185FA5;background:#185FA5;color:#fff;}
-.dash-pill-ativo:hover{background:#0C447C;}
-.dash-periodo-custom{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:1.25rem;font-size:13px;color:#555;}
-.dash-periodo-custom label{display:flex;align-items:center;gap:6px;}
-.dash-periodo-custom input[type="date"]{padding:6px 10px;border:1px solid #ccc;border-radius:8px;font-size:13px;color:#333;}
-.dash-periodo-custom button{padding:6px 16px;border-radius:20px;border:1px solid #185FA5;background:#185FA5;color:#fff;font-size:13px;cursor:pointer;}
-.dash-periodo-custom button:hover{background:#0C447C;}
-.dash-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem;margin-bottom:1.25rem;}
-.dash-kpi{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:1rem;}
-.dash-kpi .kpi-label{font-size:11px;color:#888;margin-bottom:.25rem;text-transform:uppercase;letter-spacing:.5px;}
-.dash-kpi .kpi-val{font-size:20px;font-weight:700;color:#1a1a1a;}
-.dash-kpi .kpi-sub{font-size:11px;color:#888;margin-top:.2rem;}
-.dash-kpi.verde .kpi-val{color:#2A7C3E;}
-.dash-kpi.azul .kpi-val{color:#185FA5;}
-.dash-kpi.vermelho .kpi-val{color:#C0392B;}
-.dash-alertas{padding:.75rem 1rem;border-radius:8px;background:#FFF8E1;border:1px solid #FFD600;color:#7A5C00;font-size:13px;margin-bottom:1.25rem;display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;}
-.dash-alertas .alerta-item{display:flex;align-items:center;gap:.35rem;}
-.dash-alertas .alerta-num{font-weight:700;font-size:16px;}
+/* Dashboard gestor — visual "Ascend" refinado */
+#dash-inner{--dv2-mono:ui-monospace,SFMono-Regular,Consolas,'Roboto Mono',monospace;}
+.dv2-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+.dv2-greeting{font-size:22px;font-weight:800;color:#221F1A;letter-spacing:-.02em;}
+.dv2-subgreeting{font-size:13px;color:#8A857A;margin-top:5px;}
+.dv2-header-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.dv2-btn-export{display:flex;align-items:center;gap:7px;padding:9px 15px;border-radius:11px;border:1px solid #e0ddd3;background:#fff;color:#4A463E;font-size:12.5px;font-weight:600;cursor:pointer;}
+.dv2-btn-export:hover{background:#F6F4EF;}
+#dash-inner .dash-pills{display:flex;gap:6px;background:#fff;border:1px solid #e0ddd3;border-radius:12px;padding:4px;flex-wrap:wrap;margin-bottom:0;}
+#dash-inner .dash-pill{padding:7px 13px;border-radius:9px;border:none;background:transparent;font-size:12.5px;font-weight:600;cursor:pointer;color:#6B6A64;}
+#dash-inner .dash-pill:hover{color:#1E63A8;}
+#dash-inner .dash-pill-ativo{background:#1E63A8;color:#fff;}
+#dash-inner .dash-pill-ativo:hover{background:#0C447C;color:#fff;}
+.dv2-periodo-custom{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin:16px 0 20px;font-size:12.5px;color:#6B6A64;}
+.dv2-periodo-custom label{display:flex;align-items:center;gap:6px;}
+.dv2-periodo-custom input[type="date"]{padding:6px 10px;border:1px solid #e0ddd3;border-radius:8px;font-size:12.5px;color:#2B2822;}
+.dv2-periodo-custom button{padding:6px 16px;border-radius:20px;border:1px solid #1E63A8;background:#1E63A8;color:#fff;font-size:12.5px;cursor:pointer;}
+.dv2-periodo-custom button:hover{background:#0C447C;}
+.dv2-alertas{display:none;align-items:center;gap:16px;flex-wrap:wrap;background:linear-gradient(90deg,#FBF3E1,#FCF7EA);border:1px solid #F0DFB0;border-radius:14px;padding:13px 18px;margin-bottom:24px;}
+.dv2-alertas.visivel{display:flex;}
+.dv2-alertas-label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:#916008;flex-shrink:0;}
+.dv2-alertas-itens{display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px;color:#8A6A1E;}
+.dv2-alertas-itens b{font-family:var(--dv2-mono);font-size:14px;color:#916008;}
+.dv2-section{margin-bottom:8px;}
+.dv2-section-head{display:flex;align-items:center;gap:11px;margin-bottom:16px;}
+.dv2-section-ico{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+.dv2-section-head.vendas .dv2-section-ico{background:#E7F0FA;}
+.dv2-section-head.cobranca .dv2-section-ico{background:#E6F1E9;}
+.dv2-section-title{font-size:17px;font-weight:800;letter-spacing:-.01em;}
+.dv2-section-head.vendas .dv2-section-title{color:#1E63A8;}
+.dv2-section-head.cobranca .dv2-section-title{color:#2C7A46;}
+.dv2-section-sub{font-size:12px;color:#9A9488;margin-top:3px;}
+.dv2-kpis{display:grid;gap:16px;margin-bottom:16px;}
+.dv2-kpis-3{grid-template-columns:repeat(3,1fr);}
+.dv2-kpis-5{grid-template-columns:repeat(5,1fr);}
+.dv2-kpi{background:#fff;border:1px solid #EAE6DE;border-radius:16px;padding:16px 18px;box-shadow:0 1px 2px rgba(20,20,20,.03);min-width:0;}
+.dv2-kpi .kpi-label{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#A39E93;min-height:26px;}
+.dv2-kpi .kpi-val{font-family:var(--dv2-mono);font-weight:700;font-size:25px;line-height:1.15;color:#2B2822;margin-top:9px;letter-spacing:-.02em;overflow-wrap:break-word;}
+.dv2-kpi .kpi-sub{font-size:11.5px;color:#A39E93;margin-top:5px;}
+.dv2-kpi.verde .kpi-val{color:#2C7A46;}
+.dv2-kpi.azul .kpi-val{color:#1E63A8;}
+.dv2-kpi.vermelho .kpi-val{color:#C0392B;}
+.dv2-row-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+.dv2-card{background:#fff;border:1px solid #EAE6DE;border-radius:16px;padding:18px 20px;}
+.dv2-card-title{font-size:14px;font-weight:700;color:#2B2822;margin-bottom:14px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.dv2-card-sub{font-size:11.5px;color:#A39E93;font-weight:500;}
+.dv2-donut-wrap{height:150px;position:relative;margin:4px 0 14px;}
+.dv2-donut-legend{display:flex;flex-direction:column;gap:9px;}
+.dv2-legend-row{display:flex;align-items:center;gap:9px;}
+.dv2-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0;}
+.dv2-legend-label{font-size:12.5px;color:#6B6A64;flex:1;}
+.dv2-legend-val{font-family:var(--dv2-mono);font-weight:600;font-size:12.5px;color:#2B2822;}
+.dv2-legend-pct{font-family:var(--dv2-mono);font-weight:600;font-size:11px;color:#A39E93;margin-left:6px;}
+.dv2-list{display:flex;flex-direction:column;gap:13px;}
+.dv2-list-row{display:flex;align-items:center;gap:12px;}
+.dv2-avatar{width:32px;height:32px;border-radius:9px;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.dv2-avatar.azul{background:#EEF4FB;color:#1E63A8;}
+.dv2-avatar.verde{background:#E6F1E9;color:#2C7A46;}
+.dv2-list-main{flex:1;min-width:0;}
+.dv2-list-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.dv2-list-nome{font-size:13px;font-weight:600;color:#2B2822;}
+.dv2-list-sub{font-size:11px;color:#A39E93;margin-top:2px;}
+.dv2-list-val{font-family:var(--dv2-mono);font-weight:600;font-size:12.5px;color:#2B2822;flex-shrink:0;}
+.dv2-list-val.verde{color:#2C7A46;}
+.dv2-list-bar{height:6px;background:#F1EEE7;border-radius:4px;margin-top:6px;overflow:hidden;}
+.dv2-list-bar-fill{height:100%;background:linear-gradient(90deg,#3B82C9,#1E63A8);border-radius:4px;}
+.dv2-list-qtd{font-family:var(--dv2-mono);font-weight:600;font-size:11px;color:#A39E93;flex-shrink:0;width:40px;text-align:right;}
+.dv2-equipes{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;}
+.dv2-equipe-card{border:1px solid #F0ECE3;border-radius:12px;padding:12px 14px;}
+.dv2-eq-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.dv2-eq-rota{display:flex;align-items:center;gap:7px;min-width:0;}
+.dv2-eq-rota-nome{font-size:13.5px;font-weight:700;color:#1E63A8;}
+.dv2-eq-chefe{font-size:11.5px;color:#A39E93;white-space:nowrap;}
+.dv2-eq-total{font-family:var(--dv2-mono);font-weight:700;font-size:13px;color:#2B2822;flex-shrink:0;}
+.dv2-eq-meta-head{display:flex;justify-content:space-between;align-items:baseline;margin-top:11px;font-size:11px;}
+.dv2-eq-meta-head span:first-child{color:#9A9488;}
+.dv2-eq-meta-status{font-family:var(--dv2-mono);font-weight:700;font-size:12px;}
+.dv2-eq-meta-bar{height:9px;background:#F1EEE7;border-radius:5px;margin-top:6px;overflow:hidden;}
+.dv2-eq-meta-bar-fill{height:100%;border-radius:5px;transition:width .4s;}
+.dv2-eq-sem-meta{margin-top:9px;font-size:11px;color:#B4AEA2;font-style:italic;}
+.dv2-status-alto{color:#2C7A46;} .dv2-fill-alto{background:#2C7A46;}
+.dv2-status-medio{color:#9C7A0E;} .dv2-fill-medio{background:#DDA61A;}
+.dv2-status-baixo{color:#C0392B;} .dv2-fill-baixo{background:#C0392B;}
+.dv2-chart-wrap{position:relative;height:220px;}
 .dash-secao{background:#fff;border:1px solid #e8e8e8;border-radius:10px;padding:1rem;margin-bottom:1rem;}
 .dash-secao-titulo{font-size:14px;font-weight:600;color:#333;margin-bottom:.75rem;}
-.dash-bloco{border-radius:14px;padding:1.25rem;margin-bottom:1.5rem;}
-.dash-bloco-vendas{background:#F3F8FE;border:1px solid #D8E9FA;}
-.dash-bloco-cobranca{background:#F2F9F3;border:1px solid #D6EDD9;}
-.dash-bloco-titulo{font-size:16px;font-weight:700;margin-bottom:1rem;display:flex;align-items:center;gap:8px;}
-.dash-bloco-titulo.vendas{color:#185FA5;}
-.dash-bloco-titulo.cobranca{color:#2A7C3E;}
-.dash-bloco .dash-secao:last-child{margin-bottom:0;}
-.dash-tabela{width:100%;border-collapse:collapse;font-size:13px;}
-.dash-tabela th{font-weight:600;color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:4px 8px 8px;}
-.dash-tabela td{padding:6px 8px;border-top:1px solid #f0f0f0;vertical-align:middle;}
-.dash-tabela tr:hover td{background:#f7f9ff;}
-.dash-equipes{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem;}
-.dash-equipe-card{background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:1rem;}
-.dash-equipe-card .eq-rota{font-weight:700;font-size:16px;color:#185FA5;margin-bottom:.15rem;display:flex;align-items:center;gap:6px;}
-.dash-equipe-card .eq-chefe{font-size:13px;font-weight:700;color:#333;margin-bottom:.75rem;display:flex;align-items:center;gap:6px;}
-.dash-equipe-card .eq-linha{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;}
-.dash-equipe-card .eq-linha span:first-child{color:#666;display:flex;align-items:center;gap:6px;}
-.dash-equipe-card .eq-linha span:last-child{font-weight:600;color:#1a1a1a;}
-.dash-equipe-card .eq-meta-header{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;margin-top:.25rem;border-top:1px dashed #eee;padding-top:.6rem;}
-.dash-equipe-card .eq-meta-header span:first-child{color:#666;display:flex;align-items:center;gap:6px;}
-.dash-equipe-card .eq-meta-header span:last-child{font-weight:600;color:#1a1a1a;}
-.dash-equipe-card .eq-meta{margin-top:.35rem;height:8px;background:#eee;border-radius:4px;overflow:hidden;}
-.dash-equipe-card .eq-meta-bar{height:100%;border-radius:4px;transition:width .4s;}
-.dash-equipe-card .eq-meta-bar.baixo{background:#C0392B;}
-.dash-equipe-card .eq-meta-bar.medio{background:#DDA61A;}
-.dash-equipe-card .eq-meta-bar.alto{background:#2A7C3E;}
-.dash-equipe-card .eq-meta-pct{font-size:12px;font-weight:700;text-align:right;margin-top:3px;}
-.dash-equipe-card .eq-meta-pct.baixo{color:#C0392B;}
-.dash-equipe-card .eq-meta-pct.medio{color:#9C7A0E;}
-.dash-equipe-card .eq-meta-pct.alto{color:#2A7C3E;}
-.dash-equipe-card .eq-sem-meta{font-size:12px;color:#aaa;font-style:italic;margin-top:.5rem;border-top:1px dashed #eee;padding-top:.6rem;}
-.dash-chart-wrap{position:relative;height:200px;}
 @keyframes dashSkel{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.dash-skel{background:linear-gradient(90deg,#f0f0f0 25%,#e0e0e0 50%,#f0f0f0 75%);background-size:200% 100%;animation:dashSkel 1.5s infinite;border-radius:8px;height:80px;}
+.dash-skel{background:linear-gradient(90deg,#F1EEE7 25%,#E7E2D8 50%,#F1EEE7 75%);background-size:200% 100%;animation:dashSkel 1.5s infinite;border-radius:16px;height:96px;}
+@media(max-width:768px){
+  .dv2-kpis-3{grid-template-columns:1fr 1fr;}
+  .dv2-kpis-5{grid-template-columns:1fr 1fr;}
+  .dv2-row-2{grid-template-columns:1fr;}
+  .dv2-equipes{grid-template-columns:1fr;}
+  .dv2-header{flex-direction:column;align-items:stretch;}
+  .dv2-kpi{padding:13px 14px;}
+  .dv2-kpi .kpi-val{font-size:18px;}
+}
 @keyframes btnSpin{to{transform:rotate(360deg);}}
 .btn-spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(120,120,120,.35);border-top-color:currentColor;border-radius:50%;vertical-align:-2px;margin-right:6px;animation:btnSpin .6s linear infinite;}
 .btn:disabled{opacity:.7;cursor:not-allowed;}
@@ -518,7 +557,7 @@ tr:hover td{background:#fafafa;}
     <div id="autorizacoes-wrap" style="display:none;margin-bottom:1rem;"></div>
 
     <div class="page active" id="page-dashboard">
-      <div class="page-title">Dashboard</div>
+      <div class="page-title" style="display:none;">Dashboard</div>
       <div id="dash-inner"></div>
     </div>
 
@@ -2563,34 +2602,62 @@ async function carregarDashboard() {
   if (!inner) return;
 
   if (!document.getElementById('dash-kpis-vendas')) {
+    const primeiroNome = ((funcionarioLogado && funcionarioLogado.nome) || (perfilAtivo && perfilAtivo.nome) || '').trim().split(/\s+/)[0] || 'Gestor';
     inner.innerHTML =
-      '<div class="dash-pills">' +
-        '<button class="dash-pill" data-periodo="ontem" onclick="setDashPeriodo(\'ontem\')">Ontem</button>' +
-        '<button class="dash-pill dash-pill-ativo" data-periodo="hoje" onclick="setDashPeriodo(\'hoje\')">Hoje</button>' +
-        '<button class="dash-pill" data-periodo="semana" onclick="setDashPeriodo(\'semana\')">Semana atual</button>' +
-        '<button class="dash-pill" data-periodo="30d" onclick="setDashPeriodo(\'30d\')">30 dias</button>' +
-        '<button class="dash-pill" data-periodo="mes" onclick="setDashPeriodo(\'mes\')">Mês atual</button>' +
+      '<div class="dv2-header">' +
+        '<div>' +
+          '<div class="dv2-greeting">' + _dashSaudacao() + ', ' + escHtml(primeiroNome) + ' 👋</div>' +
+          '<div class="dv2-subgreeting" id="dv2-subgreeting"></div>' +
+        '</div>' +
+        '<div class="dv2-header-actions">' +
+          '<div class="dash-pills">' +
+            '<button class="dash-pill" data-periodo="ontem" onclick="setDashPeriodo(\'ontem\')">Ontem</button>' +
+            '<button class="dash-pill dash-pill-ativo" data-periodo="hoje" onclick="setDashPeriodo(\'hoje\')">Hoje</button>' +
+            '<button class="dash-pill" data-periodo="semana" onclick="setDashPeriodo(\'semana\')">Semana atual</button>' +
+            '<button class="dash-pill" data-periodo="30d" onclick="setDashPeriodo(\'30d\')">30 dias</button>' +
+            '<button class="dash-pill" data-periodo="mes" onclick="setDashPeriodo(\'mes\')">Mês atual</button>' +
+          '</div>' +
+          '<button class="dv2-btn-export" onclick="_dashExportar()">📤 Exportar</button>' +
+        '</div>' +
       '</div>' +
-      '<div class="dash-periodo-custom">' +
+      '<div class="dv2-periodo-custom">' +
         '<label>De <input type="date" id="dash-data-de"></label>' +
         '<label>Até <input type="date" id="dash-data-ate"></label>' +
         '<button onclick="aplicarDashPeriodoCustom()">Aplicar</button>' +
       '</div>' +
-      '<div id="dash-alertas-bar" style="display:none;" class="dash-alertas"></div>' +
-      '<div class="dash-bloco dash-bloco-vendas">' +
-        '<div class="dash-bloco-titulo vendas">🛒 Vendas</div>' +
-        '<div id="dash-kpis-vendas" class="dash-kpis"></div>' +
-        '<div class="dash-secao"><div class="dash-secao-titulo">Vendedores</div><div id="dash-vendedores"></div></div>' +
-        '<div class="dash-secao"><div class="dash-secao-titulo">Equipes</div><div id="dash-equipes" class="dash-equipes"></div></div>' +
-      '</div>' +
-      '<div class="dash-bloco dash-bloco-cobranca">' +
-        '<div class="dash-bloco-titulo cobranca">💰 Cobrança</div>' +
-        '<div id="dash-kpis-cobranca" class="dash-kpis"></div>' +
-        '<div class="dash-secao">' +
-          '<div class="dash-secao-titulo">Recebimentos — últimos 30 dias</div>' +
-          '<div class="dash-chart-wrap"><canvas id="dash-chart"></canvas></div>' +
+      '<div id="dash-alertas-bar" class="dv2-alertas"></div>' +
+      '<div class="dv2-section">' +
+        '<div class="dv2-section-head vendas"><div class="dv2-section-ico">🛒</div><div><div class="dv2-section-title">Vendas</div><div class="dv2-section-sub">Desempenho comercial do período</div></div></div>' +
+        '<div id="dash-kpis-vendas" class="dv2-kpis dv2-kpis-3"></div>' +
+        '<div class="dv2-row-2">' +
+          '<div class="dv2-card">' +
+            '<div class="dv2-card-title">À vista × Crediário</div>' +
+            '<div class="dv2-donut-wrap"><canvas id="dash-donut"></canvas></div>' +
+            '<div id="dash-donut-legend" class="dv2-donut-legend"></div>' +
+          '</div>' +
+          '<div class="dv2-card">' +
+            '<div class="dv2-card-title">Vendedores</div>' +
+            '<div id="dash-vendedores" class="dv2-list"></div>' +
+          '</div>' +
         '</div>' +
-        '<div class="dash-secao"><div class="dash-secao-titulo">Cobradores</div><div id="dash-cobradores"></div></div>' +
+        '<div class="dv2-card">' +
+          '<div class="dv2-card-title">Equipes · progresso da meta</div>' +
+          '<div id="dash-equipes" class="dv2-equipes"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="dv2-section" style="margin-top:24px;">' +
+        '<div class="dv2-section-head cobranca"><div class="dv2-section-ico">💰</div><div><div class="dv2-section-title">Cobrança</div><div class="dv2-section-sub">Recebimentos e carteira em aberto</div></div></div>' +
+        '<div id="dash-kpis-cobranca" class="dv2-kpis dv2-kpis-5"></div>' +
+        '<div class="dv2-row-2">' +
+          '<div class="dv2-card">' +
+            '<div class="dv2-card-title">Recebimentos <span class="dv2-card-sub">últimos 30 dias</span></div>' +
+            '<div class="dv2-chart-wrap"><canvas id="dash-chart"></canvas></div>' +
+          '</div>' +
+          '<div class="dv2-card">' +
+            '<div class="dv2-card-title">Cobradores</div>' +
+            '<div id="dash-cobradores" class="dv2-list"></div>' +
+          '</div>' +
+        '</div>' +
       '</div>';
     _dashPeriodo = 'hoje';
   }
@@ -2598,8 +2665,48 @@ async function carregarDashboard() {
   await _carregarDashDados();
 }
 
+function _dashSaudacao() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Bom dia';
+  if (h < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+const _DASH_DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const _DASH_MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+function _dashDataFormatada() {
+  const d = new Date();
+  return _DASH_DIAS_SEMANA[d.getDay()] + ', ' + d.getDate() + ' de ' + _DASH_MESES[d.getMonth()] + ' de ' + d.getFullYear();
+}
+
+function _dashPeriodoLabel(periodo) {
+  return ({
+    hoje: 'hoje',
+    ontem: 'ontem',
+    semana: 'esta semana',
+    '30d': 'últimos 30 dias',
+    mes: 'este mês',
+    custom: 'período selecionado',
+  })[periodo] || 'hoje';
+}
+
+function _dashExportar() {
+  const el = document.getElementById('nav-exportacao');
+  if (el) pg('exportacao', el);
+}
+
+function _iniciais(nome) {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return '?';
+  if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
+  return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+}
+
 async function _carregarDashDados() {
   const { inicio, fim } = _dashDatas(_dashPeriodo);
+  const subEl = document.getElementById('dv2-subgreeting');
+  if (subEl) subEl.textContent = _dashDataFormatada() + ' · visão geral de ' + _dashPeriodoLabel(_dashPeriodo);
   const kpisVendasEl = document.getElementById('dash-kpis-vendas');
   if (kpisVendasEl) kpisVendasEl.innerHTML = Array(3).fill('<div class="dash-skel"></div>').join('');
   const kpisCobrancaEl = document.getElementById('dash-kpis-cobranca');
@@ -2620,6 +2727,7 @@ async function _carregarDashDados() {
   _renderAlertas(al);
   _renderKpisVendas(r);
   _renderKpisCobranca(r);
+  _renderDonut(r);
   _renderChart(rdRes.data || []);
   _renderCobradores(cRes.data || []);
   _renderVendedores(vRes.data || []);
@@ -2636,15 +2744,16 @@ function _renderAlertas(al) {
   const aut = Number(al.autorizacoes_pendentes || 0);
   const bx = Number(al.baixas_pendentes || 0);
   const cx = Number(al.caixas_abertas || 0);
-  if (!aut && !bx && !cx) { bar.style.display = 'none'; return; }
-  bar.style.display = 'flex';
-  let html = '<span style="font-weight:600;margin-right:.5rem;">⚠ Atenção:</span>';
-  if (aut) html += '<span class="alerta-item"><span class="alerta-num">' + aut + '</span> autorização' + (aut > 1 ? 'ões' : '') + ' pendente' + (aut > 1 ? 's' : '') + '</span>';
-  if (bx) html += '<span class="alerta-item"><span class="alerta-num">' + bx + '</span> baixa' + (bx > 1 ? 's' : '') + ' pendente' + (bx > 1 ? 's' : '') + '</span>';
+  if (!aut && !bx && !cx) { bar.classList.remove('visivel'); bar.innerHTML = ''; return; }
+  bar.classList.add('visivel');
+  let html = '<span class="dv2-alertas-label"><span style="font-size:16px;">⚠️</span>Precisa de atenção</span><div class="dv2-alertas-itens">';
+  if (aut) html += '<span><b>' + aut + '</b> ' + (aut > 1 ? 'autorizações' : 'autorização') + ' pendente' + (aut > 1 ? 's' : '') + '</span>';
+  if (bx) html += '<span><b>' + bx + '</b> baixa' + (bx > 1 ? 's' : '') + ' pendente' + (bx > 1 ? 's' : '') + '</span>';
   if (cx) {
     const mais = al.caixa_mais_antiga ? ' (+ antiga: ' + new Date(al.caixa_mais_antiga).toLocaleDateString('pt-BR') + ')' : '';
-    html += '<span class="alerta-item"><span class="alerta-num">' + cx + '</span> caixa' + (cx > 1 ? 's' : '') + ' aberta' + (cx > 1 ? 's' : '') + mais + '</span>';
+    html += '<span><b>' + cx + '</b> caixa' + (cx > 1 ? 's' : '') + ' aberta' + (cx > 1 ? 's' : '') + mais + '</span>';
   }
+  html += '</div>';
   bar.innerHTML = html;
 }
 
@@ -2652,10 +2761,15 @@ function _renderKpisVendas(r) {
   const el = document.getElementById('dash-kpis-vendas');
   if (!el) return;
   const vendasQtd = Number(r.vendas_qtd || 0);
+  const avista = Number(r.vendas_avista_valor || 0);
+  const credito = Number(r.vendas_crediario_valor || 0);
+  const totalVendido = avista + credito;
+  const pctAvista = totalVendido > 0 ? Math.round(avista / totalVendido * 100) : 0;
+  const pctCredito = totalVendido > 0 ? 100 - pctAvista : 0;
   el.innerHTML =
-    '<div class="dash-kpi"><div class="kpi-label">Vendas realizadas</div><div class="kpi-val">' + vendasQtd + '</div></div>' +
-    '<div class="dash-kpi verde"><div class="kpi-label">Vendido à vista</div><div class="kpi-val">R$ ' + _brl(r.vendas_avista_valor) + '</div></div>' +
-    '<div class="dash-kpi azul"><div class="kpi-label">Vendido no crediário</div><div class="kpi-val">R$ ' + _brl(r.vendas_crediario_valor) + '</div></div>';
+    '<div class="dv2-kpi"><div class="kpi-label">Vendas realizadas</div><div class="kpi-val">' + vendasQtd + '</div><div class="kpi-sub">no período selecionado</div></div>' +
+    '<div class="dv2-kpi verde"><div class="kpi-label">Vendido à vista</div><div class="kpi-val">R$ ' + _brl(avista) + '</div><div class="kpi-sub">' + pctAvista + '% do total vendido</div></div>' +
+    '<div class="dv2-kpi azul"><div class="kpi-label">Vendido no crediário</div><div class="kpi-val">R$ ' + _brl(credito) + '</div><div class="kpi-sub">' + pctCredito + '% do total vendido</div></div>';
 }
 
 function _renderKpisCobranca(r) {
@@ -2664,11 +2778,42 @@ function _renderKpisCobranca(r) {
   const atrasadoClientes = Number(r.atrasado_clientes || 0);
   const atrasadoVal = Number(r.atrasado_valor || 0);
   el.innerHTML =
-    '<div class="dash-kpi azul"><div class="kpi-label">Recebido no período</div><div class="kpi-val">R$ ' + _brl(r.recebido_periodo) + '</div></div>' +
-    '<div class="dash-kpi verde"><div class="kpi-label">Recebido hoje</div><div class="kpi-val">R$ ' + _brl(r.recebido_hoje) + '</div></div>' +
-    '<div class="dash-kpi"><div class="kpi-label">Em mãos (cobradores)</div><div class="kpi-val">R$ ' + _brl(r.em_maos) + '</div></div>' +
-    '<div class="dash-kpi azul"><div class="kpi-label">A receber</div><div class="kpi-val">R$ ' + _brl(r.a_receber) + '</div></div>' +
-    '<div class="dash-kpi' + (atrasadoVal > 0 ? ' vermelho' : '') + '"><div class="kpi-label">Atrasado</div><div class="kpi-val">R$ ' + _brl(r.atrasado_valor) + '</div><div class="kpi-sub">' + atrasadoClientes + ' cliente' + (atrasadoClientes !== 1 ? 's' : '') + '</div></div>';
+    '<div class="dv2-kpi azul"><div class="kpi-label">Recebido no período</div><div class="kpi-val">R$ ' + _brl(r.recebido_periodo) + '</div></div>' +
+    '<div class="dv2-kpi verde"><div class="kpi-label">Recebido hoje</div><div class="kpi-val">R$ ' + _brl(r.recebido_hoje) + '</div></div>' +
+    '<div class="dv2-kpi"><div class="kpi-label">Em mãos (cobradores)</div><div class="kpi-val">R$ ' + _brl(r.em_maos) + '</div></div>' +
+    '<div class="dv2-kpi azul"><div class="kpi-label">A receber</div><div class="kpi-val">R$ ' + _brl(r.a_receber) + '</div></div>' +
+    '<div class="dv2-kpi' + (atrasadoVal > 0 ? ' vermelho' : '') + '"><div class="kpi-label">Atrasado</div><div class="kpi-val">R$ ' + _brl(r.atrasado_valor) + '</div><div class="kpi-sub">' + atrasadoClientes + ' cliente' + (atrasadoClientes !== 1 ? 's' : '') + '</div></div>';
+}
+
+let _dashDonutChart = null;
+function _renderDonut(r) {
+  const canvas = document.getElementById('dash-donut');
+  const legend = document.getElementById('dash-donut-legend');
+  if (!canvas || !window.Chart) return;
+  const avista = Number(r.vendas_avista_valor || 0);
+  const credito = Number(r.vendas_crediario_valor || 0);
+  const total = avista + credito;
+  const pctAvista = total > 0 ? Math.round(avista / total * 100) : 0;
+  const pctCredito = total > 0 ? 100 - pctAvista : 0;
+  if (_dashDonutChart) { _dashDonutChart.destroy(); _dashDonutChart = null; }
+  _dashDonutChart = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: ['À vista', 'Crediário'],
+      datasets: [{ data: total > 0 ? [avista, credito] : [1, 1], backgroundColor: ['#2C7A46', '#1E63A8'], borderWidth: 0 }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: { legend: { display: false }, tooltip: { enabled: total > 0 } },
+    },
+  });
+  if (legend) {
+    legend.innerHTML =
+      '<div class="dv2-legend-row"><span class="dv2-legend-dot" style="background:#2C7A46;"></span><span class="dv2-legend-label">À vista</span><span class="dv2-legend-val">R$ ' + _brl(avista) + '</span><span class="dv2-legend-pct">' + pctAvista + '%</span></div>' +
+      '<div class="dv2-legend-row"><span class="dv2-legend-dot" style="background:#1E63A8;"></span><span class="dv2-legend-label">Crediário</span><span class="dv2-legend-val">R$ ' + _brl(credito) + '</span><span class="dv2-legend-pct">' + pctCredito + '%</span></div>';
+  }
 }
 
 function _renderChart(dados) {
@@ -2684,7 +2829,7 @@ function _renderChart(dados) {
     type: 'bar',
     data: {
       labels: labels,
-      datasets: [{ label: 'Recebido', data: valores, backgroundColor: '#185FA5', borderRadius: 4, borderSkipped: false }],
+      datasets: [{ label: 'Recebido', data: valores, backgroundColor: '#1E63A8', borderRadius: 4, borderSkipped: false }],
     },
     options: {
       responsive: true,
@@ -2694,7 +2839,7 @@ function _renderChart(dados) {
         tooltip: { callbacks: { label: function(ctx) { return 'R$ ' + ctx.parsed.y.toLocaleString('pt-BR', { minimumFractionDigits: 2 }); } } },
       },
       scales: {
-        y: { ticks: { callback: function(v) { return 'R$ ' + v.toLocaleString('pt-BR'); } }, grid: { color: '#f0f0f0' } },
+        y: { ticks: { callback: function(v) { return 'R$ ' + v.toLocaleString('pt-BR'); } }, grid: { color: '#F1EEE7' } },
         x: { grid: { display: false } },
       },
     },
@@ -2704,42 +2849,54 @@ function _renderChart(dados) {
 function _renderCobradores(lista) {
   const el = document.getElementById('dash-cobradores');
   if (!el) return;
-  if (!lista.length) { el.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado.</p>'; return; }
-  el.innerHTML = '<table class="dash-tabela"><thead><tr><th>Cobrador</th><th>Recebido</th><th>Em mãos</th></tr></thead><tbody>' +
-    lista.map(function(c) { return '<tr><td>' + escHtml(c.nome) + '</td><td>R$ ' + _brl(c.recebido) + '</td><td>R$ ' + _brl(c.em_maos) + '</td></tr>'; }).join('') +
-    '</tbody></table>';
+  if (!lista.length) { el.innerHTML = '<p style="color:#A39E93;font-size:13px;">Nenhum dado.</p>'; return; }
+  el.innerHTML = lista.map(function(c) {
+    return '<div class="dv2-list-row">' +
+      '<div class="dv2-avatar verde">' + escHtml(_iniciais(c.nome)) + '</div>' +
+      '<div class="dv2-list-main"><div class="dv2-list-nome">' + escHtml(c.nome) + '</div><div class="dv2-list-sub">em mãos R$ ' + _brl(c.em_maos) + '</div></div>' +
+      '<span class="dv2-list-val verde">R$ ' + _brl(c.recebido) + '</span>' +
+    '</div>';
+  }).join('');
 }
 
 function _renderVendedores(lista) {
   const el = document.getElementById('dash-vendedores');
   if (!el) return;
-  if (!lista.length) { el.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado.</p>'; return; }
-  el.innerHTML = '<table class="dash-tabela"><thead><tr><th>Vendedor</th><th>Qtd</th><th>Total</th></tr></thead><tbody>' +
-    lista.map(function(v) { return '<tr><td>' + escHtml(v.nome) + '</td><td>' + v.qtd + '</td><td>R$ ' + _brl(v.total) + '</td></tr>'; }).join('') +
-    '</tbody></table>';
+  if (!lista.length) { el.innerHTML = '<p style="color:#A39E93;font-size:13px;">Nenhum dado.</p>'; return; }
+  const maxTotal = Math.max.apply(null, lista.map(function(v) { return Number(v.total || 0); }).concat([1]));
+  el.innerHTML = lista.map(function(v) {
+    const total = Number(v.total || 0);
+    const pct = maxTotal > 0 ? Math.round(total / maxTotal * 100) : 0;
+    return '<div class="dv2-list-row">' +
+      '<div class="dv2-avatar azul">' + escHtml(_iniciais(v.nome)) + '</div>' +
+      '<div class="dv2-list-main">' +
+        '<div class="dv2-list-top"><span class="dv2-list-nome">' + escHtml(v.nome) + '</span><span class="dv2-list-val">R$ ' + _brl(total) + '</span></div>' +
+        '<div class="dv2-list-bar"><div class="dv2-list-bar-fill" style="width:' + pct + '%;"></div></div>' +
+      '</div>' +
+      '<span class="dv2-list-qtd">' + Number(v.qtd || 0) + ' un</span>' +
+    '</div>';
+  }).join('');
 }
 
 function _renderEquipes(lista) {
   const el = document.getElementById('dash-equipes');
   if (!el) return;
-  if (!lista.length) { el.innerHTML = '<p style="color:#888;font-size:13px;">Nenhum dado.</p>'; return; }
+  if (!lista.length) { el.innerHTML = '<p style="color:#A39E93;font-size:13px;">Nenhum dado.</p>'; return; }
   el.innerHTML = lista.map(function(e) {
     const meta = Number(e.meta || 0);
     const valor = Number(e.vendas_valor || 0);
     const pct = meta > 0 ? Math.min(100, Math.round(valor / meta * 100)) : 0;
     const statusClasse = pct >= 80 ? 'alto' : pct >= 50 ? 'medio' : 'baixo';
-    return '<div class="dash-equipe-card">' +
-      '<div class="eq-rota">🚚 ' + (e.rota || '—') + '</div>' +
-      '<div class="eq-chefe">👤 ' + (e.chefe || '—') + '</div>' +
-      '<div class="eq-linha"><span>🛒 Vendas</span><span>' + Number(e.vendas_qtd || 0) + '</span></div>' +
-      '<div class="eq-linha"><span>💰 Total</span><span>R$ ' + _brl(e.vendas_valor) + '</span></div>' +
-      '<div class="eq-linha"><span>💵 À vista</span><span>R$ ' + _brl(e.vendas_avista_valor) + '</span></div>' +
-      '<div class="eq-linha"><span>💳 Parcelado</span><span>R$ ' + _brl(e.vendas_crediario_valor) + '</span></div>' +
+    const statusLabel = pct >= 100 ? 'Meta batida' : pct >= 80 ? 'No ritmo' : pct >= 50 ? 'Atenção' : 'Abaixo';
+    return '<div class="dv2-equipe-card">' +
+      '<div class="dv2-eq-top">' +
+        '<div class="dv2-eq-rota"><span style="font-size:14px;">🚚</span><span class="dv2-eq-rota-nome">' + escHtml(e.rota || '—') + '</span><span class="dv2-eq-chefe">· ' + escHtml(e.chefe || '—') + '</span></div>' +
+        '<span class="dv2-eq-total">R$ ' + _brl(e.vendas_valor) + '</span>' +
+      '</div>' +
       (meta > 0 ?
-        '<div class="eq-meta-header"><span>🎯 Meta</span><span>R$ ' + _brl(e.meta) + '</span></div>' +
-        '<div class="eq-meta"><div class="eq-meta-bar ' + statusClasse + '" style="width:' + pct + '%"></div></div>' +
-        '<div class="eq-meta-pct ' + statusClasse + '">' + pct + '%</div>'
-      : '<div class="eq-sem-meta">🎯 Meta não definida</div>') +
+        '<div class="dv2-eq-meta-head"><span>Meta R$ ' + _brl(e.meta) + '</span><span class="dv2-eq-meta-status dv2-status-' + statusClasse + '">' + pct + '% · ' + statusLabel + '</span></div>' +
+        '<div class="dv2-eq-meta-bar"><div class="dv2-eq-meta-bar-fill dv2-fill-' + statusClasse + '" style="width:' + pct + '%;"></div></div>'
+      : '<div class="dv2-eq-sem-meta">🎯 Meta não definida</div>') +
     '</div>';
   }).join('');
 }
