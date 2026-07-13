@@ -10349,6 +10349,7 @@ function renderEquipes(semanas, equipes, somenteLeitura) {
           <div class="eqsem-card-acoes">
             <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="toggleDetalhesEquipe('${eq.id}')">Ver detalhes</button>
             ${!eq.encerrada && perfilAtivo.perfil==='gestor'?`
+              <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirEditarEquipe('${eq.id}')">Editar</button>
               <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirCarregarCaminhao('${eq.caminhao_id}')">+ Carregar</button>
               <button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirDevolverCD('${eq.caminhao_id}')">Devolver ao CD</button>
               <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
@@ -10667,6 +10668,9 @@ async function abrirNovaEquipe() {
   document.getElementById('equipe-data-saida').value = new Date().toISOString().split('T')[0];
   document.getElementById('equipe-data-retorno').value = '';
   document.getElementById('msg-equipe').innerHTML = '';
+  document.getElementById('titulo-modal-equipe').textContent = 'Nova equipe';
+  document.getElementById('btn-salvar-equipe').textContent = 'Salvar equipe';
+  document.getElementById('aviso-troca-caminhao').style.display = 'none';
   const [caminhoes, { data: vendedores }] = await Promise.all([
     carregarCaminhoesCatalogo(),
     sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
@@ -10685,8 +10689,46 @@ async function abrirNovaEquipe() {
   document.getElementById('modal-nova-equipe').style.display = 'flex';
 }
 
+async function abrirEditarEquipe(equipeId) {
+  if (perfilAtivo.perfil !== 'gestor') { alert('Sem permissão'); return; }
+  const eq = equipesAtivas.find(e => e.id === equipeId);
+  if (!eq) { alert('Equipe não encontrada.'); return; }
+  document.getElementById('equipe-id').value = eq.id;
+  document.getElementById('equipe-rota').value = eq.rota || '';
+  document.getElementById('equipe-meta').value = eq.meta || '';
+  document.getElementById('equipe-data-saida').value = eq.data_saida || '';
+  document.getElementById('equipe-data-retorno').value = eq.data_retorno || '';
+  document.getElementById('msg-equipe').innerHTML = '';
+  document.getElementById('titulo-modal-equipe').textContent = 'Editar equipe';
+  document.getElementById('btn-salvar-equipe').textContent = 'Salvar alterações';
+  document.getElementById('aviso-troca-caminhao').style.display = 'block';
+  const [caminhoes, { data: vendedores }] = await Promise.all([
+    carregarCaminhoesCatalogo(),
+    sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
+  ]);
+  document.getElementById('equipe-caminhao').innerHTML =
+    (caminhoes||[]).map(c=>`<option value="${c.id}"${c.id===eq.caminhao_id?' selected':''}>${escHtml(c.identificacao)}${c.placa?' — '+escHtml(c.placa):''}</option>`).join('');
+  document.getElementById('equipe-semana').innerHTML =
+    semanasAtual.map(s=>{
+      const di=new Date(s.data_inicio+'T12:00:00').toLocaleDateString('pt-BR');
+      const df=new Date(s.data_fim+'T12:00:00').toLocaleDateString('pt-BR');
+      return `<option value="${s.id}"${s.id===eq.semana_id?' selected':''}>Semana ${s.numero} (${di} — ${df})</option>`;
+    }).join('');
+  const chefeMembro = eq.equipe_membros?.find(m => m.papel === 'chefe');
+  const ajudantesIds = new Set((eq.equipe_membros||[]).filter(m => m.papel === 'ajudante').map(m => m.funcionario_id));
+  const optsVend = (vendedores||[]).map(f=>`<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
+  document.getElementById('equipe-chefe').innerHTML = '<option value="">Selecione...</option>'+optsVend;
+  document.getElementById('equipe-chefe').value = chefeMembro?.funcionario_id || '';
+  document.getElementById('equipe-ajudantes').innerHTML = optsVend;
+  Array.from(document.getElementById('equipe-ajudantes').options).forEach(o => { o.selected = ajudantesIds.has(o.value); });
+  document.getElementById('modal-nova-equipe').style.display = 'flex';
+}
+
 async function salvarEquipe() {
   if (perfilAtivo.perfil !== 'gestor') { alert('Sem permissão'); return; }
+  const btn = document.getElementById('btn-salvar-equipe');
+  if (btn && btn.disabled) return;
+  const equipeId = document.getElementById('equipe-id').value;
   const caminhaoId = document.getElementById('equipe-caminhao').value;
   const semanaId = document.getElementById('equipe-semana').value;
   const chefeId = document.getElementById('equipe-chefe').value;
@@ -10701,20 +10743,35 @@ async function salvarEquipe() {
   if (!dataSaida) { msg.innerHTML = '<div class="msg erro">Informe a data de saída!</div>'; return; }
   const ajudantes = Array.from(document.getElementById('equipe-ajudantes').selectedOptions)
     .map(o=>o.value).filter(v=>v!==chefeId);
+  const original = _travarBotao(btn, equipeId ? 'Salvando...' : 'Criando...');
   try {
     const payload = {
       semana_id: semanaId, caminhao_id: caminhaoId, chefe_id: chefeId,
-      rota: rota||null, meta, data_saida: dataSaida||null, encerrada: false,
+      rota: rota||null, meta, data_saida: dataSaida||null, data_retorno: dataRetorno||null,
     };
-    console.log('Inserindo equipe:', payload);
-    const { data: equipe, error } = await sb.from('equipes').insert(payload).select().single();
-    console.log('Resultado:', { equipe, error });
-    if (error) {
-      Logger.error('equipes', 'SALVAR_EQUIPE', 'Falha ao criar equipe', { supabase_code: error.code });
-      msg.innerHTML = `<div class="msg erro">Erro: ${error.message || error.details || JSON.stringify(error)}</div>`;
-      return;
+    let equipe;
+    if (equipeId) {
+      const { data, error } = await sb.from('equipes').update(payload).eq('id', equipeId).select().single();
+      if (error) {
+        Logger.error('equipes', 'EDITAR_EQUIPE', 'Falha ao editar equipe', { supabase_code: error.code });
+        msg.innerHTML = `<div class="msg erro">Erro: ${error.message || error.details || JSON.stringify(error)}</div>`;
+        return;
+      }
+      equipe = data;
+      const { error: errDel } = await sb.from('equipe_membros').delete().eq('equipe_id', equipeId);
+      if (errDel) console.error('Erro ao limpar membros:', errDel);
+      Logger.info('equipes', 'EDITAR_EQUIPE', 'Equipe editada com sucesso');
+    } else {
+      payload.encerrada = false;
+      const { data, error } = await sb.from('equipes').insert(payload).select().single();
+      if (error) {
+        Logger.error('equipes', 'SALVAR_EQUIPE', 'Falha ao criar equipe', { supabase_code: error.code });
+        msg.innerHTML = `<div class="msg erro">Erro: ${error.message || error.details || JSON.stringify(error)}</div>`;
+        return;
+      }
+      equipe = data;
+      Logger.info('equipes', 'SALVAR_EQUIPE', 'Equipe criada com sucesso');
     }
-    Logger.info('equipes', 'SALVAR_EQUIPE', 'Equipe criada com sucesso');
     const membros = [{ equipe_id: equipe.id, funcionario_id: chefeId, papel: 'chefe' }];
     ajudantes.forEach(id => membros.push({ equipe_id: equipe.id, funcionario_id: id, papel: 'ajudante' }));
     const { error: errMembros } = await sb.from('equipe_membros').insert(membros);
@@ -10724,6 +10781,8 @@ async function salvarEquipe() {
   } catch(e) {
     console.error('Exceção JS:', e);
     msg.innerHTML = `<div class="msg erro">Erro inesperado: ${e.message}</div>`;
+  } finally {
+    _destravarBotao(btn, original);
   }
 }
 
@@ -11541,7 +11600,7 @@ async function gerarProximoMes() {
 <div class="modal-bg" id="modal-nova-equipe">
   <div class="modal-box" style="max-width:540px;">
     <div class="modal-header">
-      <strong>Nova equipe</strong>
+      <strong id="titulo-modal-equipe">Nova equipe</strong>
       <button onclick="fecharModal('modal-nova-equipe')">×</button>
     </div>
     <input type="hidden" id="equipe-id">
@@ -11549,6 +11608,7 @@ async function gerarProximoMes() {
       <div class="campo">
         <label>Caminhão *</label>
         <select id="equipe-caminhao"><option value="">Selecione...</option></select>
+        <div id="aviso-troca-caminhao" style="display:none;font-size:11px;color:#854F0B;margin-top:4px;">Trocar o caminhão não move o estoque já carregado. Se o caminhão errado já recebeu carga, use "Devolver ao CD" nele e "+ Carregar" no caminhão certo.</div>
       </div>
       <div class="campo">
         <label>Semana *</label>
@@ -11584,7 +11644,7 @@ async function gerarProximoMes() {
     <div id="msg-equipe"></div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-nova-equipe')">Cancelar</button>
-      <button class="btn primario" onclick="salvarEquipe()">Salvar equipe</button>
+      <button class="btn primario" id="btn-salvar-equipe" onclick="salvarEquipe()">Salvar equipe</button>
     </div>
   </div>
 </div>
