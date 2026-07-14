@@ -6441,35 +6441,61 @@ async function renderCicloSelecionado(cicloChave) {
   }
 }
 
+// Um cliente com várias parcelas em aberto (ex.: 4 atrasadas) gerava um
+// card idêntico pra cada parcela — o clique sempre leva pra mesma página
+// do cliente, então agrupamos por cliente aqui em vez de mostrar
+// repetido.
+function agruparFichasPorCliente(fichas) {
+  const mapa = new Map();
+  fichas.forEach(f => {
+    if (!mapa.has(f.cliente.id)) mapa.set(f.cliente.id, { cliente: f.cliente, itens: [] });
+    mapa.get(f.cliente.id).itens.push(f);
+  });
+  return [...mapa.values()];
+}
+
 function secaoFichasHtml(titulo, fichas, cor, bg) {
+  const grupos = agruparFichasPorCliente(fichas);
+  const contagem = grupos.length + ' cliente(s)' + (fichas.length !== grupos.length ? ' · ' + fichas.length + ' ficha(s)' : '');
   return '<div style="margin-bottom:1rem;">'
     + '<div style="font-size:13px;font-weight:600;color:' + cor + ';margin-bottom:.75rem;display:flex;justify-content:space-between;align-items:center;">'
     + '<span>' + escHtml(titulo) + '</span>'
-    + '<span style="font-size:11px;background:' + bg + ';color:' + cor + ';padding:2px 8px;border-radius:6px;">' + fichas.length + ' ficha(s)</span>'
+    + '<span style="font-size:11px;background:' + bg + ';color:' + cor + ';padding:2px 8px;border-radius:6px;">' + contagem + '</span>'
     + '</div>'
-    + fichas.map(f => fichaCardHtml(f)).join('')
+    + grupos.map(g => fichaGrupoCardHtml(g)).join('')
     + '</div>';
 }
 
-function fichaCardHtml(f) {
-  const c = f.cliente, p = f.parcela;
-  const saldo = Number(p.valor) - Number(p.valor_pago || 0);
+function fichaGrupoCardHtml(g) {
+  const c = g.cliente, itens = g.itens;
+  const saldoTotal = itens.reduce((a, f) => a + (Number(f.parcela.valor) - Number(f.parcela.valor_pago || 0)), 0);
+  const temNova = itens.some(f => f.novaVenda);
+  const remarcadas = itens.filter(f => f.remarcada);
+  const atrasadas = itens.filter(f => f.atrasada);
+  const temAtrasada = atrasadas.length > 0;
+  const vencMaisAntiga = temAtrasada ? new Date(Math.min(...atrasadas.map(f => f.venc.getTime()))) : null;
+  const remarqueMaisProxima = remarcadas.length ? new Date(Math.min(...remarcadas.map(f => f.dataEf.getTime()))) : null;
+
   const fotoHtml = c.foto_casa
     ? '<img data-img-bucket="fotos-clientes" data-img-src="' + escHtml(c.foto_casa) + '" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
     : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
-  const badgesHtml = (f.novaVenda ? '<span class="badge" style="font-size:10px;background:#E6F1FB;color:#185FA5;font-weight:600;">🆕 Nova venda</span>' : '')
-    + (f.remarcada ? '<span class="badge" style="font-size:10px;background:#FAEEDA;color:#854F0B;">📅 Remarcada ' + f.dataEf.toLocaleDateString('pt-BR') + '</span>' : '')
-    + (f.atrasada ? '<span class="badge vermelho" style="font-size:10px;">⚠️ ATRASADA — venceu ' + f.venc.toLocaleDateString('pt-BR') + '</span>' : '');
+  const badgesHtml = (temNova ? '<span class="badge" style="font-size:10px;background:#E6F1FB;color:#185FA5;font-weight:600;">🆕 Nova venda</span>' : '')
+    + (remarcadas.length ? '<span class="badge" style="font-size:10px;background:#FAEEDA;color:#854F0B;">📅 Remarcada ' + remarqueMaisProxima.toLocaleDateString('pt-BR') + (remarcadas.length > 1 ? ' (' + remarcadas.length + ')' : '') + '</span>' : '')
+    + (temAtrasada ? '<span class="badge vermelho" style="font-size:10px;">⚠️ ' + atrasadas.length + (atrasadas.length > 1 ? ' atrasadas' : ' atrasada') + ' — desde ' + vencMaisAntiga.toLocaleDateString('pt-BR') + '</span>' : '');
+  const linhaParcelas = itens.length > 1
+    ? itens.length + ' parcelas em aberto · ' + escHtml(c.telefone || '—')
+    : 'Parcela ' + itens[0].parcela.numero + '/' + itens[0].parcela.total_parcelas + ' · ' + escHtml(c.telefone || '—');
+
   return '<div onclick="verDetalhesCliente(\'' + escJs(c.id) + '\')"'
-    + ' style="background:' + (f.atrasada?'#FCEBEB':'#fff') + ';border:1px solid ' + (f.atrasada?'#f5c6c6':'#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
+    + ' style="background:' + (temAtrasada?'#FCEBEB':'#fff') + ';border:1px solid ' + (temAtrasada?'#f5c6c6':'#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
     + fotoHtml
     + '<div style="flex:1;min-width:0;">'
     + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(c.nome) + '</div>'
-    + '<div style="font-size:12px;color:#888;">Parcela ' + p.numero + '/' + p.total_parcelas + ' · ' + escHtml(c.telefone||'—') + '</div>'
+    + '<div style="font-size:12px;color:#888;">' + linhaParcelas + '</div>'
     + '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">' + badgesHtml + '</div>'
     + '</div>'
     + '<div style="text-align:right;flex-shrink:0;">'
-    + '<div style="font-size:15px;font-weight:700;color:' + (f.atrasada?'#A32D2D':'#1a1a1a') + ';">R$ ' + saldo.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
+    + '<div style="font-size:15px;font-weight:700;color:' + (temAtrasada?'#A32D2D':'#1a1a1a') + ';">R$ ' + saldoTotal.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
     + '<span style="font-size:18px;color:#888;">›</span>'
     + '</div>'
     + '</div>';
