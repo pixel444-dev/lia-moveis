@@ -6403,7 +6403,7 @@ async function renderCicloSelecionado(cicloChave) {
     const fichas = (linhas || []).map(function(r) {
       return {
         cliente: { id: r.cliente_id, nome: r.cliente_nome, codigo: r.cliente_codigo, localidade_id: r.localidade_id, foto_casa: r.cliente_foto_casa, telefone: r.cliente_telefone },
-        parcela: { id: r.parcela_id, numero: r.numero, total_parcelas: r.total_parcelas, valor: r.valor, valor_pago: r.valor_pago },
+        parcela: { id: r.parcela_id, venda_id: r.venda_id, numero: r.numero, total_parcelas: r.total_parcelas, valor: r.valor, valor_pago: r.valor_pago },
         dataEf: new Date(r.data_efetiva + 'T12:00:00'),
         venc: new Date(r.data_vencimento + 'T12:00:00'),
         atrasada: r.tipo === 'atrasada',
