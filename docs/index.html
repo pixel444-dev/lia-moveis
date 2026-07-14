@@ -6441,22 +6441,26 @@ async function renderCicloSelecionado(cicloChave) {
   }
 }
 
-// Um cliente com várias parcelas em aberto (ex.: 4 atrasadas) gerava um
-// card idêntico pra cada parcela — o clique sempre leva pra mesma página
-// do cliente, então agrupamos por cliente aqui em vez de mostrar
-// repetido.
-function agruparFichasPorCliente(fichas) {
+// Uma ficha é uma VENDA (o card de papel real que o cobrador carrega é
+// por venda, não por parcela) — um cliente com 4 parcelas atrasadas da
+// MESMA venda é 1 ficha só; se tivesse 2 vendas em aberto ao mesmo tempo,
+// seriam 2 fichas (2 cards), mesmo sendo o mesmo cliente. Parcelas
+// "órfãs" sem venda_id (importação do sistema antigo) ficam cada uma no
+// seu próprio grupo, pra não misturar debitos de vendas diferentes.
+function agruparFichasPorVenda(fichas) {
   const mapa = new Map();
   fichas.forEach(f => {
-    if (!mapa.has(f.cliente.id)) mapa.set(f.cliente.id, { cliente: f.cliente, itens: [] });
-    mapa.get(f.cliente.id).itens.push(f);
+    const chave = f.parcela.venda_id || ('parcela:' + f.parcela.id);
+    if (!mapa.has(chave)) mapa.set(chave, { cliente: f.cliente, itens: [] });
+    mapa.get(chave).itens.push(f);
   });
   return [...mapa.values()];
 }
 
 function secaoFichasHtml(titulo, fichas, cor, bg) {
-  const grupos = agruparFichasPorCliente(fichas);
-  const contagem = grupos.length + ' cliente(s)' + (fichas.length !== grupos.length ? ' · ' + fichas.length + ' ficha(s)' : '');
+  const grupos = agruparFichasPorVenda(fichas);
+  const clientesUnicos = new Set(fichas.map(f => f.cliente.id)).size;
+  const contagem = clientesUnicos + ' cliente(s) · ' + grupos.length + ' ficha(s)';
   return '<div style="margin-bottom:1rem;">'
     + '<div style="font-size:13px;font-weight:600;color:' + cor + ';margin-bottom:.75rem;display:flex;justify-content:space-between;align-items:center;">'
     + '<span>' + escHtml(titulo) + '</span>'
@@ -7174,14 +7178,21 @@ async function carregarLocalidades() {
 
   const ehGestor = perfilAtivo?.perfil === 'gestor';
   let qLoc = sb.from('localidades').select('id, nome').eq('ativo', true).order('nome');
-  let qCli = sb.from('clientes').select('localidade_id').not('localidade_id', 'is', null);
   if (!ehGestor) {
-    const cobradorId = funcionarioLogado.id;
-    qLoc = qLoc.eq('cobrador_id', cobradorId);
-    qCli = qCli.eq('cobrador_id', cobradorId);
+    qLoc = qLoc.eq('cobrador_id', funcionarioLogado.id);
   }
 
-  const [{ data: localidades, error }, { data: contagem }] = await Promise.all([qLoc, qCli]);
+  // Pra cobrador, a contagem precisa vir de _clientesDoCobrador() (direto +
+  // por rota) — um `.eq('cobrador_id', ...)` direto igual o de cima deixa
+  // de fora os clientes que só chegam até ele pela rota, e a contagem
+  // ficava sempre menor do que a real (às vezes 0, mesmo com cliente
+  // vinculado).
+  const [{ data: localidades, error }, contagem] = await Promise.all([
+    qLoc,
+    ehGestor
+      ? sb.from('clientes').select('localidade_id').not('localidade_id', 'is', null).then(r => r.data || [])
+      : _clientesDoCobrador('localidade_id'),
+  ]);
 
   if (error) {
     Logger.error('localidades', 'CARREGAR_LOCALIDADES', 'Erro ao carregar', { supabase_code: error.code });
@@ -7191,7 +7202,7 @@ async function carregarLocalidades() {
 
   const mapaContagem = {};
   (contagem || []).forEach(c => {
-    mapaContagem[c.localidade_id] = (mapaContagem[c.localidade_id] || 0) + 1;
+    if (c.localidade_id) mapaContagem[c.localidade_id] = (mapaContagem[c.localidade_id] || 0) + 1;
   });
 
   renderLocalidades(localidades || [], mapaContagem);
