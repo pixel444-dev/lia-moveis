@@ -7296,11 +7296,18 @@ async function salvarLocalidadeCliente() {
   const clienteId = document.getElementById('det-cliente-id').value;
   const localidadeId = document.getElementById('det-localidade-select').value || null;
 
-  const { error } = await sb.from('clientes').update({ localidade_id: localidadeId }).eq('id', clienteId);
+  // RPC em vez de update direto: cliente que só chega até o cobrador pela
+  // rota (sem cobrador_id direto) não batia na policy de UPDATE de
+  // clientes, e o update direto "funcionava" (0 linhas afetadas, sem
+  // erro) sem realmente salvar nada.
+  const { error } = await sb.rpc('salvar_localidade_cliente', {
+    p_cliente_id: clienteId,
+    p_localidade_id: localidadeId
+  });
 
   if (error) {
-    Logger.error('localidades', 'VINCULAR_CLIENTE', 'Erro ao vincular cliente', { supabase_code: error.code });
-    alert('Erro ao salvar localidade!');
+    Logger.error('localidades', 'VINCULAR_CLIENTE', 'Erro ao vincular cliente', { supabase_code: error.code, error_message: error.message });
+    alert(error.message || 'Erro ao salvar localidade!');
     return;
   }
   alert('Localidade salva!');
