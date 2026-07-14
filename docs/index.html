@@ -5910,41 +5910,27 @@ async function _clientesDoCobrador(campos, statusErro) {
 async function renderInterfaceCobrador() {
   document.getElementById('page-cobrancas').innerHTML = ''
     + '<div style="padding-bottom:1rem;">'
-    + '<div id="card-saldo-cobrador" style="background:linear-gradient(135deg,#0C447C,#185FA5);border-radius:14px;padding:1.25rem;margin-bottom:1rem;color:white;">'
-    + '<div style="font-size:11px;opacity:.8;letter-spacing:.08em;margin-bottom:4px;">DINHEIRO EM MÃOS</div>'
-    + '<div style="font-size:28px;font-weight:700;" id="saldo-em-maos">R$ 0,00</div>'
-    + '<div style="font-size:11px;opacity:.7;margin-top:4px;" id="saldo-ciclo-info">Carregando...</div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:1rem;">'
-    + '<button onclick="abrirRegistrarGasto()" style="padding:12px;border-radius:10px;border:none;background:rgba(255,255,255,.15);color:white;font-size:14px;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);">💸 Registrar gasto</button>'
-    + '<button onclick="abrirRegistrarDeposito()" style="padding:12px;border-radius:10px;border:none;background:rgba(255,255,255,.15);color:white;font-size:14px;font-weight:600;cursor:pointer;">🏦 Depositar</button>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+    + '<div style="font-size:20px;font-weight:800;color:#221F1A;letter-spacing:-.01em;">Cobranças</div>'
+    + '<button onclick="abrirCaixaSheetCobrador()" style="display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:20px;border:1px solid #e0ddd3;background:#fff;font-size:12.5px;font-weight:700;color:#2B2822;cursor:pointer;">💰 <span id="saldo-em-maos-compact">R$ 0,00</span></button>'
     + '</div>'
-    + '</div>'
-    + '<div id="card-desempenho-ciclo" style="background:linear-gradient(135deg,#3B6D11,#5A9E1E);border-radius:14px;padding:1.25rem;margin-bottom:1rem;color:white;"></div>'
-    + '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:1rem;">'
-    + '<div style="font-size:12px;font-weight:500;color:#555;margin-bottom:.75rem;">Buscar cliente</div>'
-    + '<div style="display:flex;gap:8px;margin-bottom:8px;">'
-    + '<select id="filtro-busca-tipo" style="padding:10px;border:1px solid #ddd;border-radius:8px;font-size:13px;background:#fff;flex-shrink:0;">'
-    + '<option value="nome">Nome</option>'
-    + '<option value="cpf">CPF</option>'
-    + '<option value="codigo">Código</option>'
-    + '<option value="telefone">Celular</option>'
-    + '<option value="endereco">Endereço</option>'
-    + '<option value="cidade">Cidade</option>'
-    + '</select>'
-    + '<input id="busca-cobrador-input" type="text" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;font-size:16px;" placeholder="Digite para buscar..." oninput="buscarClienteCobrador(this.value)">'
-    + '</div>'
-    + '<div id="resultado-busca-cobrador"></div>'
-    + '</div>'
-    + '<div id="secao-visitas-hoje"></div>'
     + '<div id="secao-ciclo-tabs"></div>'
-    + '<div id="secao-ciclo-conteudo"></div>'
+    + '<input id="busca-cobrador-input" type="text" placeholder="Buscar por nome, telefone ou bairro" oninput="filtrarListaCobrador()" style="width:100%;box-sizing:border-box;padding:11px 14px;border:1px solid #e0ddd3;border-radius:12px;font-size:14px;margin-bottom:10px;background:#fff;">'
+    + '<div style="display:flex;gap:6px;background:#fff;border:1px solid #e0ddd3;border-radius:12px;padding:4px;margin-bottom:16px;">'
+    + '<button onclick="setFiltroCobrador(\'todos\')" id="tab-cobrador-todos" style="flex:1;padding:8px 4px;border-radius:9px;border:none;font-size:12px;font-weight:700;cursor:pointer;">Todos</button>'
+    + '<button onclick="setFiltroCobrador(\'atrasados\')" id="tab-cobrador-atrasados" style="flex:1;padding:8px 4px;border-radius:9px;border:none;font-size:12px;font-weight:700;cursor:pointer;">Atrasados</button>'
+    + '<button onclick="setFiltroCobrador(\'hoje\')" id="tab-cobrador-hoje" style="flex:1;padding:8px 4px;border-radius:9px;border:none;font-size:12px;font-weight:700;cursor:pointer;">Hoje</button>'
+    + '</div>'
+    + '<div id="lista-clientes-cobrador"></div>'
     + '</div>';
+
+  window._cobradorFiltro = 'todos';
 
   // Os painéis de saldo/ciclo dependem do servidor e não têm cache. Sem
   // rede, nem tenta (as consultas internas engolem erros e renderizariam
-  // zeros enganosos) — degrada com aviso e mantém o que funciona offline:
-  // a busca de cliente acima (carteira salva), as parcelas e o
-  // recebimento (que entram na fila de sincronização).
+  // zeros enganosos) — degrada com aviso e mantém o que funciona offline: a
+  // última lista de clientes salva no aparelho e o registro de recebimento
+  // (que entra na fila de sincronização).
   if (window.NetStatus && !NetStatus.estaOnline()) {
     _degradarPaineisCobradorOffline();
     return;
@@ -5954,7 +5940,6 @@ async function renderInterfaceCobrador() {
     await Promise.all([
       carregarSaldoCobrador(_caixaId),
       carregarDesempenhoCiclo(),
-      carregarVisitasHoje(),
       carregarCaixaECiclos(_caixaId),
     ]);
   } catch (e) {
@@ -5971,9 +5956,19 @@ function _degradarPaineisCobradorOffline() {
   if (info) info.textContent = 'Sem conexão — valores indisponíveis offline';
   const desempenho = document.getElementById('card-desempenho-ciclo');
   if (desempenho) desempenho.style.display = 'none';
-  const conteudo = document.getElementById('secao-ciclo-conteudo');
-  if (conteudo && window.OfflineFlow) conteudo.innerHTML = OfflineFlow.avisoOfflineHtml(
-    'Sem conexão — use a busca acima para encontrar um cliente salvo no aparelho, ver as parcelas e registrar recebimentos. Tudo será sincronizado quando a internet voltar.');
+
+  const chave = _chaveCacheFichas(cicloDoDia(new Date().getDate()).chave);
+  const cache = lerCacheFichas(chave);
+  const lista = document.getElementById('lista-clientes-cobrador');
+  if (cache && cache.clientes && cache.clientes.length) {
+    window._cobradorClientesCicloAtual = cache.clientes;
+    window._cobradorClientesTimestamp = cache.timestamp;
+    window._cobradorAtualizando = false;
+    renderListaCobrador();
+    if (lista && window.OfflineFlow) lista.insertAdjacentHTML('afterbegin', OfflineFlow.avisoOfflineHtml());
+  } else if (lista) {
+    lista.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;">Sem conexão — nenhuma lista de cobranças salva no aparelho ainda.</div>';
+  }
 }
 
 // ─── GASTO ───
@@ -6220,8 +6215,10 @@ async function carregarSaldoCobrador(caixaIdParam) {
   const caixaId = caixaIdParam !== undefined ? caixaIdParam : await obterCaixaAtiva();
   const saldoEl = document.getElementById('saldo-em-maos');
   const infoEl = document.getElementById('saldo-ciclo-info');
+  const compactEl = document.getElementById('saldo-em-maos-compact');
   if (!caixaId) {
     if (saldoEl) saldoEl.textContent = 'R$ 0,00';
+    if (compactEl) compactEl.textContent = 'R$ 0,00';
     return;
   }
 
@@ -6238,8 +6235,9 @@ async function carregarSaldoCobrador(caixaIdParam) {
   const totalDepositos = (depositos || []).reduce(function(a, d) { return a + Number(d.valor); }, 0);
   const saldoAtual = totalEntradas - totalGastos - totalDepositos;
 
+  const saldoFmt = 'R$ ' + saldoAtual.toLocaleString('pt-BR', {minimumFractionDigits: 2});
   if (saldoEl) {
-    saldoEl.textContent = 'R$ ' + saldoAtual.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+    saldoEl.textContent = saldoFmt;
     if (saldoAtual >= 1000) {
       saldoEl.style.color = '#FF4444';
     } else if (saldoAtual >= 800) {
@@ -6248,6 +6246,7 @@ async function carregarSaldoCobrador(caixaIdParam) {
       saldoEl.style.color = 'white';
     }
   }
+  if (compactEl) compactEl.textContent = saldoFmt;
 
   if (infoEl) {
     if (saldoAtual >= 800) {
@@ -6260,50 +6259,14 @@ async function carregarSaldoCobrador(caixaIdParam) {
   }
 }
 
-async function carregarVisitasHoje() {
-  var hoje = dataLocalYMD();
-  var secao = document.getElementById('secao-visitas-hoje');
-  if (!secao) return;
-
-  var { data, error } = await sb
-    .from('visitas_agendadas')
-    .select('id, motivo, clientes(id, nome, telefone, foto_casa)')
-    .eq('cobrador_id', funcionarioLogado.id)
-    .eq('data_agendada', hoje)
-    .eq('concluida', false);
-
-  if (error || !data || !data.length) { secao.innerHTML = ''; return; }
-
-  var html = '<div style="margin-bottom:1rem;">'
-    + '<div style="font-size:13px;font-weight:600;color:#A32D2D;margin-bottom:.75rem;">📅 Visitas agendadas para hoje (' + data.length + ')</div>';
-  for (const v of data) {
-    var cli = v.clientes || {};
-    var fotoUrl = cli.foto_casa ? await urlAssinada('fotos-clientes', cli.foto_casa) : null;
-    var foto = fotoUrl
-      ? '<img src="' + fotoUrl + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
-      : '<div style="width:48px;height:48px;border-radius:8px;background:#f5c6c6;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">📅</div>';
-    html += '<div onclick="verDetalhesCliente(\'' + cli.id + '\')" style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
-      + foto
-      + '<div style="flex:1;min-width:0;">'
-      + '<div style="font-size:14px;font-weight:600;color:#A32D2D;">' + escHtml((cli.nome||'—')) + '</div>'
-      + '<div style="font-size:12px;color:#A32D2D;opacity:.8;">Motivo anterior: ' + escHtml((v.motivo||'—')) + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + escHtml((cli.telefone||'—')) + '</div>'
-      + '</div>'
-      + '<span style="font-size:18px;color:#A32D2D;">›</span>'
-      + '</div>';
-  }
-  html += '</div>';
-  secao.innerHTML = html;
-}
-
 async function carregarCaixaECiclos(caixaIdParam) {
   const caixaId = caixaIdParam !== undefined ? caixaIdParam : await obterCaixaAtiva();
   const tabsEl = document.getElementById('secao-ciclo-tabs');
-  const conteudo = document.getElementById('secao-ciclo-conteudo');
+  const lista = document.getElementById('lista-clientes-cobrador');
 
   if (!caixaId) {
     tabsEl.innerHTML = '';
-    conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Não há caixa ativa no momento.</p>';
+    lista.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Não há caixa ativa no momento.</p>';
     return;
   }
 
@@ -6320,12 +6283,13 @@ async function carregarCaixaECiclos(caixaIdParam) {
   }
   window._cicloSelecionado = selecionado;
 
+  // Seletor de ciclo compacto (um <select>, não mais uma fileira de botões)
+  // — a lista de clientes é quem deve dominar a tela, não a navegação entre
+  // quinzenas.
   if (ciclos.length > 1) {
-    tabsEl.innerHTML = '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:1rem;-webkit-overflow-scrolling:touch;">'
-      + ciclos.map(c => '<button onclick="selecionarCicloCobrador(\'' + c.chave + '\')"'
-        + ' style="flex-shrink:0;padding:10px 16px;border-radius:10px;border:1.5px solid ' + (c.chave===selecionado?'#185FA5':'#ddd') + ';background:' + (c.chave===selecionado?'#185FA5':'#fff') + ';color:' + (c.chave===selecionado?'#fff':'#555') + ';font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">'
-        + '📦 ' + c.label + '</button>').join('')
-      + '</div>';
+    tabsEl.innerHTML = '<select onchange="selecionarCicloCobrador(this.value)" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid #e0ddd3;border-radius:10px;font-size:12.5px;font-weight:600;background:#fff;color:#2B2822;margin-bottom:10px;">'
+      + ciclos.map(c => '<option value="' + c.chave + '"' + (c.chave===selecionado?' selected':'') + '>📦 ' + escHtml(c.label) + '</option>').join('')
+      + '</select>';
   } else {
     tabsEl.innerHTML = '';
   }
@@ -6338,13 +6302,14 @@ function selecionarCicloCobrador(chave) {
   carregarCaixaECiclos();
 }
 
-// ===== Cache local das fichas do cobrador (stale-while-revalidate) =====
+// ===== Cache local da lista de cobrança do cobrador (stale-while-revalidate) =====
 // Evita o cobrador esperar a rede toda vez que sai e entra no app: mostra
 // instantaneamente o que foi carregado da última vez, enquanto atualiza em
-// segundo plano. Versionado (v1) pra poder invalidar caches antigos se o
-// HTML gerado mudar de formato no futuro.
+// segundo plano. Versionado (v2 — antes guardava o HTML já renderizado por
+// localidade; agora guarda a lista de clientes agregada usada pela tela
+// simplificada) pra poder invalidar caches antigos quando o formato mudar.
 function _chaveCacheFichas(cicloChave) {
-  return 'fichas_cache_v1_' + funcionarioLogado.id + '_' + cicloChave;
+  return 'fichas_cache_v2_' + funcionarioLogado.id + '_' + cicloChave;
 }
 
 function lerCacheFichas(chave) {
@@ -6354,17 +6319,17 @@ function lerCacheFichas(chave) {
   } catch (e) { return null; }
 }
 
-function salvarCacheFichas(chave, html) {
+function salvarCacheFichas(chave, clientes) {
   try {
-    localStorage.setItem(chave, JSON.stringify({ html, timestamp: Date.now() }));
+    localStorage.setItem(chave, JSON.stringify({ clientes, timestamp: Date.now() }));
   } catch (e) { /* localStorage indisponível (aba anônima, cota cheia etc.) — ignora */ }
 }
 
 function _fichasStatusHtml(timestamp, atualizando) {
   const hora = new Date(timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#888;margin-bottom:.5rem;">'
+  return '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9A9488;margin-bottom:8px;">'
     + '<span>Atualizado às ' + hora + (atualizando ? ' · 🔄 atualizando...' : '') + '</span>'
-    + '<button onclick="atualizarFichasCobrador()" style="border:none;background:none;color:#185FA5;font-size:11px;font-weight:600;cursor:pointer;padding:2px 6px;">🔄 Atualizar</button>'
+    + '<button onclick="atualizarFichasCobrador()" style="border:none;background:none;color:#1E63A8;font-size:11px;font-weight:600;cursor:pointer;padding:2px 6px;">🔄 Atualizar</button>'
     + '</div>';
 }
 
@@ -6374,134 +6339,203 @@ function atualizarFichasCobrador() {
 
 async function renderCicloSelecionado(cicloChave) {
   const caixa = window._caixaCobradorAtiva;
-  const conteudo = document.getElementById('secao-ciclo-conteudo');
   const chaveCache = _chaveCacheFichas(cicloChave);
   const cache = lerCacheFichas(chaveCache);
 
-  if (cache) {
-    conteudo.innerHTML = _fichasStatusHtml(cache.timestamp, true) + cache.html;
-    assinarImagens(conteudo);
+  if (cache && cache.clientes) {
+    window._cobradorClientesCicloAtual = cache.clientes;
+    window._cobradorClientesTimestamp = cache.timestamp;
+    window._cobradorAtualizando = true;
+    renderListaCobrador();
   } else {
-    conteudo.innerHTML = '<p style="color:#888;text-align:center;padding:1rem;">Carregando fichas...</p>';
+    document.getElementById('lista-clientes-cobrador').innerHTML = '<p style="color:#888;text-align:center;padding:1rem;">Carregando clientes...</p>';
   }
 
   try {
-    // A classificação inteira (nova/normal/remarcada/atrasada) agora roda
-    // no backend, dentro de fichas_do_ciclo() (migration 0009) — mesma
-    // regra de antes, só que numa única RPC em vez de 4 buscas + cálculo
-    // no cliente.
+    // A classificação inteira (nova/normal/remarcada/atrasada) roda no
+    // backend, dentro de fichas_do_ciclo() (migration 0009+) — "remarcada"
+    // já vem com data_efetiva = data agendada da revisita, então dá pra
+    // saber se é "hoje" comparando essa data com hoje, sem outra consulta.
     const [{ data: localidades, error: errLoc }, { data: linhas, error: errFichas }] = await Promise.all([
       sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome'),
       sb.rpc('fichas_do_ciclo', { p_caixa_id: caixa.id, p_ciclo_chave: cicloChave }),
     ]);
     // Sem isso, uma falha de rede aqui sobrescreveria o cache bom com uma
-    // tela vazia incorreta.
+    // lista vazia incorreta.
     if (errLoc || errFichas) {
       throw new Error(errFichas?.message || errLoc?.message || 'Falha ao buscar dados básicos da rota do cobrador');
     }
 
     const fichas = (linhas || []).map(function(r) {
       return {
-        cliente: { id: r.cliente_id, nome: r.cliente_nome, codigo: r.cliente_codigo, localidade_id: r.localidade_id, foto_casa: r.cliente_foto_casa, telefone: r.cliente_telefone },
-        parcela: { id: r.parcela_id, venda_id: r.venda_id, numero: r.numero, total_parcelas: r.total_parcelas, valor: r.valor, valor_pago: r.valor_pago },
-        dataEf: new Date(r.data_efetiva + 'T12:00:00'),
-        venc: new Date(r.data_vencimento + 'T12:00:00'),
+        cliente: { id: r.cliente_id, nome: r.cliente_nome, telefone: r.cliente_telefone, localidade_id: r.localidade_id },
+        parcela: { numero: r.numero, total_parcelas: r.total_parcelas, valor: r.valor, valor_pago: r.valor_pago },
+        dataEfetivaStr: r.data_efetiva,
+        vencStr: r.data_vencimento,
         atrasada: r.tipo === 'atrasada',
         remarcada: r.tipo === 'remarcada',
         novaVenda: r.nova_venda,
       };
     });
 
-    if (!fichas.length) {
-      const semFichasHtml = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:40px;margin-bottom:.5rem;">📭</div><div style="font-size:14px;">Nenhuma ficha para cobrar nesta caixa.</div></div>';
-      conteudo.innerHTML = _fichasStatusHtml(Date.now(), false) + semFichasHtml;
-      salvarCacheFichas(chaveCache, semFichasHtml);
-      return;
-    }
+    const mapaLocalidade = {};
+    (localidades || []).forEach(l => { mapaLocalidade[l.id] = l.nome; });
 
-    let html = '';
-    (localidades||[]).forEach(loc => {
-      const fLoc = fichas.filter(f => f.cliente.localidade_id === loc.id);
-      if (fLoc.length) html += secaoFichasHtml('🏘️ ' + loc.nome, fLoc, '#185FA5', '#E6F1FB');
-    });
-    const semLoc = fichas.filter(f => !f.cliente.localidade_id);
-    if (semLoc.length) html += secaoFichasHtml('📋 Sem localidade', semLoc, '#888', '#f0f0f0');
-
-    conteudo.innerHTML = _fichasStatusHtml(Date.now(), false) + html;
-    assinarImagens(conteudo);
-    salvarCacheFichas(chaveCache, html);
+    const clientes = construirListaClientesCobrador(fichas, mapaLocalidade);
+    window._cobradorClientesCicloAtual = clientes;
+    window._cobradorClientesTimestamp = Date.now();
+    window._cobradorAtualizando = false;
+    renderListaCobrador();
+    salvarCacheFichas(chaveCache, clientes);
   } catch (e) {
     Logger.error('cobrador', 'RENDER_CICLO_FICHAS', 'Falha ao atualizar fichas', { error_message: e?.message });
+    window._cobradorAtualizando = false;
     if (!cache) {
-      conteudo.innerHTML = '<p style="color:#A32D2D;text-align:center;padding:2rem;">Erro ao carregar fichas. Verifique sua conexão.</p>'
+      document.getElementById('lista-clientes-cobrador').innerHTML = '<p style="color:#A32D2D;text-align:center;padding:2rem;">Erro ao carregar fichas. Verifique sua conexão.</p>'
         + '<button class="btn primario" style="display:block;margin:.5rem auto 0;" onclick="atualizarFichasCobrador()">🔄 Tentar novamente</button>';
+    } else {
+      renderListaCobrador();
     }
     // Se já tinha cache mostrado, mantém — o cobrador continua vendo os dados
     // da última vez em vez de uma tela de erro por causa de uma falha pontual.
   }
 }
 
-// Uma ficha é uma VENDA (o card de papel real que o cobrador carrega é
-// por venda, não por parcela) — um cliente com 4 parcelas atrasadas da
-// MESMA venda é 1 ficha só; se tivesse 2 vendas em aberto ao mesmo tempo,
-// seriam 2 fichas (2 cards), mesmo sendo o mesmo cliente. Parcelas
-// "órfãs" sem venda_id (importação do sistema antigo) ficam cada uma no
-// seu próprio grupo, pra não misturar debitos de vendas diferentes.
-function agruparFichasPorVenda(fichas) {
-  const mapa = new Map();
+// Agrega as fichas (por parcela) em uma linha por CLIENTE — a tela
+// simplificada mostra um cartão só por cliente, somando o que está em
+// aberto em todas as vendas dele, em vez de um cartão por venda/ficha.
+function construirListaClientesCobrador(fichas, mapaLocalidade) {
+  const hojeYMD = dataLocalYMD();
+  const hoje = new Date();
+  const porCliente = new Map();
   fichas.forEach(f => {
-    const chave = f.parcela.venda_id || ('parcela:' + f.parcela.id);
-    if (!mapa.has(chave)) mapa.set(chave, { cliente: f.cliente, itens: [] });
-    mapa.get(chave).itens.push(f);
+    const id = f.cliente.id;
+    if (!porCliente.has(id)) porCliente.set(id, { cliente: f.cliente, itens: [] });
+    porCliente.get(id).itens.push(f);
   });
-  return [...mapa.values()];
+
+  const lista = [...porCliente.values()].map(({ cliente, itens }) => {
+    const totalAberto = itens.reduce((a, f) => a + (Number(f.parcela.valor) - Number(f.parcela.valor_pago || 0)), 0);
+    const atrasadas = itens.filter(f => f.atrasada);
+    const remarcadas = itens.filter(f => f.remarcada);
+    const temAtrasada = atrasadas.length > 0;
+    const diasAtraso = temAtrasada
+      ? Math.max(...atrasadas.map(f => Math.floor((hoje - new Date(f.vencStr + 'T12:00:00')) / 86400000)))
+      : 0;
+    const remarqueMaisProxima = remarcadas.length
+      ? remarcadas.reduce((a, f) => (a.dataEfetivaStr < f.dataEfetivaStr ? a : f))
+      : null;
+    const visitaHoje = remarcadas.some(f => f.dataEfetivaStr === hojeYMD);
+
+    let badgeTexto = '', badgeCor = '';
+    if (temAtrasada) {
+      badgeTexto = '⚠️ Atrasado há ' + diasAtraso + (diasAtraso === 1 ? ' dia' : ' dias');
+      badgeCor = '#C0392B';
+    } else if (visitaHoje) {
+      badgeTexto = '📅 Visita agendada para hoje';
+      badgeCor = '#9C7A0E';
+    } else if (remarqueMaisProxima) {
+      badgeTexto = '📅 Remarcada para ' + new Date(remarqueMaisProxima.dataEfetivaStr + 'T12:00:00').toLocaleDateString('pt-BR');
+      badgeCor = '#9C7A0E';
+    } else if (itens.some(f => f.novaVenda)) {
+      badgeTexto = '🆕 Nova venda';
+      badgeCor = '#1E63A8';
+    }
+
+    return {
+      id: cliente.id,
+      nome: cliente.nome,
+      telefone: cliente.telefone || '—',
+      bairro: mapaLocalidade[cliente.localidade_id] || 'Sem localidade',
+      totalAberto,
+      parcelaResumo: itens.length > 1 ? (itens.length + ' parcelas') : ('Parcela ' + itens[0].parcela.numero + '/' + itens[0].parcela.total_parcelas),
+      atrasada: temAtrasada,
+      diasAtraso,
+      visitaHoje,
+      badgeTexto,
+      badgeCor,
+    };
+  });
+
+  lista.sort((a, b) => {
+    if (a.atrasada !== b.atrasada) return a.atrasada ? -1 : 1;
+    if (a.atrasada && b.atrasada) return b.diasAtraso - a.diasAtraso;
+    if (a.visitaHoje !== b.visitaHoje) return a.visitaHoje ? -1 : 1;
+    return a.nome.localeCompare(b.nome);
+  });
+
+  return lista;
 }
 
-function secaoFichasHtml(titulo, fichas, cor, bg) {
-  const grupos = agruparFichasPorVenda(fichas);
-  const clientesUnicos = new Set(fichas.map(f => f.cliente.id)).size;
-  const contagem = clientesUnicos + ' cliente(s) · ' + grupos.length + ' ficha(s)';
-  return '<div style="margin-bottom:1rem;">'
-    + '<div style="font-size:13px;font-weight:600;color:' + cor + ';margin-bottom:.75rem;display:flex;justify-content:space-between;align-items:center;">'
-    + '<span>' + escHtml(titulo) + '</span>'
-    + '<span style="font-size:11px;background:' + bg + ';color:' + cor + ';padding:2px 8px;border-radius:6px;">' + contagem + '</span>'
-    + '</div>'
-    + grupos.map(g => fichaGrupoCardHtml(g)).join('')
-    + '</div>';
+function setFiltroCobrador(tipo) {
+  window._cobradorFiltro = tipo;
+  renderListaCobrador();
 }
 
-function fichaGrupoCardHtml(g) {
-  const c = g.cliente, itens = g.itens;
-  const saldoTotal = itens.reduce((a, f) => a + (Number(f.parcela.valor) - Number(f.parcela.valor_pago || 0)), 0);
-  const temNova = itens.some(f => f.novaVenda);
-  const remarcadas = itens.filter(f => f.remarcada);
-  const atrasadas = itens.filter(f => f.atrasada);
-  const temAtrasada = atrasadas.length > 0;
-  const vencMaisAntiga = temAtrasada ? new Date(Math.min(...atrasadas.map(f => f.venc.getTime()))) : null;
-  const remarqueMaisProxima = remarcadas.length ? new Date(Math.min(...remarcadas.map(f => f.dataEf.getTime()))) : null;
+function filtrarListaCobrador() {
+  renderListaCobrador();
+}
 
-  const fotoHtml = c.foto_casa
-    ? '<img data-img-bucket="fotos-clientes" data-img-src="' + escHtml(c.foto_casa) + '" src="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
-    : '<div style="width:48px;height:48px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;">👤</div>';
-  const badgesHtml = (temNova ? '<span class="badge" style="font-size:10px;background:#E6F1FB;color:#185FA5;font-weight:600;">🆕 Nova venda</span>' : '')
-    + (remarcadas.length ? '<span class="badge" style="font-size:10px;background:#FAEEDA;color:#854F0B;">📅 Remarcada ' + remarqueMaisProxima.toLocaleDateString('pt-BR') + (remarcadas.length > 1 ? ' (' + remarcadas.length + ')' : '') + '</span>' : '')
-    + (temAtrasada ? '<span class="badge vermelho" style="font-size:10px;">⚠️ ' + atrasadas.length + (atrasadas.length > 1 ? ' atrasadas' : ' atrasada') + ' — desde ' + vencMaisAntiga.toLocaleDateString('pt-BR') + '</span>' : '');
-  const linhaParcelas = itens.length > 1
-    ? itens.length + ' parcelas em aberto · ' + escHtml(c.telefone || '—')
-    : 'Parcela ' + itens[0].parcela.numero + '/' + itens[0].parcela.total_parcelas + ' · ' + escHtml(c.telefone || '—');
+function renderListaCobrador() {
+  const todosClientes = window._cobradorClientesCicloAtual || [];
+  const buscaInput = document.getElementById('busca-cobrador-input');
+  const busca = (buscaInput ? buscaInput.value : '').trim().toLowerCase();
+  const filtro = window._cobradorFiltro || 'todos';
 
-  return '<div onclick="verDetalhesCliente(\'' + escJs(c.id) + '\')"'
-    + ' style="background:' + (temAtrasada?'#FCEBEB':'#fff') + ';border:1px solid ' + (temAtrasada?'#f5c6c6':'#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;cursor:pointer;display:flex;align-items:center;gap:10px;">'
-    + fotoHtml
+  const contagens = {
+    todos: todosClientes.length,
+    atrasados: todosClientes.filter(c => c.atrasada).length,
+    hoje: todosClientes.filter(c => c.visitaHoje).length,
+  };
+  const rotulos = { todos: 'Todos', atrasados: 'Atrasados', hoje: 'Hoje' };
+  ['todos', 'atrasados', 'hoje'].forEach(f => {
+    const btn = document.getElementById('tab-cobrador-' + f);
+    if (!btn) return;
+    const ativo = filtro === f;
+    btn.style.background = ativo ? '#1E63A8' : 'transparent';
+    btn.style.color = ativo ? '#fff' : '#6B6A64';
+    btn.textContent = rotulos[f] + ' (' + contagens[f] + ')';
+  });
+
+  let clientes = todosClientes;
+  if (filtro === 'atrasados') clientes = clientes.filter(c => c.atrasada);
+  else if (filtro === 'hoje') clientes = clientes.filter(c => c.visitaHoje);
+  if (busca) {
+    clientes = clientes.filter(c => (c.nome + ' ' + c.telefone + ' ' + c.bairro).toLowerCase().includes(busca));
+  }
+
+  const lista = document.getElementById('lista-clientes-cobrador');
+  if (!lista) return;
+  const status = window._cobradorClientesTimestamp ? _fichasStatusHtml(window._cobradorClientesTimestamp, !!window._cobradorAtualizando) : '';
+
+  if (!clientes.length) {
+    lista.innerHTML = status + '<div style="text-align:center;padding:3rem 1rem;color:#9A9488;">'
+      + '<div style="font-size:36px;margin-bottom:.5rem;">🎉</div>'
+      + '<div style="font-size:13px;">' + (todosClientes.length ? 'Nada por aqui — tudo em dia!' : 'Nenhuma ficha para cobrar neste ciclo.') + '</div>'
+      + '</div>';
+    return;
+  }
+
+  lista.innerHTML = status + clientes.map(cardClienteCobradorHtml).join('');
+}
+
+function cardClienteCobradorHtml(c) {
+  const corBorda = c.atrasada ? '#E3B7B0' : '#EAE6DE';
+  const corAvatar = c.atrasada ? '#FBEAE7' : '#F1EEE7';
+  const corValor = c.atrasada ? '#C0392B' : '#2B2822';
+  return '<div onclick="abrirSheetClienteCobrador(\'' + escJs(c.id) + '\')" style="background:#fff;border:1px solid ' + corBorda + ';border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer;">'
+    + '<div style="display:flex;gap:10px;align-items:center;">'
+    + '<div style="width:44px;height:44px;border-radius:10px;background:' + corAvatar + ';display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👤</div>'
     + '<div style="flex:1;min-width:0;">'
-    + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(c.nome) + '</div>'
-    + '<div style="font-size:12px;color:#888;">' + linhaParcelas + '</div>'
-    + '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">' + badgesHtml + '</div>'
+    + '<div style="font-size:14.5px;font-weight:700;color:#221F1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(c.nome) + '</div>'
+    + '<div style="font-size:12px;color:#9A9488;margin-top:2px;">' + escHtml(c.bairro) + ' · ' + escHtml(c.telefone) + '</div>'
     + '</div>'
     + '<div style="text-align:right;flex-shrink:0;">'
-    + '<div style="font-size:15px;font-weight:700;color:' + (temAtrasada?'#A32D2D':'#1a1a1a') + ';">R$ ' + saldoTotal.toLocaleString('pt-BR',{minimumFractionDigits:2}) + '</div>'
-    + '<span style="font-size:18px;color:#888;">›</span>'
+    + '<div style="font-family:ui-monospace,monospace;font-size:15px;font-weight:700;color:' + corValor + ';">R$ ' + c.totalAberto.toLocaleString('pt-BR', {minimumFractionDigits:2}) + '</div>'
+    + '<div style="font-size:10.5px;color:#A39E93;margin-top:2px;">' + escHtml(c.parcelaResumo) + '</div>'
     + '</div>'
+    + '</div>'
+    + (c.badgeTexto ? '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed #EFEAE0;font-size:11.5px;font-weight:700;color:' + c.badgeCor + ';">' + escHtml(c.badgeTexto) + '</div>' : '')
     + '</div>';
 }
 
@@ -6604,58 +6638,6 @@ function renderCardsClientesCobrador(lista, mapaParcelas) {
       + '</div>'
       + '</div>'
       + '<span style="font-size:18px;color:#888;">›</span>'
-      + '</div>';
-  }).join('');
-}
-
-async function buscarClienteCobrador(termo) {
-  var res = document.getElementById('resultado-busca-cobrador');
-  if (!res) return;
-  if (!termo || termo.length < 2) { res.innerHTML = ''; return; }
-
-  var tipo = document.getElementById('filtro-busca-tipo').value;
-  var t = termo.trim();
-
-  var query = sb.from('clientes')
-    .select('id, codigo, nome, cpf, telefone, cidade, foto_casa')
-    .eq('cobrador_id', funcionarioLogado.id)
-    .limit(10);
-
-  if (tipo === 'nome')     query = query.ilike('nome', '%' + t + '%');
-  else if (tipo === 'cpf')      query = query.ilike('cpf', '%' + t + '%');
-  else if (tipo === 'codigo')   query = query.ilike('codigo', '%' + t + '%');
-  else if (tipo === 'telefone') query = query.ilike('telefone', '%' + t + '%');
-  else if (tipo === 'endereco') query = query.ilike('endereco', '%' + t + '%');
-  else if (tipo === 'cidade')   query = query.ilike('cidade', '%' + t + '%');
-
-  var { data, error } = await query.order('nome');
-
-  if (error) {
-    // Sem rede: busca nos clientes salvos no aparelho, pelo mesmo campo.
-    if (window.OfflineFlow && NetStatus.ehErroDeRede(error)) {
-      data = await OfflineFlow.buscarNaCarteiraOffline(tipo, t);
-    }
-    if (!data) { Logger.error('cobrador', 'BUSCAR_CLIENTE', 'Erro na busca', { supabase_code: error.code }); return; }
-  } else if (window.OfflineFlow) {
-    OfflineFlow.salvarCarteiraNoCache(data);
-  }
-
-  if (!data || !data.length) {
-    res.innerHTML = '<p style="color:#888;font-size:13px;padding:.5rem 0;">Nenhum cliente encontrado.</p>';
-    return;
-  }
-
-  res.innerHTML = data.map(function(c) {
-    var foto = c.foto_casa
-      ? '<img src="' + escHtml(c.foto_casa) + '" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;">'
-      : '<div style="width:44px;height:44px;border-radius:8px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">👤</div>';
-    return '<div onclick="verDetalhesCliente(\'' + escJs(c.id) + '\')" style="display:flex;align-items:center;gap:10px;padding:.75rem 0;border-bottom:1px solid #f0f0f0;cursor:pointer;">'
-      + foto
-      + '<div style="flex:1;min-width:0;">'
-      + '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(c.nome) + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + escHtml(c.cpf||'—') + ' · ' + escHtml(c.cidade||'—') + '</div>'
-      + '</div>'
-      + '<span style="font-size:18px;color:#185FA5;">›</span>'
       + '</div>';
   }).join('');
 }
@@ -7374,44 +7356,15 @@ async function verClientesLocalidade(localidadeId, nomeLocalidade) {
   }).join('');
 }
 
-async function verParcelasDoCliente() {
-  const { id, nome } = window._clienteDetalhesAtual || {};
-  if (!id) return;
-  fecharModal('modal-detalhes-cliente');
-
-  document.getElementById('modal-parcelas-cobrador-titulo').textContent = nome;
-  const lista = document.getElementById('lista-parcelas-cobrador');
-  lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
-  document.getElementById('modal-parcelas-cobrador').style.display = 'flex';
-
-  let { data, error } = await sb.from('parcelas')
-    .select('*, vendas(codigo, produto), funcionarios(nome)')
-    .eq('cliente_id', id)
-    .neq('status', 'devolvida')
-    .order('numero');
-
-  let avisoOffline = '';
-  if (error) {
-    // Sem rede: parcelas salvas no aparelho — o recebimento offline
-    // continua possível a partir daqui.
-    const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.parcelasDoCacheCliente(id) : null;
-    if (doCache && doCache.length) {
-      data = doCache.filter(function(p) { return p.status !== 'devolvida'; })
-        .sort(function(a, b) { return (Number(a.numero) || 0) - (Number(b.numero) || 0); });
-      avisoOffline = OfflineFlow.avisoOfflineHtml();
-    } else {
-      Logger.error('cobrador', 'VER_PARCELAS_CLIENTE', 'Erro ao buscar parcelas', { supabase_code: error.code });
-      lista.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar parcelas.</p>';
-      return;
-    }
-  } else if (window.OfflineFlow) {
-    OfflineFlow.salvarParcelasNoCache(data);
-  }
-
-  const emAberto = (data || []).filter(function(p) { return !p.pago; });
-  const pagas = (data || []).filter(function(p) { return p.pago; });
+// Cartões de parcela (em aberto com Registrar recebimento/Não recebi, e
+// pagas com o comprovante) — compartilhado entre o modal-parcelas-cobrador
+// (fluxo antigo, acessado via "Ver parcelas" em Detalhes do cliente) e a
+// nova ficha unificada da tela simplificada de cobranças.
+function _htmlParcelasCobrador(dataParcelas, clienteId, nomeCliente) {
+  const emAberto = (dataParcelas || []).filter(function(p) { return !p.pago; });
+  const pagas = (dataParcelas || []).filter(function(p) { return p.pago; });
   const hoje = new Date();
-  let html = avisoOffline;
+  let html = '';
 
   if (emAberto.length) {
     emAberto.forEach(function(p) {
@@ -7420,7 +7373,7 @@ async function verParcelasDoCliente() {
       const parcial = Number(p.valor_pago || 0) > 0;
       const saldo = Number(p.valor) - Number(p.valor_pago || 0);
       const saldoFmt = saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2});
-      const nomeEsc = escJs(nome);
+      const nomeEsc = escJs(nomeCliente);
       const prodEsc = escJs((p.vendas && p.vendas.produto) || '');
       // Parcial e atrasada não são exclusivos: uma parcela pode ter
       // recebido pagamento parcial E já estar vencida — mostra os dois
@@ -7437,8 +7390,8 @@ async function verParcelasDoCliente() {
         + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📅 Vence: ' + venc.toLocaleDateString('pt-BR') + '</div>'
         + '<div style="font-size:20px;font-weight:700;color:' + (atrasada ? '#A32D2D' : '#1a1a1a') + ';margin-bottom:10px;">R$ ' + saldoFmt + '</div>'
         + '<div style="display:flex;gap:8px;">'
-        + '<button class="btn primario" style="flex:1;padding:12px;font-size:14px;" onclick="abrirRegistrarRecebimento(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',' + saldo + ',\'' + prodEsc + '\',\'' + id + '\',\'' + nomeEsc + '\')">💰 Registrar recebimento</button>'
-        + '<button class="btn" style="padding:12px 14px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="abrirNaoRecebi(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',\'' + id + '\',\'' + nomeEsc + '\')">✗ Não recebi</button>'
+        + '<button class="btn primario" style="flex:1;padding:12px;font-size:14px;" onclick="abrirRegistrarRecebimento(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',' + saldo + ',\'' + prodEsc + '\',\'' + clienteId + '\',\'' + nomeEsc + '\')">💰 Registrar recebimento</button>'
+        + '<button class="btn" style="padding:12px 14px;font-size:13px;color:#A32D2D;border-color:#f5c6c6;" onclick="abrirNaoRecebi(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',\'' + clienteId + '\',\'' + nomeEsc + '\')">✗ Não recebi</button>'
         + '</div></div>';
     });
   } else {
@@ -7464,7 +7417,137 @@ async function verParcelasDoCliente() {
     });
   }
 
-  lista.innerHTML = html;
+  return html;
+}
+
+async function _buscarParcelasClienteCobrador(clienteId) {
+  let { data, error } = await sb.from('parcelas')
+    .select('*, vendas(codigo, produto), funcionarios(nome)')
+    .eq('cliente_id', clienteId)
+    .neq('status', 'devolvida')
+    .order('numero');
+
+  let avisoOffline = '';
+  if (error) {
+    // Sem rede: parcelas salvas no aparelho — o recebimento offline
+    // continua possível a partir daqui.
+    const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.parcelasDoCacheCliente(clienteId) : null;
+    if (doCache && doCache.length) {
+      data = doCache.filter(function(p) { return p.status !== 'devolvida'; })
+        .sort(function(a, b) { return (Number(a.numero) || 0) - (Number(b.numero) || 0); });
+      avisoOffline = OfflineFlow.avisoOfflineHtml();
+    } else {
+      Logger.error('cobrador', 'VER_PARCELAS_CLIENTE', 'Erro ao buscar parcelas', { supabase_code: error.code });
+      return { data: null, avisoOffline: '' };
+    }
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarParcelasNoCache(data);
+  }
+  return { data: data || [], avisoOffline };
+}
+
+async function verParcelasDoCliente() {
+  const { id, nome } = window._clienteDetalhesAtual || {};
+  if (!id) return;
+  fecharModal('modal-detalhes-cliente');
+
+  document.getElementById('modal-parcelas-cobrador-titulo').textContent = nome;
+  const lista = document.getElementById('lista-parcelas-cobrador');
+  lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+  document.getElementById('modal-parcelas-cobrador').style.display = 'flex';
+
+  const { data, avisoOffline } = await _buscarParcelasClienteCobrador(id);
+  if (!data) { lista.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar parcelas.</p>'; return; }
+
+  lista.innerHTML = avisoOffline + _htmlParcelasCobrador(data, id, nome);
+}
+
+// ─── FICHA UNIFICADA DA TELA SIMPLIFICADA (dados do cliente + parcelas) ───
+function abrirCaixaSheetCobrador() {
+  document.getElementById('sheet-caixa-cobrador').style.display = 'flex';
+}
+
+async function abrirSheetClienteCobrador(clienteId) {
+  const infoLista = (window._cobradorClientesCicloAtual || []).find(c => c.id === clienteId);
+  document.getElementById('sheet-cliente-nome').textContent = infoLista ? infoLista.nome : '';
+  document.getElementById('sheet-cliente-sub').textContent = '';
+  document.getElementById('sheet-cliente-total').textContent = '';
+  document.getElementById('sheet-cliente-parcela-resumo').textContent = '';
+  document.getElementById('sheet-cliente-status').textContent = '';
+  document.getElementById('sheet-cliente-detalhes-completos').style.display = 'none';
+  document.getElementById('sheet-cliente-detalhes-completos').innerHTML = '';
+  document.getElementById('btn-toggle-detalhes-cobrador').textContent = 'Ver detalhes completos ▾';
+  document.getElementById('lista-parcelas-sheet-cobrador').innerHTML = '<p style="color:#888;padding:1rem;text-align:center;">Carregando...</p>';
+  document.getElementById('sheet-cliente-cobrador').style.display = 'flex';
+
+  let { data: c, error } = await sb.from('clientes').select('*').eq('id', clienteId).single();
+  if (error || !c) {
+    c = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.clienteDoCache(clienteId) : null;
+    if (!c) {
+      fecharModal('sheet-cliente-cobrador');
+      alert('Não foi possível carregar os dados deste cliente.');
+      return;
+    }
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarClientesNoCache([c]);
+  }
+
+  const { data: parcelas, avisoOffline } = await _buscarParcelasClienteCobrador(clienteId);
+  const listaParcelas = parcelas || [];
+
+  window._clienteDetalhesAtual = { id: c.id, nome: c.nome };
+
+  const emAberto = listaParcelas.filter(p => !p.pago);
+  const hoje = new Date();
+  const atrasadas = emAberto.filter(p => new Date(p.data_vencimento + 'T12:00:00') < hoje);
+  const totalAberto = emAberto.reduce((a, p) => a + (Number(p.valor) - Number(p.valor_pago || 0)), 0);
+
+  document.getElementById('sheet-cliente-nome').textContent = c.nome;
+  document.getElementById('sheet-cliente-sub').textContent = (c.telefone || '—') + ' · ' + ([c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') || '—');
+  document.getElementById('sheet-cliente-total').textContent = 'R$ ' + totalAberto.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+  document.getElementById('sheet-cliente-parcela-resumo').textContent = emAberto.length > 1
+    ? (emAberto.length + ' parcelas em aberto')
+    : (emAberto.length === 1 ? ('Parcela ' + emAberto[0].numero + '/' + emAberto[0].total_parcelas) : 'Nenhuma parcela em aberto');
+
+  const statusEl = document.getElementById('sheet-cliente-status');
+  if (atrasadas.length) {
+    const diasAtraso = Math.max(...atrasadas.map(p => Math.floor((hoje - new Date(p.data_vencimento + 'T12:00:00')) / 86400000)));
+    statusEl.textContent = 'Atrasado há ' + diasAtraso + (diasAtraso === 1 ? ' dia' : ' dias');
+    statusEl.style.background = '#FCEBEB'; statusEl.style.color = '#A32D2D';
+  } else if (infoLista && infoLista.visitaHoje) {
+    statusEl.textContent = 'Visita agendada hoje';
+    statusEl.style.background = '#FAEEDA'; statusEl.style.color = '#854F0B';
+  } else if (emAberto.length) {
+    statusEl.textContent = 'Em dia';
+    statusEl.style.background = '#EAF3DE'; statusEl.style.color = '#2C7A46';
+  } else {
+    statusEl.textContent = 'Quitado';
+    statusEl.style.background = '#F1EFE8'; statusEl.style.color = '#5F5E5A';
+  }
+
+  window._sheetClienteCobradorDetalhes = {
+    codigo: c.codigo || '—',
+    cpf: c.cpf || '—',
+    nascimentoFmt: c.data_nascimento ? new Date(c.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—',
+    referencia: c.referencia || '—',
+  };
+
+  document.getElementById('lista-parcelas-sheet-cobrador').innerHTML = avisoOffline + _htmlParcelasCobrador(listaParcelas, c.id, c.nome);
+}
+
+function toggleDetalhesSheetCobrador() {
+  const det = window._sheetClienteCobradorDetalhes;
+  const el = document.getElementById('sheet-cliente-detalhes-completos');
+  const btn = document.getElementById('btn-toggle-detalhes-cobrador');
+  const abrir = el.style.display === 'none';
+  if (abrir && det) {
+    el.innerHTML = '<div><span style="color:#9A9488;">Código:</span> ' + escHtml(det.codigo) + '</div>'
+      + '<div><span style="color:#9A9488;">CPF:</span> ' + escHtml(det.cpf) + '</div>'
+      + '<div><span style="color:#9A9488;">Nascimento:</span> ' + escHtml(det.nascimentoFmt) + '</div>'
+      + '<div><span style="color:#9A9488;">Referência:</span> ' + escHtml(det.referencia) + '</div>';
+  }
+  el.style.display = abrir ? 'block' : 'none';
+  btn.textContent = abrir ? 'Ocultar detalhes ▲' : 'Ver detalhes completos ▾';
 }
 
 function abrirRegistrarRecebimento(parcelaId, numero, total, valor, produto, clienteId, nomeCliente) {
@@ -7666,6 +7749,7 @@ async function confirmarRecebimento() {
         removerComprovante();
         fecharModal('modal-recebimento');
         fecharModal('modal-parcelas-cobrador');
+        fecharModal('sheet-cliente-cobrador');
         alert('📴 Sem conexão — recebimento salvo no aparelho (com o comprovante). Será registrado quando a internet voltar.');
         return;
       }
@@ -7694,6 +7778,7 @@ async function confirmarRecebimento() {
         removerComprovante();
         fecharModal('modal-recebimento');
         fecharModal('modal-parcelas-cobrador');
+        fecharModal('sheet-cliente-cobrador');
         alert('📴 Sem conexão — recebimento salvo no aparelho. Será registrado quando a internet voltar.');
         return;
       }
@@ -7706,6 +7791,7 @@ async function confirmarRecebimento() {
   removerComprovante();
   fecharModal('modal-recebimento');
   fecharModal('modal-parcelas-cobrador');
+  fecharModal('sheet-cliente-cobrador');
   await carregarSaldoCobrador();
   await carregarCaixaECiclos();
   alert('Recebimento registrado!');
@@ -7844,7 +7930,7 @@ async function confirmarNaoRecebi() {
 
   fecharModal('modal-nao-recebi');
   fecharModal('modal-parcelas-cobrador');
-  await carregarVisitasHoje();
+  fecharModal('sheet-cliente-cobrador');
   await carregarCaixaECiclos();
   alert('Registrado! O cliente aparecerá na sua lista no dia agendado.');
 }
@@ -11994,6 +12080,64 @@ async function gerarProximoMes() {
     </div>
   </div>
 </div>
+
+<!-- SHEET CAIXA COBRADOR (tela simplificada de cobranças) -->
+<div class="modal-bg" id="sheet-caixa-cobrador">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <strong>Dinheiro em mãos</strong>
+      <button onclick="fecharModal('sheet-caixa-cobrador')">×</button>
+    </div>
+    <div id="card-saldo-cobrador" style="background:linear-gradient(135deg,#0C447C,#185FA5);border-radius:14px;padding:1.25rem;margin-bottom:1rem;color:white;">
+      <div style="font-size:11px;opacity:.8;letter-spacing:.08em;margin-bottom:4px;">DINHEIRO EM MÃOS</div>
+      <div style="font-size:28px;font-weight:700;" id="saldo-em-maos">R$ 0,00</div>
+      <div style="font-size:11px;opacity:.7;margin-top:4px;" id="saldo-ciclo-info">Carregando...</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:1rem;">
+        <button onclick="abrirRegistrarGasto()" style="padding:12px;border-radius:10px;border:none;background:rgba(255,255,255,.15);color:white;font-size:14px;font-weight:600;cursor:pointer;">💸 Registrar gasto</button>
+        <button onclick="abrirRegistrarDeposito()" style="padding:12px;border-radius:10px;border:none;background:rgba(255,255,255,.15);color:white;font-size:14px;font-weight:600;cursor:pointer;">🏦 Depositar</button>
+      </div>
+    </div>
+    <div id="card-desempenho-ciclo" style="background:linear-gradient(135deg,#3B6D11,#5A9E1E);border-radius:14px;padding:1.25rem;color:white;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('sheet-caixa-cobrador')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- SHEET CLIENTE COBRADOR — ficha unificada (dados + parcelas em aberto) da tela simplificada de cobranças -->
+<div class="modal-bg" id="sheet-cliente-cobrador">
+  <div class="modal-box" style="max-width:500px;">
+    <div class="modal-header">
+      <div>
+        <strong id="sheet-cliente-nome"></strong>
+        <div style="font-size:12px;color:#9A9488;margin-top:2px;" id="sheet-cliente-sub"></div>
+      </div>
+      <button onclick="fecharModal('sheet-cliente-cobrador')">×</button>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;background:#F6F4EF;border-radius:12px;padding:12px 14px;margin-bottom:10px;">
+      <div style="flex:1;">
+        <div style="font-size:11px;color:#9A9488;">Total em aberto</div>
+        <div style="font-family:ui-monospace,monospace;font-size:19px;font-weight:800;color:#221F1A;" id="sheet-cliente-total"></div>
+        <div style="font-size:11.5px;color:#9A9488;margin-top:1px;" id="sheet-cliente-parcela-resumo"></div>
+      </div>
+      <span id="sheet-cliente-status" style="font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;white-space:nowrap;"></span>
+    </div>
+
+    <button onclick="toggleDetalhesSheetCobrador()" id="btn-toggle-detalhes-cobrador" style="border:none;background:none;color:#1E63A8;font-size:12.5px;font-weight:700;padding:4px 0;margin-bottom:10px;cursor:pointer;">Ver detalhes completos ▾</button>
+    <div id="sheet-cliente-detalhes-completos" style="display:none;font-size:12.5px;color:#4A463E;line-height:1.9;background:#FBFAF7;border:1px solid #EFEAE0;border-radius:10px;padding:10px 14px;margin-bottom:14px;"></div>
+
+    <div style="border-top:1px solid #EFEAE0;padding-top:14px;margin-top:4px;">
+      <div style="font-size:12.5px;font-weight:700;color:#221F1A;margin-bottom:8px;">Parcelas</div>
+      <div id="lista-parcelas-sheet-cobrador"></div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('sheet-cliente-cobrador')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL PARCELAS COBRADOR -->
 <div class="modal-bg" id="modal-parcelas-cobrador">
   <div class="modal-box" style="max-width:500px;">
