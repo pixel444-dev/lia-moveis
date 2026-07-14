@@ -7399,14 +7399,21 @@ async function verParcelasDoCliente() {
     emAberto.forEach(function(p) {
       const venc = new Date(p.data_vencimento + 'T12:00:00');
       const atrasada = venc < hoje;
+      const parcial = Number(p.valor_pago || 0) > 0;
       const saldo = Number(p.valor) - Number(p.valor_pago || 0);
       const saldoFmt = saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2});
       const nomeEsc = escJs(nome);
       const prodEsc = escJs((p.vendas && p.vendas.produto) || '');
+      // Parcial e atrasada não são exclusivos: uma parcela pode ter
+      // recebido pagamento parcial E já estar vencida — mostra os dois
+      // selos juntos nesse caso, em vez de escolher só um.
+      const badgesHtml = (parcial ? '<span class="badge amarelo">Parcial</span>' : '')
+        + (atrasada ? '<span class="badge vermelho">Atrasada</span>' : '')
+        + (!parcial && !atrasada ? '<span class="badge azul">Em aberto</span>' : '');
       html += '<div style="background:' + (atrasada ? '#FCEBEB' : '#fff') + ';border:1px solid ' + (atrasada ? '#f5c6c6' : '#e0e0e0') + ';border-radius:12px;padding:1rem;margin-bottom:8px;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
         + '<span style="font-size:14px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>'
-        + '<span class="badge ' + (atrasada ? 'vermelho' : 'azul') + '">' + (atrasada ? 'Atrasada' : 'Em aberto') + '</span>'
+        + '<span style="display:flex;gap:4px;">' + badgesHtml + '</span>'
         + '</div>'
         + '<div style="font-size:12px;color:#888;margin-bottom:4px;">📦 ' + escHtml((p.vendas && p.vendas.produto) || '—') + '</div>'
         + '<div style="font-size:12px;color:#888;margin-bottom:8px;">📅 Vence: ' + venc.toLocaleDateString('pt-BR') + '</div>'
