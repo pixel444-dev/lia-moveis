@@ -222,8 +222,13 @@ begin
       coalesce(rq.data_agendada, pa.data_vencimento) as data_efetiva,
       case
         when rq.data_agendada is not null then 'remarcada'
-        when pa.data_vencimento >= v_caixa.ciclo_inicio then 'normal'
-        else 'atrasada'
+        -- "Atrasada" precisa ser data_vencimento < hoje (mesma regra do
+        -- dashboard e da tela de detalhes do cliente), não < ciclo_inicio
+        -- da caixa — senão uma parcela vencida DEPOIS que a caixa abriu
+        -- mas ANTES de hoje ficava marcada como "normal" (sem o selo
+        -- vermelho), mesmo já estando vencida de verdade.
+        when pa.data_vencimento < current_date then 'atrasada'
+        else 'normal'
       end as tipo
     from parcelas_abertas pa
     left join remarques rq on rq.parcela_id = pa.id
