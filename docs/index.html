@@ -5865,7 +5865,12 @@ async function buscarInLotes(ids, montarQueryLote, tamLote = 100) {
 // quando alguma das buscas falhar — permite ao chamador distinguir "cliente
 // realmente não tem nada" de "a busca falhou e voltou vazia por engano".
 async function _clientesDoCobrador(campos, statusErro) {
-  const sel = campos || 'id, codigo, nome, telefone, foto_casa, localidade_id';
+  // A deduplicação abaixo (`mapa.set(c.id, c)`) depende de `id` vir
+  // selecionado — sem ele todo cliente vira chave `undefined` e o Map
+  // colapsa tudo em um registro só. Garante `id` mesmo quando o chamador
+  // pede campos customizados (ex.: só `localidade_id`, pra contagem).
+  const campoLista = campos ? campos.split(',').map(c => c.trim()) : ['id', 'codigo', 'nome', 'telefone', 'foto_casa', 'localidade_id'];
+  const sel = (campoLista.includes('id') ? campoLista : ['id', ...campoLista]).join(', ');
   if (!statusErro) statusErro = {};
 
   // Já se sabe que está offline: nem tenta a rede, vai direto à carteira
