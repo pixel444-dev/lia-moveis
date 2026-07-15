@@ -7272,8 +7272,8 @@ async function excluirLocalidade(id) {
   carregarLocalidades();
 }
 
-async function carregarSelectLocalidades(localidadeAtual, clienteCobradorId) {
-  const sel = document.getElementById('det-localidade-select');
+async function carregarSelectLocalidades(localidadeAtual, clienteCobradorId, selectId) {
+  const sel = document.getElementById(selectId || 'det-localidade-select');
   if (!sel) return;
 
   // Cobrador usa sempre as próprias localidades; gestor usa as do cobrador do cliente
@@ -7310,6 +7310,32 @@ async function salvarLocalidadeCliente() {
     Logger.error('localidades', 'VINCULAR_CLIENTE', 'Erro ao vincular cliente', { supabase_code: error.code, error_message: error.message });
     alert(error.message || 'Erro ao salvar localidade!');
     return;
+  }
+  alert('Localidade salva!');
+}
+
+async function salvarLocalidadeClienteSheetCobrador() {
+  const clienteId = window._clienteDetalhesAtual?.id;
+  if (!clienteId) return;
+  const sel = document.getElementById('sheet-cliente-localidade-select');
+  const localidadeId = sel.value || null;
+  const nomeLocalidade = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : 'Sem localidade';
+
+  const { error } = await sb.rpc('salvar_localidade_cliente', {
+    p_cliente_id: clienteId,
+    p_localidade_id: localidadeId
+  });
+
+  if (error) {
+    Logger.error('localidades', 'VINCULAR_CLIENTE_COBRADOR', 'Erro ao vincular cliente', { supabase_code: error.code, error_message: error.message });
+    alert(error.message || 'Erro ao salvar localidade!');
+    return;
+  }
+
+  const item = (window._cobradorClientesCicloAtual || []).find(c => c.id === clienteId);
+  if (item) {
+    item.bairro = localidadeId ? nomeLocalidade : 'Sem localidade';
+    renderListaCobrador();
   }
   alert('Localidade salva!');
 }
@@ -7486,6 +7512,7 @@ async function abrirSheetClienteCobrador(clienteId) {
   document.getElementById('sheet-cliente-detalhes-completos').innerHTML = '';
   document.getElementById('btn-toggle-detalhes-cobrador').textContent = 'Ver detalhes completos ▾';
   document.getElementById('lista-parcelas-sheet-cobrador').innerHTML = '<p style="color:#888;padding:1rem;text-align:center;">Carregando...</p>';
+  document.getElementById('sheet-cliente-localidade-select').innerHTML = '<option value="">Carregando...</option>';
   document.getElementById('sheet-cliente-cobrador').style.display = 'flex';
 
   let { data: c, error } = await sb.from('clientes').select('*').eq('id', clienteId).single();
@@ -7504,6 +7531,7 @@ async function abrirSheetClienteCobrador(clienteId) {
   const listaParcelas = parcelas || [];
 
   window._clienteDetalhesAtual = { id: c.id, nome: c.nome };
+  carregarSelectLocalidades(c.localidade_id, c.cobrador_id, 'sheet-cliente-localidade-select');
 
   const emAberto = listaParcelas.filter(p => !p.pago);
   const hoje = new Date();
@@ -12153,6 +12181,16 @@ async function gerarProximoMes() {
         <div style="font-size:11.5px;color:#9A9488;margin-top:1px;" id="sheet-cliente-parcela-resumo"></div>
       </div>
       <span id="sheet-cliente-status" style="font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;white-space:nowrap;"></span>
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <div style="font-size:11px;color:#9A9488;margin-bottom:4px;">📍 Localidade / rota</div>
+      <div style="display:flex;gap:8px;">
+        <select id="sheet-cliente-localidade-select" style="flex:1;min-width:0;padding:9px 10px;border:1px solid #DDD8CC;border-radius:8px;font-size:12.5px;background:#fff;">
+          <option value="">Sem localidade (lista geral)</option>
+        </select>
+        <button class="btn primario" style="padding:9px 14px;font-size:12.5px;white-space:nowrap;" onclick="salvarLocalidadeClienteSheetCobrador()">Salvar</button>
+      </div>
     </div>
 
     <button onclick="toggleDetalhesSheetCobrador()" id="btn-toggle-detalhes-cobrador" style="border:none;background:none;color:#1E63A8;font-size:12.5px;font-weight:700;padding:4px 0;margin-bottom:10px;cursor:pointer;">Ver detalhes completos ▾</button>
