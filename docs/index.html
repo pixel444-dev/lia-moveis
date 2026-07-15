@@ -6365,7 +6365,7 @@ async function renderCicloSelecionado(cicloChave) {
     // já vem com data_efetiva = data agendada da revisita, então dá pra
     // saber se é "hoje" comparando essa data com hoje, sem outra consulta.
     const [{ data: localidades, error: errLoc }, { data: linhas, error: errFichas }] = await Promise.all([
-      sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('nome'),
+      sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('ordem', { ascending: true, nullsFirst: false }).order('nome'),
       sb.rpc('fichas_do_ciclo', { p_caixa_id: caixa.id, p_ciclo_chave: cicloChave }),
     ]);
     // Sem isso, uma falha de rede aqui sobrescreveria o cache bom com uma
@@ -6387,7 +6387,7 @@ async function renderCicloSelecionado(cicloChave) {
     });
 
     const mapaLocalidade = {};
-    (localidades || []).forEach(l => { mapaLocalidade[l.id] = l.nome; });
+    (localidades || []).forEach((l, i) => { mapaLocalidade[l.id] = { nome: l.nome, ordem: i }; });
 
     const clientes = construirListaClientesCobrador(fichas, mapaLocalidade);
     window._cobradorClientesCicloAtual = clientes;
@@ -6450,11 +6450,13 @@ function construirListaClientesCobrador(fichas, mapaLocalidade) {
       badgeCor = '#1E63A8';
     }
 
+    const locInfo = mapaLocalidade[cliente.localidade_id];
     return {
       id: cliente.id,
       nome: cliente.nome,
       telefone: cliente.telefone || '—',
-      bairro: mapaLocalidade[cliente.localidade_id] || 'Sem localidade',
+      bairro: locInfo ? locInfo.nome : 'Sem localidade',
+      localidadeOrdem: locInfo ? locInfo.ordem : Number.MAX_SAFE_INTEGER,
       totalAberto,
       parcelaResumo: itens.length > 1 ? (itens.length + ' parcelas') : ('Parcela ' + itens[0].parcela.numero + '/' + itens[0].parcela.total_parcelas),
       atrasada: temAtrasada,
@@ -6524,7 +6526,23 @@ function renderListaCobrador() {
     return;
   }
 
-  lista.innerHTML = status + clientes.map(cardClienteCobradorHtml).join('');
+  lista.innerHTML = status + renderClientesAgrupadosPorLocalidade(clientes);
+}
+
+function renderClientesAgrupadosPorLocalidade(clientes) {
+  const grupos = new Map();
+  clientes.forEach(c => {
+    const chave = c.bairro || 'Sem localidade';
+    if (!grupos.has(chave)) grupos.set(chave, { ordem: c.localidadeOrdem, itens: [] });
+    grupos.get(chave).itens.push(c);
+  });
+
+  return [...grupos.entries()]
+    .sort((a, b) => a[1].ordem - b[1].ordem)
+    .map(([nome, g]) =>
+      '<div style="font-size:11.5px;font-weight:700;color:#9A9488;text-transform:uppercase;letter-spacing:.03em;margin:16px 0 8px;padding-left:2px;">📍 ' + escHtml(nome) + ' (' + g.itens.length + ')</div>'
+      + g.itens.map(cardClienteCobradorHtml).join('')
+    ).join('');
 }
 
 function cardClienteCobradorHtml(c) {
@@ -7167,7 +7185,7 @@ async function carregarLocalidades() {
   el.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
 
   const ehGestor = perfilAtivo?.perfil === 'gestor';
-  let qLoc = sb.from('localidades').select('id, nome').eq('ativo', true).order('nome');
+  let qLoc = sb.from('localidades').select('id, nome, ordem').eq('ativo', true).order('ordem', { ascending: true, nullsFirst: false }).order('nome');
   if (!ehGestor) {
     qLoc = qLoc.eq('cobrador_id', funcionarioLogado.id);
   }
@@ -7202,12 +7220,15 @@ function renderLocalidades(lista, mapaContagem) {
   const container = document.getElementById('lista-localidades');
   if (!container) return;
 
+  window._localidadesOrdenaveis = lista;
+  const podeReordenar = perfilAtivo?.perfil === 'cobrador';
+
   if (!lista.length) {
     container.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:48px;margin-bottom:.75rem;">🗺️</div><div style="font-size:14px;margin-bottom:.5rem;">Nenhuma localidade criada ainda</div><div style="font-size:12px;">Crie localidades para organizar sua rota de cobranças</div></div>';
     return;
   }
 
-  container.innerHTML = lista.map(function(l) {
+  container.innerHTML = lista.map(function(l, i) {
     var qtd = mapaContagem[l.id] || 0;
     var nomeEsc = escJs(l.nome);
     return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1rem;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="verClientesLocalidade(\'' + l.id + '\',\'' + nomeEsc + '\')">'
@@ -7218,12 +7239,39 @@ function renderLocalidades(lista, mapaContagem) {
       + '<div style="font-size:12px;color:#888;">' + qtd + ' cliente(s) vinculado(s)</div>'
       + '</div>'
       + '</div>'
-      + '<div style="display:flex;gap:6px;" onclick="event.stopPropagation()">'
+      + '<div style="display:flex;gap:6px;align-items:center;" onclick="event.stopPropagation()">'
+      + (podeReordenar
+          ? '<button class="btn" style="padding:6px 8px;font-size:12px;' + (i === 0 ? 'opacity:.3;pointer-events:none;' : '') + '" onclick="moverLocalidade(\'' + l.id + '\',\'up\')">▲</button>'
+            + '<button class="btn" style="padding:6px 8px;font-size:12px;' + (i === lista.length - 1 ? 'opacity:.3;pointer-events:none;' : '') + '" onclick="moverLocalidade(\'' + l.id + '\',\'down\')">▼</button>'
+          : '')
       + '<button class="btn" style="padding:6px 10px;font-size:12px;" onclick="editarLocalidade(\'' + l.id + '\',\'' + nomeEsc + '\')">✏️</button>'
       + (qtd === 0 ? '<button class="btn" style="padding:6px 10px;font-size:12px;color:#A32D2D;border-color:#f5c6c6;" onclick="excluirLocalidade(\'' + l.id + '\')">🗑️</button>' : '')
       + '</div>'
       + '</div>';
   }).join('');
+}
+
+async function moverLocalidade(id, direcao) {
+  const lista = window._localidadesOrdenaveis || [];
+  const idx = lista.findIndex(l => l.id === id);
+  const alvo = idx + (direcao === 'up' ? -1 : 1);
+  if (idx === -1 || alvo < 0 || alvo >= lista.length) return;
+
+  const atual = lista[idx], vizinha = lista[alvo];
+  const ordemAtual = atual.ordem != null ? atual.ordem : idx;
+  const ordemVizinha = vizinha.ordem != null ? vizinha.ordem : alvo;
+
+  const [{ error: e1 }, { error: e2 }] = await Promise.all([
+    sb.from('localidades').update({ ordem: ordemVizinha }).eq('id', atual.id),
+    sb.from('localidades').update({ ordem: ordemAtual }).eq('id', vizinha.id),
+  ]);
+  const error = e1 || e2;
+  if (error) {
+    Logger.error('localidades', 'MOVER_LOCALIDADE', 'Erro ao reordenar', { supabase_code: error.code });
+    alert('Erro ao reordenar localidade!');
+    return;
+  }
+  carregarLocalidades();
 }
 
 function abrirModalLocalidade() {
@@ -7249,7 +7297,10 @@ async function salvarLocalidade() {
   if (editId) {
     ({ error } = await sb.from('localidades').update({ nome }).eq('id', editId));
   } else {
-    ({ error } = await sb.from('localidades').insert({ cobrador_id: funcionarioLogado.id, nome, ativo: true }));
+    const { data: ultimaOrdem } = await sb.from('localidades').select('ordem').eq('cobrador_id', funcionarioLogado.id)
+      .order('ordem', { ascending: false, nullsFirst: false }).limit(1);
+    const novaOrdem = (ultimaOrdem && ultimaOrdem[0] && ultimaOrdem[0].ordem != null) ? ultimaOrdem[0].ordem + 1 : 0;
+    ({ error } = await sb.from('localidades').insert({ cobrador_id: funcionarioLogado.id, nome, ativo: true, ordem: novaOrdem }));
   }
 
   if (error) {
@@ -7284,7 +7335,7 @@ async function carregarSelectLocalidades(localidadeAtual, clienteCobradorId, sel
     return;
   }
 
-  const { data, error } = await sb.from('localidades').select('id, nome').eq('cobrador_id', cobradorId).eq('ativo', true).order('nome');
+  const { data, error } = await sb.from('localidades').select('id, nome').eq('cobrador_id', cobradorId).eq('ativo', true).order('ordem', { ascending: true, nullsFirst: false }).order('nome');
   if (error) Logger.warn('localidades', 'CARREGAR_SELECT', 'Erro ao carregar select', { supabase_code: error.code });
 
   sel.innerHTML = '<option value="">Sem localidade (lista geral)</option>' +
