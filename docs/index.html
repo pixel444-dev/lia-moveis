@@ -7700,6 +7700,60 @@ async function salvarLocalidadeClienteSheetCobrador() {
   alert('Localidade salva!');
 }
 
+function _idsLocalizacaoCobradorSheet() {
+  return { status: 'sheet-cliente-loc-status', lat: 'sheet-cliente-loc-lat', lng: 'sheet-cliente-loc-lng', endereco: 'sheet-cliente-loc-endereco' };
+}
+
+// Mostra o link do Google Maps quando o cliente já tem localização, ou um
+// botão pra capturar o GPS na hora quando não tem — assim o cobrador vai
+// completando a localização de cada cliente que falta enquanto visita a rota.
+function renderLocalizacaoSheetCobrador(lat, lng) {
+  const el = document.getElementById('sheet-cliente-localizacao-conteudo');
+  if (!el) return;
+  if (lat && lng) {
+    el.innerHTML = '<a href="https://www.google.com/maps?q=' + lat + ',' + lng + '" target="_blank" style="color:#1E63A8;text-decoration:none;font-size:12.5px;font-weight:700;">📍 Ver no Google Maps</a> <span style="font-size:11px;color:#9A9488;">(' + Number(lat).toFixed(4) + ', ' + Number(lng).toFixed(4) + ')</span>';
+    return;
+  }
+  el.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:8px 10px;">'
+    + '<span style="font-size:12px;color:#854F0B;">Localização não salva.</span>'
+    + '<button type="button" id="btn-salvar-localizacao-cobrador" onclick="salvarLocalizacaoAtualCobrador()" style="flex-shrink:0;padding:7px 12px;border-radius:8px;border:none;background:#1E63A8;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Salvar localização atual</button>'
+    + '</div>'
+    + '<div id="sheet-cliente-loc-status" style="font-size:11px;margin-top:6px;"></div>'
+    + '<input type="hidden" id="sheet-cliente-loc-lat">'
+    + '<input type="hidden" id="sheet-cliente-loc-lng">'
+    + '<input type="hidden" id="sheet-cliente-loc-endereco">';
+}
+
+async function salvarLocalizacaoAtualCobrador() {
+  const clienteId = window._clienteDetalhesAtual?.id;
+  if (!clienteId) return;
+  const ids = _idsLocalizacaoCobradorSheet();
+  const btn = document.getElementById('btn-salvar-localizacao-cobrador');
+  if (btn) btn.disabled = true;
+
+  await _capturarLocalizacaoComIds(ids);
+
+  const latVal = document.getElementById(ids.lat).value;
+  const lngVal = document.getElementById(ids.lng).value;
+  if (!latVal || !lngVal) { if (btn) btn.disabled = false; return; } // captura falhou; status já mostra o erro
+
+  const { error } = await sb.rpc('salvar_localizacao_cliente', {
+    p_cliente_id: clienteId,
+    p_latitude: parseFloat(latVal),
+    p_longitude: parseFloat(lngVal),
+  });
+
+  if (error) {
+    Logger.error('cobrador', 'SALVAR_LOCALIZACAO', 'Erro ao salvar localização do cliente', { supabase_code: error.code, error_message: error.message });
+    const statusEl = document.getElementById(ids.status);
+    if (statusEl) { statusEl.innerHTML = '❌ Localização capturada, mas não foi possível salvar. Tente novamente.'; statusEl.style.color = '#A32D2D'; }
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  renderLocalizacaoSheetCobrador(latVal, lngVal);
+}
+
 async function verClientesLocalidade(localidadeId, nomeLocalidade) {
   const titulo = document.getElementById('modal-clientes-localidade-titulo');
   const lista = document.getElementById('lista-clientes-localidade');
@@ -7892,6 +7946,7 @@ async function abrirSheetClienteCobrador(clienteId) {
 
   window._clienteDetalhesAtual = { id: c.id, nome: c.nome };
   carregarSelectLocalidades(c.localidade_id, c.cobrador_id, 'sheet-cliente-localidade-select');
+  renderLocalizacaoSheetCobrador(c.latitude, c.longitude);
 
   const emAberto = listaParcelas.filter(p => !p.pago);
   const hoje = new Date();
@@ -7933,8 +7988,6 @@ async function abrirSheetClienteCobrador(clienteId) {
     referencia: c.referencia || '—',
     telefone: c.telefone || '—',
     fotoCasa: c.foto_casa || null,
-    latitude: c.latitude || null,
-    longitude: c.longitude || null,
   };
 
   document.getElementById('lista-parcelas-sheet-cobrador').innerHTML = avisoOffline + _htmlParcelasCobrador(listaParcelas, c.id, c.nome);
@@ -7950,9 +8003,6 @@ function toggleDetalhesSheetCobrador() {
     const telefoneHtml = det.telefone && det.telefone !== '—'
       ? (whatsLink ? '<a href="' + whatsLink + '" target="_blank" style="color:#1E63A8;text-decoration:none;font-weight:700;">📱 ' + escHtml(det.telefone) + '</a>' : escHtml(det.telefone))
       : '—';
-    const localizacaoHtml = (det.latitude && det.longitude)
-      ? '<a href="https://www.google.com/maps?q=' + det.latitude + ',' + det.longitude + '" target="_blank" style="color:#1E63A8;text-decoration:none;font-weight:700;">📍 Ver no Google Maps</a> <span style="color:#9A9488;">(' + Number(det.latitude).toFixed(4) + ', ' + Number(det.longitude).toFixed(4) + ')</span>'
-      : '<span style="color:#9A9488;">Não cadastrada</span>';
     el.innerHTML = (det.fotoCasa
         ? '<img data-img-bucket="fotos-clientes" data-img-src="' + escHtml(det.fotoCasa) + '" src="" alt="Foto da casa" style="width:100%;height:170px;object-fit:cover;border-radius:8px;margin-bottom:10px;border:1px solid #EFEAE0;">'
         : '')
@@ -7961,8 +8011,7 @@ function toggleDetalhesSheetCobrador() {
       + '<div><span style="color:#9A9488;">Nascimento:</span> ' + escHtml(det.nascimentoFmt) + '</div>'
       + '<div><span style="color:#9A9488;">Celular:</span> ' + telefoneHtml + '</div>'
       + '<div><span style="color:#9A9488;">Endereço:</span> ' + escHtml(det.endereco) + '</div>'
-      + '<div><span style="color:#9A9488;">Referência:</span> ' + escHtml(det.referencia) + '</div>'
-      + '<div><span style="color:#9A9488;">Localização:</span> ' + localizacaoHtml + '</div>';
+      + '<div><span style="color:#9A9488;">Referência:</span> ' + escHtml(det.referencia) + '</div>';
     assinarImagens(el);
   }
   el.style.display = abrir ? 'block' : 'none';
@@ -12551,6 +12600,11 @@ async function gerarProximoMes() {
         </select>
         <button class="btn primario" style="padding:9px 14px;font-size:12.5px;white-space:nowrap;" onclick="salvarLocalidadeClienteSheetCobrador()">Salvar</button>
       </div>
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <div style="font-size:11px;color:#9A9488;margin-bottom:4px;">📍 Localização (GPS)</div>
+      <div id="sheet-cliente-localizacao-conteudo"></div>
     </div>
 
     <button onclick="toggleDetalhesSheetCobrador()" id="btn-toggle-detalhes-cobrador" style="border:none;background:none;color:#1E63A8;font-size:12.5px;font-weight:700;padding:4px 0;margin-bottom:10px;cursor:pointer;">Ver detalhes completos ▾</button>
