@@ -1312,73 +1312,106 @@ tr:hover td{background:#fafafa;}
       <button onclick="fecharModal('modal-cliente')">×</button>
     </div>
     <input type="hidden" id="cli-id">
-    <div class="grid2">
-      <div class="campo">
-        <label>Código</label>
-        <input id="cli-codigo" type="text" readonly style="background:#f9f9f9;color:#888;">
+    <div style="background:#F0FBE6;border:1px solid #C0DD97;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;color:#3B6D11;margin-bottom:14px;">👤 Dados do cliente</div>
+      <div class="grid2">
+        <div class="campo">
+          <label style="font-size:13px;">Código</label>
+          <input id="cli-codigo" type="text" readonly style="background:#f9f9f9;color:#888;padding:14px;font-size:16px;border-radius:10px;">
+        </div>
+        <div class="campo">
+          <label style="font-size:13px;">📅 Data de nascimento</label>
+          <input id="cli-nascimento" type="date" style="padding:14px;font-size:16px;border-radius:10px;">
+        </div>
       </div>
       <div class="campo">
-        <label>Data de nascimento</label>
-        <input id="cli-nascimento" type="date">
+        <label style="font-size:13px;">👤 Nome completo *</label>
+        <input id="cli-nome" type="text" placeholder="Nome do cliente" style="padding:14px;font-size:16px;border-radius:10px;">
       </div>
-    </div>
-    <div class="campo">
-      <label>Nome completo *</label>
-      <input id="cli-nome" type="text" placeholder="Nome do cliente">
-    </div>
-    <div class="grid2">
-      <div class="campo">
-        <label>CPF</label>
-        <input id="cli-cpf" type="text" placeholder="000.000.000-00" oninput="validarCPFCampo(this)">
-        <div id="msg-cpf"></div>
-      </div>
-      <div class="campo">
-        <label>Celular</label>
-        <input id="cli-telefone" type="text" placeholder="(88) 99999-9999" inputmode="numeric" maxlength="15" oninput="mascararTelefoneCampo(this)" onblur="validarTelefoneCampo(this,'msg-telefone-cli')">
-        <div id="msg-telefone-cli"></div>
-      </div>
-    </div>
-    <div class="campo">
-      <label>Endereço</label>
-      <input id="cli-endereco" type="text" placeholder="Rua e número">
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 70px;gap:.75rem;">
-      <div class="campo">
-        <label>Bairro</label>
-        <input id="cli-bairro" type="text" placeholder="Bairro">
-      </div>
-      <div class="campo" style="position:relative;">
-        <label>Cidade</label>
-        <input id="cli-cidade" type="text" placeholder="Digite para buscar..." autocomplete="off"
-          oninput="cliCidadeInput()"
-          onblur="setTimeout(function(){var d=document.getElementById('cli-cidade-dropdown');if(d)d.style.display='none';},150)">
-        <div id="cli-cidade-dropdown" class="ac-dropdown" style="display:none;"></div>
-        <input type="hidden" id="cli-municipio-id">
+      <div class="grid2">
+        <div class="campo">
+          <label style="font-size:13px;">🪪 CPF</label>
+          <input id="cli-cpf" type="text" placeholder="000.000.000-00" oninput="validarCPFCampo(this)" style="padding:14px;font-size:16px;border-radius:10px;">
+          <div id="msg-cpf"></div>
+        </div>
+        <div class="campo">
+          <label style="font-size:13px;">📱 Celular</label>
+          <input id="cli-telefone" type="text" placeholder="(88) 99999-9999" inputmode="numeric" maxlength="15" oninput="mascararTelefoneCampo(this)" onblur="validarTelefoneCampo(this,'msg-telefone-cli')" style="padding:14px;font-size:16px;border-radius:10px;">
+          <div id="msg-telefone-cli"></div>
+        </div>
       </div>
       <div class="campo">
-        <label>UF</label>
-        <input id="cli-uf" type="text" readonly style="background:#f5f5f5;color:#666;cursor:default;text-align:center;font-weight:600;">
+        <label style="font-size:13px;">🏠 Endereço</label>
+        <input id="cli-endereco" type="text" placeholder="Rua e número" style="padding:14px;font-size:16px;border-radius:10px;">
       </div>
-    </div>
-    <div class="campo">
-      <label id="label-foto-casa">Foto da casa (opcional)</label>
-      <div id="foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
-        <img id="foto-preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid #ddd;display:block;">
-        <button type="button" onclick="removerFoto()" style="margin-top:.4rem;font-size:.8rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr 70px;gap:.75rem;">
+        <div class="campo">
+          <label style="font-size:13px;">Bairro</label>
+          <input id="cli-bairro" type="text" placeholder="Bairro" style="padding:14px;font-size:16px;border-radius:10px;">
+        </div>
+        <div class="campo" style="position:relative;">
+          <label style="font-size:13px;">🏙️ Cidade</label>
+          <input id="cli-cidade" type="text" placeholder="Digite para buscar..." autocomplete="off"
+            oninput="cliCidadeInput()"
+            onblur="setTimeout(function(){var d=document.getElementById('cli-cidade-dropdown');if(d)d.style.display='none';},150)"
+            style="padding:14px;font-size:16px;border-radius:10px;">
+          <div id="cli-cidade-dropdown" class="ac-dropdown" style="display:none;"></div>
+          <input type="hidden" id="cli-municipio-id">
+        </div>
+        <div class="campo">
+          <label style="font-size:13px;">UF</label>
+          <input id="cli-uf" type="text" readonly style="background:#f5f5f5;color:#666;cursor:default;text-align:center;font-weight:600;padding:14px;font-size:16px;border-radius:10px;">
+        </div>
       </div>
-      <input type="file" id="cli-foto" accept="image/*" capture="environment" onchange="processarFoto(this)" style="display:none;">
-      <button type="button" class="btn" onclick="document.getElementById('cli-foto').click()" style="width:100%;">📷 Tirar / escolher foto</button>
-      <div id="msg-foto" style="margin-top:4px;font-size:12px;"></div>
-    </div>
-    <div class="campo">
-      <label>Ponto de referência</label>
-      <input id="cli-referencia" type="text" placeholder="Ex: próximo ao mercado X">
-    </div>
-    <div class="campo">
-      <label>Cobrador responsável *</label>
-      <select id="cli-cobrador">
-        <option value="">Selecione o cobrador...</option>
-      </select>
+      <div class="campo">
+        <label id="label-foto-casa" style="font-size:13px;">📷 Foto da casa (opcional)</label>
+        <div id="foto-preview-wrap" style="display:none;margin-bottom:.5rem;">
+          <img id="foto-preview" style="max-width:100%;max-height:200px;border-radius:10px;border:1px solid #ddd;display:block;">
+          <button type="button" onclick="removerFoto()" style="margin-top:.4rem;font-size:.85rem;color:#e74c3c;background:none;border:none;cursor:pointer;">✕ Remover foto</button>
+        </div>
+        <input type="file" id="cli-foto" accept="image/*" capture="environment" onchange="processarFoto(this)" style="display:none;">
+        <button type="button" class="btn" onclick="document.getElementById('cli-foto').click()" style="width:100%;padding:14px;font-size:15px;border-radius:10px;">📷 Tirar / escolher foto</button>
+        <div id="msg-foto" style="margin-top:4px;font-size:12px;"></div>
+      </div>
+      <div class="campo">
+        <label style="font-size:13px;">📌 Ponto de referência</label>
+        <input id="cli-referencia" type="text" placeholder="Ex: próximo ao mercado X" style="padding:14px;font-size:16px;border-radius:10px;">
+      </div>
+      <div class="campo">
+        <label style="font-size:13px;">📍 Localização do cliente</label>
+        <div id="cli-loc-status" style="background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px 14px;font-size:14px;color:#888;margin-bottom:8px;">
+          📍 Localização não capturada ainda
+        </div>
+        <input type="hidden" id="cli-latitude">
+        <input type="hidden" id="cli-longitude">
+        <input type="hidden" id="cli-localizacao-endereco">
+        <button type="button" class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;" onclick="capturarLocalizacaoCliente()">
+          📍 Salvar localização atual
+        </button>
+        <div style="font-size:12px;color:#888;margin-top:6px;">Esteja na frente da casa do cliente ao capturar.</div>
+        <div id="cli-loc-manual-wrap" style="display:none;margin-top:10px;">
+          <button type="button" onclick="alternarLocalizacaoManualCliente()" style="background:none;border:none;color:#185FA5;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;">✏️ Digitar coordenadas manualmente</button>
+          <div id="cli-loc-manual-campos" style="display:none;margin-top:8px;background:#F5F3FF;border:1px solid #D4CCEF;border-radius:10px;padding:12px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;">
+              <div class="campo" style="margin-bottom:0;">
+                <label style="font-size:12px;">Latitude</label>
+                <input id="cli-loc-manual-lat" type="number" step="any" placeholder="-23.550520" style="padding:10px;font-size:14px;border-radius:8px;">
+              </div>
+              <div class="campo" style="margin-bottom:0;">
+                <label style="font-size:12px;">Longitude</label>
+                <input id="cli-loc-manual-lng" type="number" step="any" placeholder="-46.633308" style="padding:10px;font-size:14px;border-radius:8px;">
+              </div>
+            </div>
+            <button type="button" class="btn" style="width:100%;margin-top:8px;font-size:13px;padding:10px;border-radius:8px;" onclick="confirmarLocalizacaoManualCliente()">✓ Usar estas coordenadas</button>
+          </div>
+        </div>
+      </div>
+      <div class="campo" style="margin-bottom:0;">
+        <label style="font-size:13px;">👷 Cobrador responsável *</label>
+        <select id="cli-cobrador" style="padding:14px;font-size:16px;border-radius:10px;">
+          <option value="">Selecione o cobrador...</option>
+        </select>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="fecharModal('modal-cliente')">Cancelar</button>
@@ -2479,21 +2512,34 @@ function removerFotoVnc() {
   document.getElementById('vnc-foto-preview-wrap').style.display = 'none';
 }
 
-function _resetLocStatus() {
-  var el = document.getElementById('loc-status');
+// Campos de localização existem em dois formulários (cadastro de cliente na
+// aba Clientes, prefixo "cli", e cadastro de cliente dentro do fluxo de
+// venda, prefixo "vnc"/"loc"). As funções abaixo recebem um mapa de ids para
+// não duplicar a lógica de GPS/geocodificação reversa em cada formulário.
+function _idsLocalizacaoVnc() {
+  return { status: 'loc-status', lat: 'vnc-latitude', lng: 'vnc-longitude', endereco: 'vnc-localizacao-endereco', manualCampos: 'loc-manual-campos', manualLat: 'loc-manual-lat', manualLng: 'loc-manual-lng' };
+}
+function _idsLocalizacaoCliente() {
+  return { status: 'cli-loc-status', lat: 'cli-latitude', lng: 'cli-longitude', endereco: 'cli-localizacao-endereco', manualCampos: 'cli-loc-manual-campos', manualLat: 'cli-loc-manual-lat', manualLng: 'cli-loc-manual-lng' };
+}
+
+function _resetLocStatusComIds(ids) {
+  var el = document.getElementById(ids.status);
   if (!el) return;
   el.innerHTML = '📍 Localização não capturada ainda';
   el.style.background = '#f9f9f9';
   el.style.borderColor = '#ddd';
   el.style.color = '#888';
-  document.getElementById('vnc-latitude').value = '';
-  document.getElementById('vnc-longitude').value = '';
-  document.getElementById('vnc-localizacao-endereco').value = '';
-  var manualCampos = document.getElementById('loc-manual-campos');
+  document.getElementById(ids.lat).value = '';
+  document.getElementById(ids.lng).value = '';
+  document.getElementById(ids.endereco).value = '';
+  var manualCampos = document.getElementById(ids.manualCampos);
   if (manualCampos) manualCampos.style.display = 'none';
-  var mLat = document.getElementById('loc-manual-lat'); if (mLat) mLat.value = '';
-  var mLng = document.getElementById('loc-manual-lng'); if (mLng) mLng.value = '';
+  var mLat = document.getElementById(ids.manualLat); if (mLat) mLat.value = '';
+  var mLng = document.getElementById(ids.manualLng); if (mLng) mLng.value = '';
 }
+function _resetLocStatus() { _resetLocStatusComIds(_idsLocalizacaoVnc()); }
+function _resetLocStatusCliente() { _resetLocStatusComIds(_idsLocalizacaoCliente()); }
 
 // Dentro do app Android, o navigator.geolocation puro do WebView não
 // consegue disparar o diálogo de permissão do sistema (por isso a permissão
@@ -2519,8 +2565,8 @@ function _mensagemErroLocalizacao(erro) {
   return '❌ Erro ao capturar localização.' + (msg ? ' (' + msg + ')' : '');
 }
 
-async function capturarLocalizacao() {
-  var statusEl = document.getElementById('loc-status');
+async function _capturarLocalizacaoComIds(ids) {
+  var statusEl = document.getElementById(ids.status);
   var geo = _geoPlugin();
 
   if (!geo && !navigator.geolocation) {
@@ -2548,8 +2594,8 @@ async function capturarLocalizacao() {
     var lng = pos.coords.longitude;
     var precisao = Math.round(pos.coords.accuracy);
 
-    document.getElementById('vnc-latitude').value = lat;
-    document.getElementById('vnc-longitude').value = lng;
+    document.getElementById(ids.lat).value = lat;
+    document.getElementById(ids.lng).value = lng;
 
     try {
       var resp = await fetch(
@@ -2557,10 +2603,10 @@ async function capturarLocalizacao() {
       );
       var data = await resp.json();
       var endereco = data.display_name || (lat.toFixed(6) + ', ' + lng.toFixed(6));
-      document.getElementById('vnc-localizacao-endereco').value = endereco;
+      document.getElementById(ids.endereco).value = endereco;
       statusEl.innerHTML = '✅ Localização capturada!<br><span style="font-size:11px;color:#555;">' + endereco.substring(0, 80) + '...</span><br><span style="font-size:10px;color:#888;">Precisão: ~' + precisao + 'm</span>';
     } catch (e) {
-      document.getElementById('vnc-localizacao-endereco').value = lat.toFixed(6) + ', ' + lng.toFixed(6);
+      document.getElementById(ids.endereco).value = lat.toFixed(6) + ', ' + lng.toFixed(6);
       statusEl.innerHTML = '✅ Localização capturada!<br><span style="font-size:11px;color:#555;">Lat: ' + lat.toFixed(6) + ' · Lng: ' + lng.toFixed(6) + '</span><br><span style="font-size:10px;color:#888;">Precisão: ~' + precisao + 'm</span>';
     }
 
@@ -2596,25 +2642,29 @@ async function capturarLocalizacao() {
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
 }
+async function capturarLocalizacao() { await _capturarLocalizacaoComIds(_idsLocalizacaoVnc()); }
+async function capturarLocalizacaoCliente() { await _capturarLocalizacaoComIds(_idsLocalizacaoCliente()); }
 
 // Digitação manual de coordenadas — reservada ao gestor (visibilidade controlada
-// em abrirNovaVenda()), para casos em que ele cadastra o cliente sem estar
-// fisicamente no endereço (ex.: à distância, a partir de um mapa ou endereço já
-// conhecido).
-function alternarLocalizacaoManual() {
-  var campos = document.getElementById('loc-manual-campos');
+// em abrirNovaVenda()/abrirCadastroCliente()/editarCliente()), para casos em que
+// ele cadastra o cliente sem estar fisicamente no endereço (ex.: à distância, a
+// partir de um mapa ou endereço já conhecido).
+function _alternarLocalizacaoManualComIds(ids) {
+  var campos = document.getElementById(ids.manualCampos);
   var abrir = campos.style.display === 'none';
   campos.style.display = abrir ? 'block' : 'none';
   if (abrir) {
-    document.getElementById('loc-manual-lat').value = document.getElementById('vnc-latitude').value || '';
-    document.getElementById('loc-manual-lng').value = document.getElementById('vnc-longitude').value || '';
+    document.getElementById(ids.manualLat).value = document.getElementById(ids.lat).value || '';
+    document.getElementById(ids.manualLng).value = document.getElementById(ids.lng).value || '';
   }
 }
+function alternarLocalizacaoManual() { _alternarLocalizacaoManualComIds(_idsLocalizacaoVnc()); }
+function alternarLocalizacaoManualCliente() { _alternarLocalizacaoManualComIds(_idsLocalizacaoCliente()); }
 
-async function confirmarLocalizacaoManual() {
-  var statusEl = document.getElementById('loc-status');
-  var latStr = document.getElementById('loc-manual-lat').value.trim().replace(',', '.');
-  var lngStr = document.getElementById('loc-manual-lng').value.trim().replace(',', '.');
+async function _confirmarLocalizacaoManualComIds(ids) {
+  var statusEl = document.getElementById(ids.status);
+  var latStr = document.getElementById(ids.manualLat).value.trim().replace(',', '.');
+  var lngStr = document.getElementById(ids.manualLng).value.trim().replace(',', '.');
   var lat = parseFloat(latStr);
   var lng = parseFloat(lngStr);
 
@@ -2627,8 +2677,8 @@ async function confirmarLocalizacaoManual() {
     return;
   }
 
-  document.getElementById('vnc-latitude').value = lat;
-  document.getElementById('vnc-longitude').value = lng;
+  document.getElementById(ids.lat).value = lat;
+  document.getElementById(ids.lng).value = lng;
 
   statusEl.innerHTML = '⏳ Buscando endereço...';
   statusEl.style.background = '#FAEEDA';
@@ -2641,18 +2691,20 @@ async function confirmarLocalizacaoManual() {
     );
     var data = await resp.json();
     var endereco = data.display_name || (lat.toFixed(6) + ', ' + lng.toFixed(6));
-    document.getElementById('vnc-localizacao-endereco').value = endereco;
+    document.getElementById(ids.endereco).value = endereco;
     statusEl.innerHTML = '✅ Coordenadas definidas manualmente!<br><span style="font-size:11px;color:#555;">' + endereco.substring(0, 80) + '...</span>';
   } catch (e) {
-    document.getElementById('vnc-localizacao-endereco').value = lat.toFixed(6) + ', ' + lng.toFixed(6);
+    document.getElementById(ids.endereco).value = lat.toFixed(6) + ', ' + lng.toFixed(6);
     statusEl.innerHTML = '✅ Coordenadas definidas manualmente!<br><span style="font-size:11px;color:#555;">Lat: ' + lat.toFixed(6) + ' · Lng: ' + lng.toFixed(6) + '</span>';
   }
 
   statusEl.style.background = '#EAF3DE';
   statusEl.style.borderColor = '#c0dd97';
   statusEl.style.color = '#3B6D11';
-  document.getElementById('loc-manual-campos').style.display = 'none';
+  document.getElementById(ids.manualCampos).style.display = 'none';
 }
+async function confirmarLocalizacaoManual() { await _confirmarLocalizacaoManualComIds(_idsLocalizacaoVnc()); }
+async function confirmarLocalizacaoManualCliente() { await _confirmarLocalizacaoManualComIds(_idsLocalizacaoCliente()); }
 
 async function uploadFoto(clienteId) {
   if (!window._fotoCasaBlob) return null;
@@ -3504,6 +3556,8 @@ async function abrirCadastroCliente() {
   document.getElementById('cli-foto').value = '';
   document.getElementById('foto-preview').src = '';
   document.getElementById('foto-preview-wrap').style.display = 'none';
+  _resetLocStatusCliente();
+  document.getElementById('cli-loc-manual-wrap').style.display = perfilAtivo.perfil === 'gestor' ? 'block' : 'none';
   await carregarCobradoresSelect('cli-cobrador');
   document.getElementById('modal-cliente').style.display = 'flex';
 }
@@ -3584,6 +3638,9 @@ async function salvarCliente() {
     municipio_id: municipioId,
     referencia: document.getElementById('cli-referencia').value.trim(),
     cobrador_id: cobradorId,
+    latitude: document.getElementById('cli-latitude').value || null,
+    longitude: document.getElementById('cli-longitude').value || null,
+    localizacao_endereco: document.getElementById('cli-localizacao-endereco').value || null,
   };
 
   let clienteId = id;
@@ -3671,6 +3728,21 @@ async function editarCliente(id) {
     document.getElementById('foto-preview').src = '';
     document.getElementById('foto-preview-wrap').style.display = 'none';
   }
+  if (data.latitude && data.longitude) {
+    var cliStatusEl = document.getElementById('cli-loc-status');
+    document.getElementById('cli-latitude').value = data.latitude;
+    document.getElementById('cli-longitude').value = data.longitude;
+    document.getElementById('cli-localizacao-endereco').value = data.localizacao_endereco || '';
+    cliStatusEl.innerHTML = '✅ Localização já cadastrada<br><span style="font-size:11px;color:#555;">' + Number(data.latitude).toFixed(6) + ', ' + Number(data.longitude).toFixed(6) + '</span>';
+    cliStatusEl.style.background = '#EAF3DE';
+    cliStatusEl.style.borderColor = '#c0dd97';
+    cliStatusEl.style.color = '#3B6D11';
+    var cliManualCampos = document.getElementById('cli-loc-manual-campos');
+    if (cliManualCampos) cliManualCampos.style.display = 'none';
+  } else {
+    _resetLocStatusCliente();
+  }
+  document.getElementById('cli-loc-manual-wrap').style.display = perfilAtivo.perfil === 'gestor' ? 'block' : 'none';
   await carregarCobradoresSelect('cli-cobrador');
   document.getElementById('cli-cobrador').value = data.cobrador_id || '';
   document.getElementById('modal-cliente').style.display = 'flex';
