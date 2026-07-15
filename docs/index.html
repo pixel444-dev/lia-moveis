@@ -7195,16 +7195,14 @@ async function carregarLocalidades() {
     qLoc = qLoc.eq('cobrador_id', funcionarioLogado.id);
   }
 
-  // Pra cobrador, a contagem precisa vir de _clientesDoCobrador() (direto +
-  // por rota) — um `.eq('cobrador_id', ...)` direto igual o de cima deixa
-  // de fora os clientes que só chegam até ele pela rota, e a contagem
-  // ficava sempre menor do que a real (às vezes 0, mesmo com cliente
-  // vinculado).
-  const [{ data: localidades, error }, contagem] = await Promise.all([
+  // A contagem roda no banco (contagem_clientes_por_localidade, migration
+  // 0020) — pra cobrador, direto + por rota, num único GROUP BY. Antes o app
+  // baixava todos os clientes do cobrador (ou do sistema inteiro, pro
+  // gestor) só pra contar no navegador, o que deixava a tela lenta em
+  // carteiras grandes.
+  const [{ data: localidades, error }, { data: contagem, error: errContagem }] = await Promise.all([
     qLoc,
-    ehGestor
-      ? sb.from('clientes').select('localidade_id').not('localidade_id', 'is', null).then(r => r.data || [])
-      : _clientesDoCobrador('localidade_id'),
+    sb.rpc('contagem_clientes_por_localidade', { p_cobrador_id: ehGestor ? null : funcionarioLogado.id }),
   ]);
 
   if (error) {
@@ -7212,10 +7210,11 @@ async function carregarLocalidades() {
     el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar localidades.</p>';
     return;
   }
+  if (errContagem) Logger.warn('localidades', 'CARREGAR_LOCALIDADES', 'Erro ao carregar contagem', { supabase_code: errContagem.code });
 
   const mapaContagem = {};
   (contagem || []).forEach(c => {
-    if (c.localidade_id) mapaContagem[c.localidade_id] = (mapaContagem[c.localidade_id] || 0) + 1;
+    if (c.localidade_id) mapaContagem[c.localidade_id] = Number(c.total);
   });
 
   renderLocalidades(localidades || [], mapaContagem);
