@@ -53,6 +53,37 @@
   // o que enviar; marcar como sincronizado limpa a fila herdada.
   Sync.registrarHandler('teste', async function () { });
 
+  // Antes de criar um cliente "novo" offline, verifica se já existe alguém
+  // com o mesmo CPF — pode ter sido cadastrado por outra via (outro
+  // vendedor, tela online) enquanto este aparelho estava sem rede, ou o
+  // cliente já existir e simplesmente nunca ter passado pelo cache deste
+  // celular (por isso a busca offline não achou). Em qualquer um desses
+  // casos a pessoa da venda é a MESMA pessoa real — atualiza o cadastro que
+  // já existe com os dados frescos coletados em campo, em vez de tentar
+  // inserir um duplicado (que ou falha travando a venda pra sempre, ou —
+  // pior, se não houver uma restrição de unicidade no banco — cria mesmo
+  // um segundo cliente pra mesma pessoa, com histórico de compra separado).
+  // Devolve o registro existente já atualizado, ou null se não achou ninguém.
+  async function _reconciliarClientePorCpf(dados) {
+    if (!dados.cpf) return null;
+    var existente = await sb.from('clientes').select('id').eq('cpf', dados.cpf).maybeSingle();
+    if (existente.error) throw erroDeBanco(existente.error);
+    if (!existente.data) return null;
+    // Mesma regra do fluxo online (salvarNovoClienteVenda ao editar um
+    // cliente encontrado por CPF): só sobrescreve campo opcional se o
+    // vendedor realmente informou algo — o formulário de "cliente novo"
+    // não veio pré-preenchido com o cadastro existente, então um campo
+    // vazio aqui não pode apagar um dado real que já estava salvo.
+    var dadosUpdate = { nome: dados.nome, cpf: dados.cpf, endereco: dados.endereco, cidade: dados.cidade, municipio_id: dados.municipio_id };
+    ['telefone', 'data_nascimento', 'bairro', 'referencia', 'cobrador_id', 'latitude', 'longitude', 'localizacao_endereco'].forEach(function (campo) {
+      if (dados[campo]) dadosUpdate[campo] = dados[campo];
+    });
+    var upd = await sb.from('clientes').update(dadosUpdate).eq('id', existente.data.id);
+    if (upd.error) throw erroDeBanco(upd.error);
+    var atualizado = await sb.from('clientes').select('*').eq('id', existente.data.id).single();
+    return atualizado.data || { id: existente.data.id };
+  }
+
   // payload: { clienteId (uuid real p/ edição, "offline-..." p/ novo),
   //            dados: {...}, fotoBase64, etapa?, clienteIdReal? }
   Sync.registrarHandler('cliente_upsert', async function (payload, op) {
@@ -62,16 +93,27 @@
     if (payload.etapa !== 'foto') {
       if (ehNovo) {
         var dados = Object.assign({}, payload.dados);
-        var novo = null, error = null;
-        for (var t = 0; t < 3; t++) {
-          // código gerado AGORA, online — o que o formulário mostrava
-          // offline não é confiável (o gerador precisa do servidor)
-          dados.codigo = await gerarCodigoCliente();
-          var res = await sb.from('clientes').insert(dados).select().single();
-          novo = res.data; error = res.error;
-          if (!error || error.code !== '23505') break;
+        var novo = await _reconciliarClientePorCpf(dados);
+        if (!novo) {
+          var error = null;
+          for (var t = 0; t < 3; t++) {
+            // código gerado AGORA, online — o que o formulário mostrava
+            // offline não é confiável (o gerador precisa do servidor)
+            dados.codigo = await gerarCodigoCliente();
+            var res = await sb.from('clientes').insert(dados).select().single();
+            novo = res.data; error = res.error;
+            if (!error) break;
+            if (error.code !== '23505') break;
+            // Colisão pode ser no código (a próxima volta do loop já
+            // resolve, gerando outro) OU no CPF — nesse caso gerar outro
+            // código nunca ia resolver, porque é a MESMA pessoa cadastrada
+            // por outra via bem no meio destas tentativas. Reconcilia de
+            // novo antes de insistir.
+            var reconciliado = await _reconciliarClientePorCpf(dados);
+            if (reconciliado) { novo = reconciliado; error = null; break; }
+          }
+          if (error) throw erroDeBanco(error);
         }
-        if (error) throw erroDeBanco(error);
         clienteId = novo.id;
         // troca o registro temporário do cache pelo definitivo
         if (payload.clienteId) await DbLocal.removerDoCache('clientes', payload.clienteId);

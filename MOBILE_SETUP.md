@@ -332,6 +332,49 @@ suíte Chromium headless exercita a tela de Pendências renderizando itens
 reais, clicando nos botões de reenviar/descartar e no indicador — sem
 depender do plugin SQLite (que não existe em navegador puro).
 
+## Fase 5 — cliente offline que já existe no servidor não duplica mais
+
+**O cenário:** vendedor em campo, offline, vende pra alguém que **já é
+cliente** no sistema — só que esse cliente nunca passou pelo cache deste
+aparelho específico (cadastrado por outro vendedor, ou muito antes desta
+instalação). A busca por CPF offline (`buscarClientePorCPF`) não acha nada no
+cache local, mostra um aviso ("se já for cadastrado, confirme com internet
+para não duplicar") mas não bloqueia — o vendedor pode preencher o formulário
+de "cliente novo" e seguir vendendo. O que acontecia na sincronização
+dependia inteiramente de sorte: se `clientes.cpf` tivesse uma restrição de
+unicidade no banco, o insert falhava e a operação ficava presa em Pendências
+pedindo revisão manual (sem deixar claro que o motivo real era "esse CPF já
+existe"); sem essa restrição, o insert simplesmente dava certo e o sistema
+ficava com **dois cadastros diferentes pra mesma pessoa real**, cada um com
+seu próprio histórico de compras separado — um problema silencioso, que só
+aparece quando alguém nota o CPF duplicado numa consulta.
+
+**Correção** (`docs/js/sync-handlers.js`, handler `cliente_upsert`): antes de
+tentar inserir um cliente "novo", o sincronizador agora **verifica se já
+existe alguém com aquele CPF no servidor**. Se existir:
+- **Atualiza** o cadastro existente com os dados frescos coletados em campo
+  (nome, endereço, cidade, telefone, etc.) em vez de tentar inserir um
+  duplicado. Mesma regra de proteção do fluxo online já existente em
+  `salvarNovoClienteVenda`: um campo opcional deixado em branco no formulário
+  **não apaga** um dado real que já estava salvo (só sobrescreve o que o
+  vendedor de fato preencheu) — só nome/cpf/endereço/cidade são sempre
+  aplicados, por serem obrigatórios no formulário de venda.
+- Grava o de-para (`cliente_id_map`) apontando o id temporário pro cliente
+  real que já existia — a venda enfileirada na mesma visita (o caso mais
+  comum: cliente novo pro vendedor + venda, ambos offline) resolve e
+  sincroniza normalmente, ligada ao cliente certo, sem intervenção manual.
+- A checagem roda **antes** da tentativa de insert (caminho comum) e também
+  como resposta de fallback se o insert ainda assim colidir com "chave
+  duplicada" (corrida rara: outra sincronização criou o mesmo CPF bem no
+  meio das tentativas) — funciona independente de existir ou não uma
+  restrição de unicidade no banco, já que a verificação é feita pelo próprio
+  app, não depende do banco recusar.
+
+Validado: harness Node com dois cenários (reconciliação na checagem prévia, e
+reconciliação no fallback pós-colisão 23505), confirmando em ambos que nenhum
+`insert` extra acontece, os campos opcionais vazios não sobrescrevem dados
+reais existentes, e a venda vinculada sincroniza na mesma rodada.
+
 **GPS não pedia permissão** (`capturarLocalizacao`): o app usava
 `navigator.geolocation` puro (API do navegador). Dentro do WebView do
 Capacitor, essa API não consegue disparar o diálogo nativo de permissão do
