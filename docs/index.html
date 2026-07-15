@@ -9,6 +9,8 @@
 <script src="js/vendor/xlsx.full.min.js"></script>
 <script src="js/vendor/jspdf.umd.min.js"></script>
 <script src="js/vendor/chart.umd.js"></script>
+<link rel="stylesheet" href="js/vendor/leaflet.css">
+<script src="js/vendor/leaflet.js"></script>
 <script src="js/vendor/capacitor-core.js"></script>
 <script src="js/vendor/capacitor-community-sqlite.js"></script>
 <script src="js/vendor/capacitor-network.js"></script>
@@ -522,6 +524,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-sep">Cobranças</div>
       <div class="nav-item" id="nav-cobrancas" data-page="cobrancas" onclick="pg('cobrancas',this)"><span class="nav-ico">💳</span>Cobranças</div>
       <div class="nav-item" id="nav-localidades" data-page="localidades" onclick="pg('localidades',this);carregarLocalidades()"><span class="nav-ico">🗺️</span>Localidades</div>
+      <div class="nav-item" id="nav-mapa" data-page="mapa" onclick="pg('mapa',this)"><span class="nav-ico">📍</span>Mapa</div>
       <div class="nav-item" id="nav-ciclos" data-page="ciclos" onclick="pg('ciclos',this)"><span class="nav-ico">🔄</span>Ciclos</div>
       <div class="nav-item" id="nav-caixa-cobradores" data-page="caixa-cobradores" onclick="pg('caixa-cobradores',this)"><span class="nav-ico">💰</span>Caixa cobradores</div>
       <div class="nav-item" id="nav-prestacao" data-page="prestacao" onclick="pg('prestacao',this)"><span class="nav-ico">🧾</span>Prestação de contas</div>
@@ -766,6 +769,14 @@ tr:hover td{background:#fafafa;}
         <button class="btn primario" onclick="abrirModalLocalidade()">+ Nova</button>
       </div>
       <div id="lista-localidades">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-mapa">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">Mapa de clientes</div>
+        <div id="mapa-contador" style="font-size:13px;color:#888;"></div>
+      </div>
+      <div id="mapa-clientes" style="width:100%;height:70vh;min-height:420px;border-radius:12px;border:1px solid #e0e0e0;background:#eee;"></div>
     </div>
 
     <div class="page" id="page-caixa-cobradores">
@@ -2104,6 +2115,7 @@ function aplicarPermissoes(perfil) {
     ciclos:              gestorOuCobrador,
     'caixa-cobradores':  gestorOuCobrador,
     localidades:         gestorOuCobrador,
+    mapa:                gestorOuCobrador,
     'meu-historico':     cobrador,
   };
   document.querySelectorAll('.nav-item[data-page]').forEach(item => {
@@ -2144,6 +2156,7 @@ function pg(nome, el) {
   if (nome === 'ranking') { carregarRanking(); rankingPollInterval = setInterval(() => carregarRankingDoMes(rankingMesSelecionadoId), 15000); }
   if (nome === 'cobrancas') carregarCobrancas();
   if (nome === 'localidades') carregarLocalidades();
+  if (nome === 'mapa') carregarMapaClientes();
   if (nome === 'ciclos') carregarCiclos();
   if (nome === 'prestacao') carregarPrestacaoContas();
   if (nome === 'historico-caixas') carregarHistoricoCaixas();
@@ -7276,6 +7289,80 @@ async function moverLocalidade(id, direcao) {
     return;
   }
   carregarLocalidades();
+}
+
+// ===== MAPA DE CLIENTES (OpenStreetMap / Leaflet) =====
+// Gestor vê todos os clientes com localização salva; cobrador vê somente os
+// clientes com cobrador_id igual ao seu próprio id (sem incluir carteira por
+// rota, diferente de _clientesDoCobrador — aqui é estritamente cobrador_id).
+let _mapaClientesInstance = null;
+let _mapaClientesMarkers = null;
+
+async function carregarMapaClientes() {
+  const container = document.getElementById('mapa-clientes');
+  const contador = document.getElementById('mapa-contador');
+  if (!container) return;
+  contador.textContent = 'Carregando...';
+
+  const ehGestor = perfilAtivo?.perfil === 'gestor';
+  const montarQuery = () => {
+    let q = sb.from('clientes')
+      .select('id, nome, latitude, longitude, endereco, bairro, cidade')
+      .not('latitude', 'is', null)
+      .not('longitude', 'is', null)
+      .order('id');
+    if (!ehGestor) q = q.eq('cobrador_id', funcionarioLogado.id);
+    return q;
+  };
+
+  const { data, error } = await buscarTudoPaginado(montarQuery);
+  if (error) {
+    Logger.error('mapa', 'CARREGAR_MAPA', 'Erro ao carregar clientes do mapa', { supabase_code: error.code });
+    contador.textContent = '';
+    container.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar o mapa.</p>';
+    _mapaClientesInstance = null;
+    _mapaClientesMarkers = null;
+    return;
+  }
+
+  const clientes = data || [];
+
+  if (!_mapaClientesInstance) {
+    container.innerHTML = '';
+    _mapaClientesInstance = L.map(container).setView([-14.235, -51.9253], 4); // centro do Brasil
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+    }).addTo(_mapaClientesInstance);
+    _mapaClientesMarkers = L.layerGroup().addTo(_mapaClientesInstance);
+  } else {
+    _mapaClientesMarkers.clearLayers();
+  }
+  // A página pode ter ficado com display:none até agora — o Leaflet mede o
+  // container no momento da criação e precisa recalcular o tamanho depois
+  // que ele fica visível de fato.
+  setTimeout(() => _mapaClientesInstance.invalidateSize(), 0);
+
+  const pontos = [];
+  clientes.forEach(c => {
+    const lat = Number(c.latitude), lng = Number(c.longitude);
+    if (!isFinite(lat) || !isFinite(lng)) return;
+    pontos.push([lat, lng]);
+    const endereco = [c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ');
+    const popup = '<div style="min-width:180px;">'
+      + '<div style="font-weight:600;margin-bottom:4px;">' + escHtml(c.nome) + '</div>'
+      + (endereco ? '<div style="font-size:12px;color:#666;margin-bottom:8px;">' + escHtml(endereco) + '</div>' : '')
+      + '<button onclick="verDetalhesCliente(\'' + escJs(c.id) + '\')" style="font-size:12px;padding:5px 10px;border:1px solid #185FA5;color:#185FA5;background:#fff;border-radius:6px;cursor:pointer;">Ver detalhes</button>'
+      + '</div>';
+    _mapaClientesMarkers.addLayer(L.marker([lat, lng]).bindPopup(popup));
+  });
+
+  contador.textContent = pontos.length + ' cliente(s) no mapa';
+  if (pontos.length === 1) {
+    _mapaClientesInstance.setView(pontos[0], 15);
+  } else if (pontos.length > 1) {
+    _mapaClientesInstance.fitBounds(L.latLngBounds(pontos), { padding: [30, 30] });
+  }
 }
 
 function abrirModalLocalidade() {
