@@ -547,6 +547,7 @@ tr:hover td{background:#fafafa;}
     </div>
     <div class="nav-grupo">
       <div class="nav-sep">Conta</div>
+      <div class="nav-item" data-page="pendencias-offline" onclick="pg('pendencias-offline',this)"><span class="nav-ico">📴</span>Pendências offline<span id="badge-pendencias-offline" style="display:none;background:#A32D2D;color:#fff;font-size:10px;font-weight:700;border-radius:999px;padding:1px 7px;margin-left:6px;"></span></div>
       <div class="nav-item" data-page="seguranca" onclick="pg('seguranca',this)"><span class="nav-ico">🔒</span>Segurança</div>
     </div>
     <div id="info-usuario-logado" style="padding:.75rem 1rem;border-top:1px solid #e0e0e0;margin-top:auto;font-size:12px;color:#555;line-height:1.4;"></div>
@@ -1057,6 +1058,17 @@ tr:hover td{background:#fafafa;}
       </div>
       <div id="rotas-limbo-bar" style="display:none;padding:.75rem 1rem;background:#FFF8E1;border:1px solid #FFD600;border-radius:8px;color:#7A5C00;font-size:13px;margin-bottom:1rem;"></div>
       <div id="lista-rotas"></div>
+    </div>
+
+    <div class="page" id="page-pendencias-offline">
+      <div class="page-title">Pendências offline</div>
+      <div style="max-width:640px;">
+        <div style="font-size:13px;color:#555;margin-bottom:1rem;">
+          Vendas, baixas, recebimentos e cadastros feitos sem internet neste aparelho, que ainda não confirmaram no servidor.
+          Nada aqui é apagado sozinho pelo sistema — se alguma operação não sincronizar sozinha, ela fica aqui até você decidir o que fazer.
+        </div>
+        <div id="pendencias-offline-lista"></div>
+      </div>
     </div>
 
     <div class="page" id="page-seguranca">
@@ -1868,6 +1880,59 @@ async function sair() {
   document.getElementById('autorizacoes-wrap').style.display = 'none';
 }
 
+// === PENDÊNCIAS OFFLINE ===
+// Nunca esconde nem apaga nada sozinha — só mostra o que já existe na fila
+// local (ver docs/js/sync-handlers.js: OfflineFlow.listarPendenciasOffline).
+// Navegação central chamada pelo clique no indicador de offline (net-status.js)
+// e reaproveitada pela própria tela.
+function abrirPendenciasOffline() {
+  const el = document.querySelector('.nav-item[data-page="pendencias-offline"]');
+  if (el) pg('pendencias-offline', el);
+}
+
+async function carregarPendenciasOffline() {
+  const lista = document.getElementById('pendencias-offline-lista');
+  if (!lista || !window.OfflineFlow) { if (lista) lista.innerHTML = '<p style="color:#888;">Disponível só no app instalado.</p>'; return; }
+  lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+  const itens = await OfflineFlow.listarPendenciasOffline();
+  if (!itens.length) {
+    lista.innerHTML = '<div style="text-align:center;padding:2rem;color:#3B6D11;"><div style="font-size:36px;margin-bottom:.5rem;">✅</div>Tudo sincronizado — nada pendente neste aparelho.</div>';
+    return;
+  }
+  lista.innerHTML = itens.map(function(it) {
+    const cor = it.travada ? '#A32D2D' : (it.precisaAtencao ? '#854F0B' : '#185FA5');
+    const bg = it.travada ? '#FCEBEB' : (it.precisaAtencao ? '#FAEEDA' : '#E6F1FB');
+    const dataFmt = it.criadoEm ? new Date(it.criadoEm).toLocaleString('pt-BR') : '—';
+    const statusLabel = it.travada
+      ? '⚠️ Não sincronizou sozinha — precisa de revisão'
+      : (it.precisaAtencao ? '⏳ Tentando há um tempo (' + it.tentativas + ' tentativas)' : '⏳ Aguardando internet');
+    return '<div style="background:#fff;border:1px solid ' + cor + ';border-left-width:4px;border-radius:10px;padding:1rem;margin-bottom:10px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">'
+      + '<strong style="font-size:14px;">' + escHtml(it.titulo) + '</strong>'
+      + '<span style="background:' + bg + ';color:' + cor + ';font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;">' + statusLabel + '</span>'
+      + '</div>'
+      + '<div style="font-size:12px;color:#555;margin:6px 0;">' + it.detalhes.map(escHtml).join(' · ') + '</div>'
+      + '<div style="font-size:11px;color:#888;">Criada em ' + dataFmt + '</div>'
+      + (it.erroMsg ? '<div style="font-size:12px;color:#A32D2D;margin-top:6px;">Motivo: ' + escHtml(it.erroMsg) + '</div>' : '')
+      + '<div style="display:flex;gap:8px;margin-top:10px;">'
+      + '<button class="btn primario" style="font-size:12px;padding:6px 12px;" onclick="reenviarPendenciaOffline(\'' + it.id + '\')">🔄 Tentar novamente agora</button>'
+      + '<button class="btn" style="font-size:12px;padding:6px 12px;color:#A32D2D;border-color:#f5c6c6;" onclick="apagarPendenciaOffline(\'' + it.id + '\',\'' + escJs(it.titulo) + '\')">🗑️ Descartar definitivamente</button>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+async function reenviarPendenciaOffline(id) {
+  await OfflineFlow.reenviarPendencia(id);
+  carregarPendenciasOffline();
+}
+
+async function apagarPendenciaOffline(id, titulo) {
+  if (!confirm('Descartar definitivamente "' + titulo + '"?\n\nEssa operação NUNCA vai ser enviada pro servidor — os dados desse registro se perdem de vez. Só faça isso se já resolveu de outro jeito (ex.: recriou manualmente) ou tem certeza que não serve mais.')) return;
+  await OfflineFlow.apagarPendenciaDefinitivamente(id);
+  carregarPendenciasOffline();
+}
+
 // === SEGURANÇA / 2FA ===
 async function carregarPaginaSeguranca() {
   const statusEl = document.getElementById('seg-status');
@@ -2165,6 +2230,7 @@ function pg(nome, el) {
   if (nome === 'meu-historico') carregarMeuHistorico();
   if (nome === 'config-impressao') carregarConfigImpressao();
   if (nome === 'seguranca') carregarPaginaSeguranca();
+  if (nome === 'pendencias-offline') carregarPendenciasOffline();
   if (nome === 'equipes') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarEquipes(); });
   if (nome === 'caminhoes') carregarCaminhoes();
   if (nome === 'estoque') carregarEstoquePagina();

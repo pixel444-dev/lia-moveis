@@ -9,6 +9,7 @@
   var online = (typeof navigator === 'undefined') ? true : navigator.onLine !== false;
   var callbacks = [];
   var qtdPendentes = 0;
+  var qtdTravadas = 0;
   var sincronizando = false;
 
   function estaOnline() {
@@ -55,14 +56,44 @@
     el.style.cssText = 'display:none;position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:99999;'
       + 'background:#1a1a1a;color:#fff;font-size:13px;font-weight:600;padding:10px 18px;border-radius:999px;'
       + 'box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:92vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
-      + 'font-family:inherit;pointer-events:none;';
+      + 'font-family:inherit;';
+    el.onclick = function () { if (window.abrirPendenciasOffline) window.abrirPendenciasOffline(); };
     document.body.appendChild(el);
     return el;
   }
 
+  function _atualizarBadgeMenu() {
+    var badge = document.getElementById('badge-pendencias-offline');
+    if (!badge) return;
+    var total = qtdTravadas + qtdPendentes;
+    if (total > 0) {
+      badge.textContent = String(total);
+      badge.style.display = 'inline-block';
+      badge.style.background = qtdTravadas > 0 ? '#A32D2D' : '#854F0B';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
   function atualizarIndicador() {
+    _atualizarBadgeMenu();
     var el = _garantirElemento();
     if (!el) return;
+    // Prioridade máxima e SEM CONDIÇÃO PRA SUMIR: enquanto houver operação
+    // que o motor desistiu de reenviar sozinho, o indicador fica visível e
+    // clicável (leva pra tela de Pendências) até um humano decidir o que
+    // fazer — nunca mais "sumiu sem avisar" (ver incidente real de uma
+    // venda de campo perdida quando isso não existia).
+    if (qtdTravadas > 0) {
+      el.textContent = '⚠️ ' + qtdTravadas + ' operação(ões) precisam de atenção — toque para ver';
+      el.style.background = '#A32D2D';
+      el.style.display = 'block';
+      el.style.cursor = 'pointer';
+      el.style.pointerEvents = 'auto';
+      return;
+    }
+    el.style.cursor = qtdPendentes > 0 ? 'pointer' : 'default';
+    el.style.pointerEvents = qtdPendentes > 0 ? 'auto' : 'none';
     if (!online) {
       el.textContent = '📴 Sem conexão — modo offline'
         + (qtdPendentes > 0 ? ' · ' + qtdPendentes + ' operação(ões) na fila' : '');
@@ -82,9 +113,10 @@
   }
 
   // Chamado pelo motor de sincronização para refletir o estado da fila.
-  function atualizarFila(pendentes, estaSincronizando) {
+  function atualizarFila(pendentes, estaSincronizando, travadas) {
     qtdPendentes = Number(pendentes) || 0;
     sincronizando = !!estaSincronizando;
+    qtdTravadas = Number(travadas) || 0;
     atualizarIndicador();
   }
 
