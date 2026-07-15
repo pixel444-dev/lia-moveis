@@ -1522,6 +1522,14 @@ async function urlAssinada(bucket, valor, segundos = 3600) {
   } catch(e) { return null; }
 }
 
+function linkWhatsapp(telefone) {
+  if (!telefone) return null;
+  let digitos = String(telefone).replace(/\D/g, '');
+  if (!digitos) return null;
+  if (!digitos.startsWith('55')) digitos = '55' + digitos;
+  return 'https://wa.me/' + digitos;
+}
+
 async function assinarImagens(container) {
   const imgs = container.querySelectorAll('img[data-img-bucket]');
   await Promise.all(Array.from(imgs).map(async el => {
@@ -7503,7 +7511,11 @@ async function abrirSheetClienteCobrador(clienteId) {
   const totalAberto = emAberto.reduce((a, p) => a + (Number(p.valor) - Number(p.valor_pago || 0)), 0);
 
   document.getElementById('sheet-cliente-nome').textContent = c.nome;
-  document.getElementById('sheet-cliente-sub').textContent = (c.telefone || '—') + ' · ' + ([c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') || '—');
+  const whatsLinkSub = linkWhatsapp(c.telefone);
+  const telefoneHtmlSub = c.telefone
+    ? (whatsLinkSub ? '<a href="' + whatsLinkSub + '" target="_blank" style="color:#1E63A8;text-decoration:none;font-weight:700;">📱 ' + escHtml(c.telefone) + '</a>' : escHtml(c.telefone))
+    : '—';
+  document.getElementById('sheet-cliente-sub').innerHTML = telefoneHtmlSub + ' · ' + escHtml([c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') || '—');
   document.getElementById('sheet-cliente-total').textContent = 'R$ ' + totalAberto.toLocaleString('pt-BR', {minimumFractionDigits: 2});
   document.getElementById('sheet-cliente-parcela-resumo').textContent = emAberto.length > 1
     ? (emAberto.length + ' parcelas em aberto')
@@ -7529,7 +7541,10 @@ async function abrirSheetClienteCobrador(clienteId) {
     codigo: c.codigo || '—',
     cpf: c.cpf || '—',
     nascimentoFmt: c.data_nascimento ? new Date(c.data_nascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—',
+    endereco: [c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') || '—',
     referencia: c.referencia || '—',
+    telefone: c.telefone || '—',
+    fotoCasa: c.foto_casa || null,
   };
 
   document.getElementById('lista-parcelas-sheet-cobrador').innerHTML = avisoOffline + _htmlParcelasCobrador(listaParcelas, c.id, c.nome);
@@ -7541,10 +7556,20 @@ function toggleDetalhesSheetCobrador() {
   const btn = document.getElementById('btn-toggle-detalhes-cobrador');
   const abrir = el.style.display === 'none';
   if (abrir && det) {
-    el.innerHTML = '<div><span style="color:#9A9488;">Código:</span> ' + escHtml(det.codigo) + '</div>'
+    const whatsLink = linkWhatsapp(det.telefone);
+    const telefoneHtml = det.telefone && det.telefone !== '—'
+      ? (whatsLink ? '<a href="' + whatsLink + '" target="_blank" style="color:#1E63A8;text-decoration:none;font-weight:700;">📱 ' + escHtml(det.telefone) + '</a>' : escHtml(det.telefone))
+      : '—';
+    el.innerHTML = (det.fotoCasa
+        ? '<img data-img-bucket="fotos-clientes" data-img-src="' + escHtml(det.fotoCasa) + '" src="" alt="Foto da casa" style="width:100%;height:170px;object-fit:cover;border-radius:8px;margin-bottom:10px;border:1px solid #EFEAE0;">'
+        : '')
+      + '<div><span style="color:#9A9488;">Código:</span> ' + escHtml(det.codigo) + '</div>'
       + '<div><span style="color:#9A9488;">CPF:</span> ' + escHtml(det.cpf) + '</div>'
       + '<div><span style="color:#9A9488;">Nascimento:</span> ' + escHtml(det.nascimentoFmt) + '</div>'
+      + '<div><span style="color:#9A9488;">Celular:</span> ' + telefoneHtml + '</div>'
+      + '<div><span style="color:#9A9488;">Endereço:</span> ' + escHtml(det.endereco) + '</div>'
       + '<div><span style="color:#9A9488;">Referência:</span> ' + escHtml(det.referencia) + '</div>';
+    assinarImagens(el);
   }
   el.style.display = abrir ? 'block' : 'none';
   btn.textContent = abrir ? 'Ocultar detalhes ▲' : 'Ver detalhes completos ▾';
