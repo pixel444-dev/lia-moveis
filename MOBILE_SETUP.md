@@ -136,14 +136,14 @@ telas**. Arquitetura, em 4 arquivos novos + edições cirúrgicas no `index.html
   Duas etapas persistidas: insert → foto (retry não insere de novo).
 - `baixa_parcela` — baixa da tela de Cobranças. Revalida a parcela no servidor
   na hora de sincronizar (parcial que cobre o saldo vira completa; parcela já
-  baixada por outra pessoa → descartada com motivo). Duas etapas: update da
-  parcela → insert da movimentação de caixa.
+  baixada por outra pessoa → vai pra Pendências com o motivo, ver Fase 4).
+  Duas etapas: update da parcela → insert da movimentação de caixa.
 - `recebimento_registrar` — fluxo de campo do cobrador (RPC atômica
   `registrar_recebimento`). Comprovante PIX tirado offline vai em base64; o
   upload usa nome fixo sorteado no enfileiramento (idempotente) e o progresso é
   persistido (retry não sobe o arquivo duas vezes).
 - `venda_criar` — parâmetros exatos da RPC atômica `criar_venda`; erro de regra
-  de negócio (ex.: inadimplência) descarta com o motivo guardado.
+  de negócio (ex.: inadimplência) vai pra Pendências com o motivo (Fase 4).
 - `teste` — legado do autoteste das fases 1/2; sincroniza como no-op e limpa a fila.
 
 **Cache local** (`cache_registros.tabela`): `clientes` (busca geral + ficha),
@@ -269,6 +269,68 @@ dois lugares mesmo (o dump SQL usado pra gerar este arquivo é a mesma fonte
 do `municipios`/`estados` do Supabase) — não haveria ganho em manter uma
 sincronização automática entre os dois só pra esse caso raro. Se a base for
 atualizada, regenere `docs/data/municipios-br.json` a partir do novo dump.
+
+## Fase 4 — incidente real: venda de campo perdida em silêncio (corrigido)
+
+**O que aconteceu:** um vendedor registrou uma venda offline (cliente já
+cadastrado, R$ 900, à vista). Ela ficou na fila como "aguardando internet".
+Depois de várias tentativas de sincronização automática que falharam por um
+motivo que nunca chegou a aparecer em log nenhum (nem local, nem no Supabase —
+a chamada nunca alcançou o servidor, indicando sinal de internet ruim/instável
+no campo, não um erro do backend), o motor de sincronização **descartou a
+operação sozinho** depois de 8 tentativas. O card sumiu da tela. A venda nunca
+existiu no banco. Sem acesso físico ao aparelho em campo, não havia como saber
+o motivo nem recuperar os dados — a informação (cliente daquela visita,
+condição negociada ali) se perdeu de vez.
+
+**Causa raiz** (`docs/js/sync.js`, versão anterior a este commit): qualquer
+erro que não fosse de rede/token E não fosse um "erro definitivo" (código
+Postgres 22/23/42/P0/PGRST116) contava como tentativa; ao chegar em 8
+tentativas, a operação virava `'descartada'` — um status que `listarOperacoesPendentes()`
+não inclui, então ela sumia de qualquer tela sem nunca ter sido de fato
+sincronizada nem revisada por um humano. A causa exata desse caso específico
+nunca foi confirmada (o próprio incidente impediu o diagnóstico), mas a falha
+de design é clara e vale independente da causa: **um dado de campo nunca pode
+ser apagado por uma lógica automática só porque tentou "muitas vezes"**.
+
+**Correção:**
+- `sync.js`: removido o descarte automático por contagem de tentativas.
+  Qualquer erro que não seja definitivo continua tentando **pra sempre**, a
+  cada ciclo — `tentativas` virou puramente informativo. Só erro definitivo
+  tira a operação do ciclo automático, e mesmo assim ela **não é apagada**:
+  vira `'descartada'` só no sentido de "para de tentar sozinha", nunca no
+  sentido de "desaparece". `DbLocal` nunca faz `DELETE FROM fila_operacoes`
+  em lugar nenhum do fluxo automático — a única função que apaga de verdade
+  (`apagarOperacaoDefinitivamente`) só é chamada a partir de uma confirmação
+  explícita do usuário.
+- **Tela "Pendências offline"** (novo item de menu, visível a qualquer perfil
+  logado, com contador no próprio menu): lista toda operação ainda não
+  confirmada no servidor — as que ainda estão tentando sozinhas (com um selo
+  "tentando há um tempo" a partir de 3 tentativas) e as que o motor não
+  consegue mais reenviar sozinho (selo "não sincronizou — precisa de
+  revisão"), cada uma com um resumo legível (cliente, produto, valor, motivo
+  do erro) e dois botões: **🔄 Tentar novamente agora** (zera tentativas e
+  reenvia na hora) e **🗑️ Descartar definitivamente** (com confirmação —
+  único jeito de apagar de vez).
+- **Indicador de offline** (`net-status.js`): quando existe qualquer operação
+  precisando de revisão, a pílula do rodapé fica vermelha, com texto
+  explícito ("⚠️ N operação(ões) precisam de atenção") e **não desaparece
+  sozinha nem some depois de um tempo** — só some quando a pendência for
+  resolvida. Tocar nela abre a tela de Pendências direto.
+
+**Importante — isto não teria evitado 100% deste incidente específico**, já
+que a causa provável foi a chamada nunca ter saído do aparelho por sinal
+ruim (não há tela que ajude se o dado nem tentou sair). O que a correção
+garante é que **a partir de agora, nenhuma tentativa alcança um limite
+arbitrário e desaparece sem ninguém saber** — o pior cenário possível vira
+"venda visível na tela de Pendências, precisando de atenção manual", nunca
+mais "venda que sumiu sem deixar rastro".
+
+Validado: harness Node reproduz o incidente (20 falhas seguidas com erro
+genérico) e confirma que a operação nunca sai do estado "erro"/pendente;
+suíte Chromium headless exercita a tela de Pendências renderizando itens
+reais, clicando nos botões de reenviar/descartar e no indicador — sem
+depender do plugin SQLite (que não existe em navegador puro).
 
 **GPS não pedia permissão** (`capturarLocalizacao`): o app usava
 `navigator.geolocation` puro (API do navegador). Dentro do WebView do

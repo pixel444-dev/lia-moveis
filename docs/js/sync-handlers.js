@@ -739,6 +739,122 @@
     return resultado;
   }
 
+  // Resumo legível de uma operação da fila, pra tela de Pendências — nunca
+  // deixa uma venda/baixa/recebimento/cadastro travado virar só um ID sem
+  // sentido pra quem está olhando. Resolve nome de cliente pelo cache
+  // quando existir; sem cache, cai num identificador curto (é só cosmético,
+  // os dados reais continuam inteiros no payload).
+  async function _resumoOperacao(op) {
+    var payload = null;
+    try { payload = JSON.parse(op.payload); } catch (e) {
+      return { titulo: 'Operação com dado corrompido', detalhes: [] };
+    }
+    var clientesCache = await _clientesDoCacheUnificado();
+    function nomeCliente(id) {
+      var c = clientesCache.find(function (x) { return String(x.id) === String(id); });
+      if (c) return c.nome + (c.codigo ? ' (#' + c.codigo + ')' : '');
+      return 'cliente ' + String(id || '—').slice(0, 8);
+    }
+    function fmtR(v) { return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }); }
+
+    if (op.tipo === 'venda_criar') {
+      var p = payload.params || {};
+      return {
+        titulo: 'Venda — ' + nomeCliente(p.p_cliente_id),
+        detalhes: [
+          'Produto: ' + (p.p_produto || '—'),
+          'Valor: ' + fmtR(p.p_valor),
+          'Tipo: ' + (p.p_tipo === 'entrada' ? ('Crediário ' + (p.p_num_parcelas || '?') + 'x') : 'À vista'),
+        ],
+      };
+    }
+    if (op.tipo === 'baixa_parcela') {
+      return {
+        titulo: 'Baixa de parcela',
+        detalhes: [
+          'Valor recebido: ' + fmtR(payload.valorPago),
+          'Forma: ' + (payload.forma || '—'),
+          'Data: ' + (payload.data || '—'),
+        ],
+      };
+    }
+    if (op.tipo === 'recebimento_registrar') {
+      return {
+        titulo: 'Recebimento (cobrador)',
+        detalhes: [
+          'Valor: ' + fmtR(payload.valorRecebido),
+          'Forma: ' + (payload.forma || '—'),
+          payload.observacao ? 'Obs.: ' + payload.observacao : null,
+        ].filter(Boolean),
+      };
+    }
+    if (op.tipo === 'cliente_upsert') {
+      var ehNovo = !payload.clienteId || /^offline-/.test(String(payload.clienteId));
+      return {
+        titulo: (ehNovo ? 'Novo cliente — ' : 'Edição de cliente — ') + ((payload.dados && payload.dados.nome) || nomeCliente(payload.clienteId)),
+        detalhes: [
+          payload.dados && payload.dados.telefone ? 'Telefone: ' + payload.dados.telefone : null,
+          payload.dados && payload.dados.cidade ? 'Cidade: ' + payload.dados.cidade : null,
+        ].filter(Boolean),
+      };
+    }
+    return { titulo: 'Operação: ' + op.tipo, detalhes: [] };
+  }
+
+  // Lista única pra tela de Pendências: tudo que ainda está tentando
+  // sincronizar sozinho (pendente/erro) + tudo que o motor desistiu de
+  // reenviar sozinho (travada — erro definitivo). NADA aqui foi apagado —
+  // são exatamente as linhas que ainda existem em fila_operacoes (ver
+  // DbLocal.listarOperacoesPendentes / listarOperacoesTravadas). Ordenada
+  // da mais recente pra mais antiga.
+  async function listarPendenciasOffline() {
+    if (!_nativo() || !window.DbLocal) return [];
+    var resultados = await Promise.all([
+      DbLocal.listarOperacoesPendentes(),
+      DbLocal.listarOperacoesTravadas(),
+    ]);
+    var todas = resultados[0].filter(function (op) { return op.tipo !== 'teste'; }).concat(resultados[1]);
+    var lista = [];
+    for (var i = 0; i < todas.length; i++) {
+      var op = todas[i];
+      var resumo = await _resumoOperacao(op);
+      lista.push({
+        id: op.id,
+        tipo: op.tipo,
+        travada: op.status === 'descartada',
+        // "precisa de atenção" também vale pra quem só está demorando
+        // muito (várias tentativas) — não precisa ter virado travada
+        // ainda pra alguém já querer dar uma olhada.
+        precisaAtencao: op.status === 'descartada' || (Number(op.tentativas) || 0) >= 3,
+        tentativas: Number(op.tentativas) || 0,
+        erroMsg: op.erro_msg || null,
+        criadoEm: op.criado_em,
+        titulo: resumo.titulo,
+        detalhes: resumo.detalhes,
+      });
+    }
+    lista.sort(function (a, b) { return String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')); });
+    return lista;
+  }
+
+  // Volta uma operação travada (ou só demorada) pro ciclo automático,
+  // zerando tentativas/erro, e tenta sincronizar na hora. Decisão sempre
+  // explícita do usuário na tela de Pendências.
+  async function reenviarPendencia(id) {
+    if (!window.DbLocal || !window.Sync) return;
+    await DbLocal.reenviarOperacao(id);
+    await Sync.atualizarContadorFila();
+    await Sync.sincronizarAgora();
+  }
+
+  // Único caminho que apaga uma operação de verdade — só chamado depois de
+  // o usuário confirmar explicitamente na tela de Pendências.
+  async function apagarPendenciaDefinitivamente(id) {
+    if (!window.DbLocal) return;
+    await DbLocal.apagarOperacaoDefinitivamente(id);
+    if (window.Sync) await Sync.atualizarContadorFila();
+  }
+
   function avisoOfflineHtml(texto) {
     return '<div style="background:#FAEEDA;border:1px solid #FAC775;color:#854F0B;border-radius:10px;'
       + 'padding:10px 14px;margin-bottom:10px;font-size:13px;">📴 '
@@ -782,6 +898,9 @@
     clienteDoCachePorCodigo: clienteDoCachePorCodigo,
     statusInadimplenciaDoCache: statusInadimplenciaDoCache,
     vendasOfflinePendentes: vendasOfflinePendentes,
+    listarPendenciasOffline: listarPendenciasOffline,
+    reenviarPendencia: reenviarPendencia,
+    apagarPendenciaDefinitivamente: apagarPendenciaDefinitivamente,
     avisoOfflineHtml: avisoOfflineHtml,
   };
 })();

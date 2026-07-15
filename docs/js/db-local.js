@@ -219,8 +219,9 @@
   }
 
   // Falha de negócio (não de rede) ao sincronizar: conta a tentativa e
-  // guarda o motivo. A operação continua elegível para retry (status
-  // 'erro' entra em listarOperacoesPendentes) até o motor decidir descartar.
+  // guarda o motivo. A operação continua elegível para retry pra sempre —
+  // nunca desiste sozinha (ver sync.js: só erro definitivo sai do ciclo
+  // automático, e mesmo assim sem apagar nada, ver listarOperacoesTravadas).
   async function registrarTentativa(id, erroMsg) {
     var conexao = getDb();
     if (!conexao) return;
@@ -237,6 +238,52 @@
       "SELECT COUNT(*) AS n FROM fila_operacoes WHERE status IN ('pendente', 'erro')"
     );
     return Number((res && res.values && res.values[0] && res.values[0].n) || 0);
+  }
+
+  // "Travada" = motor de sincronização desistiu de tentar sozinho (erro
+  // definitivo — ver ehDefinitivo em sync.js) OU o payload chegou
+  // corrompido. Continua gravada por inteiro no banco, nunca escondida:
+  // é isto que alimenta a tela de Pendências (ver OfflineFlow.
+  // listarPendenciasOffline), pra nenhuma venda/baixa/recebimento de
+  // campo sumir sem um humano decidir o que fazer com ela.
+  async function listarOperacoesTravadas() {
+    var conexao = getDb();
+    if (!conexao) return [];
+    var res = await conexao.query(
+      "SELECT * FROM fila_operacoes WHERE status = 'descartada' ORDER BY criado_em ASC"
+    );
+    return (res && res.values) || [];
+  }
+
+  async function contarOperacoesTravadas() {
+    var conexao = getDb();
+    if (!conexao) return 0;
+    var res = await conexao.query("SELECT COUNT(*) AS n FROM fila_operacoes WHERE status = 'descartada'");
+    return Number((res && res.values && res.values[0] && res.values[0].n) || 0);
+  }
+
+  // Devolve uma operação travada pro ciclo automático de retry — usado
+  // pela tela de Pendências quando o usuário decide tentar de novo (ex.:
+  // o motivo já foi corrigido no servidor). Zera tentativas e o erro.
+  async function reenviarOperacao(id) {
+    var conexao = getDb();
+    if (!conexao) return;
+    await conexao.run(
+      "UPDATE fila_operacoes SET status = 'pendente', tentativas = 0, erro_msg = NULL WHERE id = ?",
+      [id]
+    );
+  }
+
+  // ÚNICO lugar do sistema que de fato apaga uma operação da fila — e só
+  // deve ser chamado depois de o usuário confirmar explicitamente na tela
+  // de Pendências que quer descartar aquilo pra sempre. Em todo o resto do
+  // fluxo (inclusive quando o motor de sincronização desiste sozinho) a
+  // operação é só marcada 'descartada', nunca apagada — exatamente pra não
+  // repetir a perda silenciosa de um registro de campo.
+  async function apagarOperacaoDefinitivamente(id) {
+    var conexao = getDb();
+    if (!conexao) return;
+    await conexao.run('DELETE FROM fila_operacoes WHERE id = ?', [id]);
   }
 
   async function removerDoCache(tabela, registroId) {
@@ -297,6 +344,10 @@
     atualizarStatusOperacao: atualizarStatusOperacao,
     registrarTentativa: registrarTentativa,
     contarOperacoesPendentes: contarOperacoesPendentes,
+    listarOperacoesTravadas: listarOperacoesTravadas,
+    contarOperacoesTravadas: contarOperacoesTravadas,
+    reenviarOperacao: reenviarOperacao,
+    apagarOperacaoDefinitivamente: apagarOperacaoDefinitivamente,
     removerDoCache: removerDoCache,
     atualizarPayloadOperacao: atualizarPayloadOperacao,
     salvarFotoPendente: salvarFotoPendente,

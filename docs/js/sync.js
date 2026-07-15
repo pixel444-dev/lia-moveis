@@ -8,11 +8,18 @@
 (function () {
   'use strict';
 
-  // Quantas falhas de NEGÓCIO (nunca de rede) uma operação pode acumular
-  // antes de ser descartada. Erros de rede não contam: eles interrompem a
-  // rodada inteira e a operação continua 'pendente' para a próxima.
-  var MAX_TENTATIVAS = 8;
-
+  // Regra de ouro (violada uma vez, na prática, com uma venda de campo
+  // perdida de verdade): nenhuma operação — venda, baixa, recebimento,
+  // cadastro — pode ser apagada sozinha pelo sistema só porque falhou
+  // muitas vezes seguidas. Só existem dois destinos possíveis aqui:
+  //   1. sincronizado — deu certo, some da fila.
+  //   2. continua tentando pra sempre (erro comum/rede) OU passa a
+  //      'descartada' (erro definitivo — nunca vai dar certo sozinho),
+  //      mas em NENHUM dos dois casos o registro é apagado do banco local:
+  //      'descartada' só tira do ciclo automático de retry, o payload
+  //      inteiro continua ali, visível na tela de Pendências, até um
+  //      humano decidir manualmente reenviar ou apagar de vez
+  //      (ver DbLocal.reenviarOperacao / apagarOperacaoDefinitivamente).
   var handlers = {};
   var rodando = false;
 
@@ -43,9 +50,12 @@
 
   async function atualizarContadorFila(sincronizando) {
     if (!window.DbLocal || !window.NetStatus) return 0;
-    var n = 0;
-    try { n = await DbLocal.contarOperacoesPendentes(); } catch (e) { /* indicador é cosmético */ }
-    NetStatus.atualizarFila(n, !!sincronizando);
+    var n = 0, travadas = 0;
+    try {
+      n = await DbLocal.contarOperacoesPendentes();
+      travadas = await DbLocal.contarOperacoesTravadas();
+    } catch (e) { /* indicador é cosmético */ }
+    NetStatus.atualizarFila(n, !!sincronizando, travadas);
     return n;
   }
 
@@ -90,13 +100,23 @@
             console.warn('[SYNC] Rede/sessão indisponível no meio da rodada — parando por agora.', msg);
             break;
           }
-          if (ehDefinitivo(err) || (Number(op.tentativas) || 0) + 1 >= MAX_TENTATIVAS) {
-            console.error('[SYNC] Operação ' + op.id + ' (' + op.tipo + ') descartada: ' + msg);
+          if (ehDefinitivo(err)) {
+            // Só erro definitivo (nunca contagem de tentativas) tira a
+            // operação do ciclo automático — e mesmo assim ela NÃO é
+            // apagada, só marcada. Continua inteira, visível na tela de
+            // Pendências, até um humano decidir (ver DbLocal.
+            // listarOperacoesTravadas / apagarOperacaoDefinitivamente).
+            console.error('[SYNC] Operação ' + op.id + ' (' + op.tipo + ') não pôde ser reenviada automaticamente: ' + msg);
             await DbLocal.atualizarStatusOperacao(op.id, 'descartada', msg);
             if (typeof Logger !== 'undefined') {
-              Logger.error('sync', 'OPERACAO_DESCARTADA', 'Operação offline descartada', { tipo: op.tipo, operacao_id: op.id, erro: msg });
+              Logger.error('sync', 'OPERACAO_PRECISA_ATENCAO', 'Operação offline não sincronizou sozinha — precisa de revisão manual', { tipo: op.tipo, operacao_id: op.id, erro: msg });
             }
           } else {
+            // Nunca desiste sozinho por excesso de tentativas: um dado de
+            // campo (venda, baixa, recebimento) não pode sumir só porque
+            // um número arbitrário de tentativas foi atingido. Continua
+            // pendente pra sempre; "tentativas" é só informativo, usado
+            // pela tela de Pendências pra sinalizar "está demorando".
             console.warn('[SYNC] Operação ' + op.id + ' (' + op.tipo + ') falhou (tentativa ' + ((Number(op.tentativas) || 0) + 1) + '): ' + msg);
             await DbLocal.registrarTentativa(op.id, msg);
           }
