@@ -7402,12 +7402,10 @@ async function verClientesLocalidade(localidadeId, nomeLocalidade) {
   lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
   document.getElementById('modal-clientes-localidade').style.display = 'flex';
 
-  let { data, error } = await sb
-    .from('clientes')
-    .select('id, codigo, nome, cpf, telefone, endereco, cidade')
-    .eq('localidade_id', localidadeId)
-    .eq('cobrador_id', funcionarioLogado.id)
-    .order('nome');
+  // RPC em vez de query direta: um `.eq('cobrador_id', ...)` direto deixa de
+  // fora clientes que só chegam ao cobrador pela rota (mesmo problema já
+  // corrigido pra contagem nas migrations 0016/0020).
+  let { data, error } = await sb.rpc('clientes_da_localidade', { p_localidade_id: localidadeId });
 
   if (error) {
     // Sem rede: filtra a carteira salva no aparelho pela localidade.
