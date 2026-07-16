@@ -838,6 +838,7 @@ tr:hover td{background:#fafafa;}
         <option value="cobrador">Cobrador</option>
         <option value="vendedor">Vendedor</option>
         <option value="periodo">Período de vendas (várias fichas)</option>
+        <option value="equipe">Equipe (várias fichas)</option>
       </select>
     </div>
     <div id="ficha-busca-venda-wrap" style="display:flex;gap:8px;">
@@ -861,6 +862,27 @@ tr:hover td{background:#fafafa;}
         <input id="ficha-periodo-ate" type="date" style="padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
       </div>
       <button class="btn primario" onclick="buscarVendasPeriodoFicha()">Buscar vendas do período</button>
+    </div>
+    <div id="ficha-busca-equipe-wrap" style="display:none;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <div class="campo" style="margin-bottom:0;min-width:180px;">
+        <label style="font-size:12px;">Mês</label>
+        <select id="ficha-equipe-mes" onchange="carregarSemanasFichaEquipe()" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+          <option value="">Selecione...</option>
+        </select>
+      </div>
+      <div class="campo" style="margin-bottom:0;min-width:200px;">
+        <label style="font-size:12px;">Semana</label>
+        <select id="ficha-equipe-semana" onchange="carregarEquipesFichaEquipe()" disabled style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+          <option value="">Selecione o mês primeiro</option>
+        </select>
+      </div>
+      <div class="campo" style="margin-bottom:0;min-width:220px;">
+        <label style="font-size:12px;">Equipe</label>
+        <select id="ficha-equipe-equipe" disabled style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;">
+          <option value="">Selecione a semana primeiro</option>
+        </select>
+      </div>
+      <button class="btn primario" onclick="buscarVendasEquipeFicha()">Buscar vendas da equipe</button>
     </div>
   </div>
   <div id="ficha-resultado-clientes"></div>
@@ -9801,10 +9823,11 @@ let _vendasPeriodoAtual = [];
 
 async function trocarMetodoFicha() {
   const metodo = document.getElementById('ficha-filtro-tipo').value;
-  const ehCliente = metodo !== 'codigo_venda' && metodo !== 'periodo';
+  const ehCliente = metodo !== 'codigo_venda' && metodo !== 'periodo' && metodo !== 'equipe';
   document.getElementById('ficha-busca-venda-wrap').style.display = metodo === 'codigo_venda' ? 'flex' : 'none';
   document.getElementById('ficha-busca-cliente-wrap').style.display = ehCliente ? 'flex' : 'none';
   document.getElementById('ficha-busca-periodo-wrap').style.display = metodo === 'periodo' ? 'flex' : 'none';
+  document.getElementById('ficha-busca-equipe-wrap').style.display = metodo === 'equipe' ? 'flex' : 'none';
   document.getElementById('ficha-resultado-clientes').innerHTML = '';
   document.getElementById('ficha-resultado-periodo').innerHTML = '';
   document.getElementById('resultado-ficha').innerHTML = '';
@@ -9812,6 +9835,7 @@ async function trocarMetodoFicha() {
   _fichaAtual = null;
   _vendasPeriodoAtual = [];
   if (ehCliente) await trocarFiltroGenerico('ficha');
+  if (metodo === 'equipe') await carregarMesesFichaEquipe();
 }
 
 async function buscarVendaFicha() {
@@ -9936,6 +9960,8 @@ async function renderPreviewFicha() {
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' + frenteHtml + versoHtml + '</div>';
 }
 
+let _fichaLoteNomeArquivo = 'fichas';
+
 async function buscarVendasPeriodoFicha() {
   const de = document.getElementById('ficha-periodo-de').value;
   const ate = document.getElementById('ficha-periodo-ate').value;
@@ -9959,18 +9985,23 @@ async function buscarVendasPeriodoFicha() {
     document.getElementById('ficha-resultado-periodo').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhuma venda encontrada nesse período.</p>';
     return;
   }
+  _renderChecklistVendasFicha(_vendasPeriodoAtual, `fichas_${de}_a_${ate}`);
+}
+
+function _renderChecklistVendasFicha(vendas, nomeArquivoBase) {
+  _fichaLoteNomeArquivo = nomeArquivoBase;
   const fmtMoeda = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
   document.getElementById('ficha-resultado-periodo').innerHTML = `
     <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.75rem;margin-bottom:1rem;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;flex-wrap:wrap;gap:8px;">
-        <div style="font-size:13px;color:#555;">${_vendasPeriodoAtual.length} venda(s) encontrada(s) — desmarque as que não quer imprimir:</div>
+        <div style="font-size:13px;color:#555;">${vendas.length} venda(s) encontrada(s) — desmarque as que não quer imprimir:</div>
         <div style="display:flex;gap:8px;">
           <button class="btn" style="font-size:11px;" onclick="marcarTodasVendasPeriodo(true)">Marcar todas</button>
           <button class="btn" style="font-size:11px;" onclick="marcarTodasVendasPeriodo(false)">Desmarcar todas</button>
         </div>
       </div>
       <div style="max-height:340px;overflow-y:auto;">
-        ${_vendasPeriodoAtual.map((v, i) => `
+        ${vendas.map((v, i) => `
           <label style="display:flex;align-items:center;gap:10px;padding:.5rem .25rem;border-bottom:1px solid #f0f0f0;cursor:pointer;">
             <input type="checkbox" class="ficha-periodo-check" data-idx="${i}" checked>
             <div style="flex:1;">
@@ -10000,13 +10031,113 @@ async function imprimirFichasPeriodo() {
   btn.textContent = `Gerando ${idxsSelecionados.length} ficha(s)...`;
   try {
     const fichas = await Promise.all(idxsSelecionados.map(i => montarFichaDeVenda(_vendasPeriodoAtual[i])));
-    const de = document.getElementById('ficha-periodo-de').value;
-    const ate = document.getElementById('ficha-periodo-ate').value;
-    await gerarPdfFichas(fichas, `fichas_${de}_a_${ate}.pdf`);
+    await gerarPdfFichas(fichas, `${_fichaLoteNomeArquivo}.pdf`);
   } finally {
     btn.disabled = false;
     btn.textContent = textoOriginal;
   }
+}
+
+// ===== FICHAS POR EQUIPE (mês → semana → equipe) =====
+
+async function carregarMesesFichaEquipe() {
+  const selMes = document.getElementById('ficha-equipe-mes');
+  const selSemana = document.getElementById('ficha-equipe-semana');
+  const selEquipe = document.getElementById('ficha-equipe-equipe');
+  selSemana.innerHTML = '<option value="">Selecione o mês primeiro</option>';
+  selSemana.disabled = true;
+  selEquipe.innerHTML = '<option value="">Selecione a semana primeiro</option>';
+  selEquipe.disabled = true;
+  selMes.innerHTML = '<option value="">Carregando...</option>';
+  const nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const { data: meses, error } = await sb.from('meses_referencia').select('id, ano, mes')
+    .order('ano', { ascending: false }).order('mes', { ascending: false });
+  if (error || !meses || !meses.length) {
+    selMes.innerHTML = '<option value="">Nenhum mês cadastrado</option>';
+    return;
+  }
+  selMes.innerHTML = '<option value="">Selecione...</option>' +
+    meses.map(m => `<option value="${m.id}">${nomesMes[m.mes - 1]}/${m.ano}</option>`).join('');
+}
+
+async function carregarSemanasFichaEquipe() {
+  const mesId = document.getElementById('ficha-equipe-mes').value;
+  const selSemana = document.getElementById('ficha-equipe-semana');
+  const selEquipe = document.getElementById('ficha-equipe-equipe');
+  selEquipe.innerHTML = '<option value="">Selecione a semana primeiro</option>';
+  selEquipe.disabled = true;
+  if (!mesId) {
+    selSemana.innerHTML = '<option value="">Selecione o mês primeiro</option>';
+    selSemana.disabled = true;
+    return;
+  }
+  selSemana.innerHTML = '<option value="">Carregando...</option>';
+  const { data: semanas, error } = await sb.from('semanas_venda')
+    .select('id, numero, data_inicio, data_fim').eq('mes_id', mesId).order('numero');
+  if (error || !semanas || !semanas.length) {
+    selSemana.innerHTML = '<option value="">Nenhuma semana cadastrada</option>';
+    selSemana.disabled = true;
+    return;
+  }
+  selSemana.disabled = false;
+  selSemana.innerHTML = '<option value="">Selecione...</option>' +
+    semanas.map(s => {
+      const di = new Date(s.data_inicio + 'T12:00:00').toLocaleDateString('pt-BR');
+      const df = new Date(s.data_fim + 'T12:00:00').toLocaleDateString('pt-BR');
+      return `<option value="${s.id}">Semana ${s.numero} (${di} — ${df})</option>`;
+    }).join('');
+}
+
+async function carregarEquipesFichaEquipe() {
+  const semanaId = document.getElementById('ficha-equipe-semana').value;
+  const selEquipe = document.getElementById('ficha-equipe-equipe');
+  if (!semanaId) {
+    selEquipe.innerHTML = '<option value="">Selecione a semana primeiro</option>';
+    selEquipe.disabled = true;
+    return;
+  }
+  selEquipe.innerHTML = '<option value="">Carregando...</option>';
+  const { data: equipes, error } = await sb.from('equipes')
+    .select('id, rota, caminhoes(identificacao, placa), equipe_membros(papel, funcionarios(nome))')
+    .eq('semana_id', semanaId)
+    .order('data_saida');
+  if (error || !equipes || !equipes.length) {
+    selEquipe.innerHTML = '<option value="">Nenhuma equipe cadastrada nessa semana</option>';
+    selEquipe.disabled = true;
+    return;
+  }
+  selEquipe.disabled = false;
+  selEquipe.innerHTML = '<option value="">Selecione...</option>' +
+    equipes.map(eq => {
+      const chefe = eq.equipe_membros?.find(m => m.papel === 'chefe');
+      const label = `${eq.caminhoes?.identificacao || 'Equipe'}${chefe?.funcionarios?.nome ? ' — ' + chefe.funcionarios.nome : ''}${eq.rota ? ' (' + eq.rota + ')' : ''}`;
+      return `<option value="${eq.id}">${escHtml(label)}</option>`;
+    }).join('');
+}
+
+async function buscarVendasEquipeFicha() {
+  const selEquipe = document.getElementById('ficha-equipe-equipe');
+  const equipeId = selEquipe.value;
+  if (!equipeId) { alert('Selecione a equipe!'); return; }
+  document.getElementById('resultado-ficha').innerHTML = '';
+  document.getElementById('preview-ficha').innerHTML = '';
+  document.getElementById('ficha-resultado-periodo').innerHTML = '<p style="color:#888;padding:.5rem;">🔍 Buscando vendas da equipe...</p>';
+  const { data, error } = await sb.from('vendas')
+    .select('*, clientes(*), funcionarios(nome)')
+    .eq('equipe_id', equipeId)
+    .neq('status', 'devolvida')
+    .order('data_venda');
+  _vendasPeriodoAtual = data || [];
+  if (error) {
+    document.getElementById('ficha-resultado-periodo').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Erro ao buscar vendas da equipe.</p>';
+    return;
+  }
+  if (!_vendasPeriodoAtual.length) {
+    document.getElementById('ficha-resultado-periodo').innerHTML = '<p style="color:#888;padding:.5rem;">Nenhuma venda encontrada para essa equipe.</p>';
+    return;
+  }
+  const nomeEquipe = (selEquipe.options[selEquipe.selectedIndex]?.textContent || 'equipe').trim().replace(/[^a-zA-Z0-9]+/g, '_');
+  _renderChecklistVendasFicha(_vendasPeriodoAtual, `fichas_equipe_${nomeEquipe}`);
 }
 
 function _fichaFmtData(d) {
