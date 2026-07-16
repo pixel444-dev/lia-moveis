@@ -4787,7 +4787,13 @@ async function salvarNovoClienteVenda() {
     ['telefone', 'data_nascimento', 'bairro', 'referencia', 'cobrador_id', 'latitude', 'longitude', 'localizacao_endereco'].forEach(campo => {
       if (dados[campo]) dadosUpdate[campo] = dados[campo];
     });
-    const { error: errUpd } = await sb.from('clientes').update(dadosUpdate).eq('id', editId);
+    // Passa por RPC security definer (atualizar_cliente_venda, migration
+    // 0024) em vez de UPDATE direto: um UPDATE direto na tabela `clientes`
+    // aqui batia numa policy de RLS que não cobre "vendedor edita cliente
+    // achado pela busca global de CPF" — afetava 0 linhas, o que o
+    // Postgres/PostgREST não considera erro, e a tela mostrava "Cliente
+    // atualizado" com o nome digitado mesmo sem ter salvo nada.
+    const { data: clienteAtualizado, error: errUpd } = await sb.rpc('atualizar_cliente_venda', { p_cliente_id: editId, p_dados: dadosUpdate });
     if (errUpd) {
       if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(errUpd)) {
         window._fotoCasaBlob = window._vncFotoBlob || null;
@@ -4803,9 +4809,8 @@ async function salvarNovoClienteVenda() {
       clienteCodigo = window._clienteEncontradoCodigo || '';
     } else {
       clienteId = editId;
-      const { data: atualizado } = await sb.from('clientes').select('nome, codigo').eq('id', editId).single();
-      clienteNome = atualizado?.nome || nome;
-      clienteCodigo = atualizado?.codigo || window._clienteEncontradoCodigo || '';
+      clienteNome = clienteAtualizado?.nome || nome;
+      clienteCodigo = clienteAtualizado?.codigo || window._clienteEncontradoCodigo || '';
     }
   } else {
     const codigo = await gerarCodigoCliente();
@@ -4849,7 +4854,7 @@ async function salvarNovoClienteVenda() {
     } else {
       Logger.info('clientes', 'UPLOAD_FOTO', 'Foto enviada com sucesso (venda)', { tamanho_kb: tamanhoKbVnc });
       const { data: pub } = sb.storage.from('fotos-clientes').getPublicUrl(path);
-      await sb.from('clientes').update({ foto_casa: pub.publicUrl }).eq('id', clienteId);
+      await sb.rpc('atualizar_cliente_venda', { p_cliente_id: clienteId, p_dados: { foto_casa: pub.publicUrl } });
     }
   }
 
