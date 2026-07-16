@@ -4389,6 +4389,109 @@ async function abrirNovaVenda() {
   _sairModoVendaAvista();
   _setTituloFormClienteVenda(false);
   document.getElementById('modal-venda').style.display = 'flex';
+
+  // Retoma sozinho um pedido de "venda sem CPF" que já estava em andamento
+  // (pendente) ou já foi autorizado mas ainda não usado — mesmo que o
+  // vendedor tenha fechado e reaberto o app no meio do caminho.
+  if (perfilAtivo.perfil === 'vendedor') {
+    const autorizacaoAtivaSemCpf = await verificarAutorizacaoAtiva('sem_cpf', null);
+    if (autorizacaoAtivaSemCpf?.status === 'autorizado') {
+      document.getElementById('resultado-busca-cliente').innerHTML = '<div class="cliente-encontrado">✓ Você já tem uma autorização de venda sem CPF pronta para usar — preencha os dados abaixo.</div>';
+      await _prepararFormClienteSemCPF();
+    } else if (autorizacaoAtivaSemCpf?.status === 'pendente') {
+      _iniciarEsperaAutorizacaoSemCPF(autorizacaoAtivaSemCpf);
+    }
+  }
+}
+
+// Consulta se o vendedor logado já tem um token ativo (pendente ou
+// autorizado-e-ainda-não-consumido) pro tipo/cliente informado — chamado
+// sempre antes de bloquear ou de deixar pedir de novo, pra nunca depender só
+// de memória (fechar e reabrir o app não perde o estado). Offline (ou
+// qualquer outro erro) trata como "sem token" — o resto do fluxo já lida bem
+// com isso, mostrando o botão de solicitar normalmente.
+async function verificarAutorizacaoAtiva(tipo, clienteId) {
+  try {
+    const { data, error } = await sb.rpc('verificar_autorizacao_venda', { p_tipo: tipo, p_cliente_id: clienteId || null });
+    if (error) { Logger.warn('vendas', 'VERIFICAR_AUTORIZACAO', 'Falha ao checar token de autorização', { error_message: error.message }); return null; }
+    return data || null;
+  } catch (e) { return null; }
+}
+
+// Passo compartilhado entre as duas autorizações (inadimplente e sem CPF):
+// mostra o código, entra num poll de 5s e trata autorizado/negado. `render`
+// decide onde mostrar o painel (cada fluxo usa um container diferente);
+// `aoAutorizar` é o que fazer quando o gestor autoriza.
+function _iniciarEsperaAutorizacao(autorizacao, render, aoAutorizar) {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  autorizacaoAtualId = autorizacao.id;
+  render(`
+    <div style="background:#E6F1FB;border:1px solid #9fc6e8;border-radius:8px;padding:1rem;margin-bottom:.5rem;text-align:center;">
+      <div style="font-size:12px;color:#555;margin-bottom:6px;">Código da solicitação:</div>
+      <div style="font-size:28px;font-weight:700;color:#185FA5;letter-spacing:4px;">${escHtml(autorizacao.codigo)}</div>
+      <div style="font-size:12px;color:#888;margin-top:6px;">Aguardando autorização do gestor...</div>
+    </div>`);
+  pollInterval = setInterval(async () => {
+    const { data: aut } = await sb.from('autorizacoes_venda').select('status').eq('id', autorizacao.id).single();
+    if (aut?.status === 'autorizado') {
+      clearInterval(pollInterval); pollInterval = null;
+      aoAutorizar();
+    } else if (aut?.status === 'negado') {
+      clearInterval(pollInterval); pollInterval = null;
+      render(`
+        <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#A32D2D;font-weight:500;">
+          ✗ Autorização negada pelo gestor.
+        </div>`);
+    }
+  }, 5000);
+}
+
+function _iniciarEsperaAutorizacaoInadimplente(autorizacao, clienteId) {
+  const nomeCliente = window._dadosInadimplente?.nomeCliente || '';
+  const cabecalho = nomeCliente ? `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(nomeCliente)}</strong></div>` : '';
+  _iniciarEsperaAutorizacao(
+    autorizacao,
+    (html) => { document.getElementById('resultado-busca-cliente').innerHTML = cabecalho + html; },
+    async () => {
+      window._clienteInadimplente = false;
+      window._autorizacaoInadimplenteId = null;
+      document.getElementById('resultado-busca-cliente').innerHTML =
+        '<div class="cliente-encontrado">✓ Autorizado pelo gestor! Confira os dados do cliente antes de continuar.</div>';
+      await mostrarEdicaoClienteVenda(clienteId);
+    }
+  );
+}
+
+function _iniciarEsperaAutorizacaoSemCPF(autorizacao) {
+  const painel = document.getElementById('painel-autorizacao');
+  painel.style.display = 'block';
+  _iniciarEsperaAutorizacao(
+    autorizacao,
+    (html) => { painel.innerHTML = html; },
+    async () => {
+      painel.innerHTML = '<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#3B6D11;font-weight:500;">✓ Autorizado! Preencha os dados do cliente abaixo.</div>';
+      document.getElementById('resultado-busca-cliente').innerHTML = '<div class="cliente-nao-encontrado">Venda autorizada sem CPF. Preencha os dados abaixo.</div>';
+      await _prepararFormClienteSemCPF();
+    }
+  );
+}
+
+// Zera e mostra o formulário de cadastro de cliente sem CPF — usado tanto
+// logo após o gestor autorizar quanto ao reabrir o app e encontrar um token
+// já autorizado esperando (ver abrirNovaVenda).
+async function _prepararFormClienteSemCPF() {
+  await carregarCobradoresSelect('vnc-cobrador');
+  document.getElementById('form-novo-cliente-venda').style.display = 'block';
+  ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  var _msgTelVnc = document.getElementById('msg-telefone-vnc'); if (_msgTelVnc) _msgTelVnc.innerHTML = '';
+  var _elTelVnc = document.getElementById('vnc-telefone'); if (_elTelVnc) _elTelVnc.classList.remove('erro');
+  var _msgNascVnc = document.getElementById('msg-nascimento-vnc'); if (_msgNascVnc) _msgNascVnc.innerHTML = '';
+  var _elNascVnc = document.getElementById('vnc-nascimento'); if (_elNascVnc) _elNascVnc.classList.remove('erro');
+  _resetVncCidade();
+  document.getElementById('vnc-edit-id').value = '';
+  window._vncFotoUrl = null;
+  removerFotoVnc();
+  _setTituloFormClienteVenda(false);
 }
 
 function _setTituloFormClienteVenda(editando) {
@@ -4522,6 +4625,26 @@ async function buscarClientePorCPF() {
 
     if (perfilAtivo.perfil === 'vendedor' && info.qtd_atrasadas > 0) {
       window._dadosInadimplente = { clienteId: info.cliente_id, nomeCliente: info.nome, qtdAtrasadas: info.qtd_atrasadas, totalAtrasado: info.valor_atrasado };
+      // Consulta o token direto no banco antes de bloquear — nunca depende
+      // só de memória: sobrevive o vendedor fechar e reabrir o app no meio
+      // do caminho (ver verificarAutorizacaoAtiva).
+      const autorizacaoAtivaInad = await verificarAutorizacaoAtiva('inadimplente', info.cliente_id);
+      if (autorizacaoAtivaInad?.status === 'autorizado') {
+        window._clienteInadimplente = false;
+        div.innerHTML = `<div class="cliente-encontrado">✓ Venda para <strong>${escHtml(info.nome)}</strong> já autorizada pelo gestor — confira os dados antes de continuar.</div>`;
+        await mostrarEdicaoClienteVenda(info.cliente_id);
+        return;
+      }
+      document.getElementById('form-novo-cliente-venda').style.display = 'none';
+      document.getElementById('form-dados-venda').style.display = 'none';
+      document.getElementById('btn-salvar-venda').style.display = 'none';
+      window._clienteInadimplente = true;
+      if (autorizacaoAtivaInad?.status === 'pendente') {
+        window._autorizacaoInadimplenteId = autorizacaoAtivaInad.id;
+        div.innerHTML = `<div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>`;
+        _iniciarEsperaAutorizacaoInadimplente(autorizacaoAtivaInad, info.cliente_id);
+        return;
+      }
       div.innerHTML = `
         <div class="cliente-encontrado">✓ Cliente encontrado: <strong>${escHtml(info.nome)}</strong> — Código ${escHtml(info.codigo||'—')}</div>
         <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:12px 14px;margin-bottom:.75rem;">
@@ -4531,10 +4654,6 @@ async function buscarClientePorCPF() {
             Solicitar autorização do gestor
           </button>
         </div>`;
-      document.getElementById('form-novo-cliente-venda').style.display = 'none';
-      document.getElementById('form-dados-venda').style.display = 'none';
-      document.getElementById('btn-salvar-venda').style.display = 'none';
-      window._clienteInadimplente = true;
       window._autorizacaoInadimplenteId = null;
       return;
     }
@@ -5536,97 +5655,44 @@ function fecharModalVenda() {
   fecharModal('modal-venda');
 }
 
+// Idempotente (RPC solicitar_autorizacao_venda): se o vendedor já tem uma
+// solicitação pendente ou uma autorização ainda não usada, devolve ela em
+// vez de criar outra — clicar várias vezes não acumula mais pedidos.
 async function solicitarAutorizacaoSemCPF() {
   _sairModoVendaAvista();
-  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-  const codigo = Math.floor(100000 + Math.random() * 900000).toString();
   const painel = document.getElementById('painel-autorizacao');
   painel.style.display = 'block';
-  painel.innerHTML = `<div style="background:#E6F1FB;border:1px solid #9fc6e8;border-radius:8px;padding:1rem;margin-bottom:.5rem;text-align:center;">
-    <div style="font-size:13px;color:#185FA5;font-weight:500;">Solicitação enviada ao gestor</div>
-    <div style="font-size:12px;color:#888;margin-top:6px;">Aguardando autorização...</div>
-  </div>`;
-  const { data, error } = await sb.from('autorizacoes_venda').insert({
-    codigo,
-    vendedor_id: funcionarioLogado?.id || null,
-    equipe_id: equipeAtiva?.id || null,
-    status: 'pendente',
-    tipo: 'sem_cpf',
-    descricao: (funcionarioLogado?.nome || 'Vendedor') + ' — venda sem CPF',
-  }).select().single();
-  if (error) { painel.innerHTML = '<div class="msg erro">Erro ao enviar solicitação.</div>'; return; }
-  autorizacaoAtualId = data.id;
-  pollInterval = setInterval(async () => {
-    const { data: aut } = await sb.from('autorizacoes_venda').select('status').eq('id', autorizacaoAtualId).single();
-    if (aut?.status === 'autorizado') {
-      clearInterval(pollInterval); pollInterval = null;
-      painel.innerHTML = `<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#3B6D11;font-weight:500;">✓ Autorizado! Preencha os dados do cliente abaixo.</div>`;
-      document.getElementById('resultado-busca-cliente').innerHTML = '<div class="cliente-nao-encontrado">Venda autorizada sem CPF. Preencha os dados abaixo.</div>';
-      await carregarCobradoresSelect('vnc-cobrador');
-      document.getElementById('form-novo-cliente-venda').style.display = 'block';
-      ['vnc-nome','vnc-telefone','vnc-nascimento','vnc-endereco','vnc-bairro','vnc-cidade','vnc-referencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-      var _msgTelVnc = document.getElementById('msg-telefone-vnc'); if (_msgTelVnc) _msgTelVnc.innerHTML = '';
-      var _elTelVnc = document.getElementById('vnc-telefone'); if (_elTelVnc) _elTelVnc.classList.remove('erro');
-      var _msgNascVnc = document.getElementById('msg-nascimento-vnc'); if (_msgNascVnc) _msgNascVnc.innerHTML = '';
-      var _elNascVnc = document.getElementById('vnc-nascimento'); if (_elNascVnc) _elNascVnc.classList.remove('erro');
-      _resetVncCidade();
-      document.getElementById('vnc-edit-id').value = '';
-      window._vncFotoUrl = null;
-      removerFotoVnc();
-      _setTituloFormClienteVenda(false);
-    } else if (aut?.status === 'negado') {
-      clearInterval(pollInterval); pollInterval = null;
-      painel.innerHTML = `<div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:.75rem 1rem;margin-bottom:.5rem;text-align:center;color:#A32D2D;font-weight:500;">✗ Autorização negada pelo gestor.</div>`;
-    }
-  }, 5000);
+  painel.innerHTML = '<div style="text-align:center;color:#888;font-size:13px;">Enviando solicitação...</div>';
+  const { data: aut, error } = await sb.rpc('solicitar_autorizacao_venda', {
+    p_tipo: 'sem_cpf',
+    p_cliente_id: null,
+    p_equipe_id: equipeAtiva?.id || null,
+    p_descricao: (funcionarioLogado?.nome || 'Vendedor') + ' — venda sem CPF',
+  });
+  if (error) {
+    Logger.error('vendas', 'SOLICITAR_AUTH', 'Falha ao criar autorização sem CPF', { error_message: error.message });
+    painel.innerHTML = '<div class="msg erro">Erro ao enviar solicitação.</div>';
+    return;
+  }
+  _iniciarEsperaAutorizacaoSemCPF(aut);
 }
 
 async function solicitarAutorizacaoInadimplente() {
   const { clienteId, nomeCliente, qtdAtrasadas, totalAtrasado } = window._dadosInadimplente || {};
   if (!clienteId) { alert('Erro: dados do cliente não encontrados!'); return; }
-  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
-  const codigo = Math.floor(100000 + Math.random() * 900000).toString();
   const descricao = nomeCliente + ' — ' + qtdAtrasadas + ' parcela(s) atrasada(s) — R$ ' + Number(totalAtrasado).toLocaleString('pt-BR', {minimumFractionDigits: 2});
-  const { data: aut, error } = await sb.from('autorizacoes_venda').insert({
-    codigo,
-    vendedor_id: funcionarioLogado?.id || null,
-    equipe_id: equipeAtiva?.id || null,
-    status: 'pendente',
-    tipo: 'inadimplente',
-    cliente_id: clienteId,
-    descricao,
-  }).select().single();
+  const { data: aut, error } = await sb.rpc('solicitar_autorizacao_venda', {
+    p_tipo: 'inadimplente',
+    p_cliente_id: clienteId,
+    p_equipe_id: equipeAtiva?.id || null,
+    p_descricao: descricao,
+  });
   if (error) {
-    Logger.error('vendas', 'SOLICITAR_AUTH', 'Falha ao criar autorização inadimplente', { supabase_code: error.code });
+    Logger.error('vendas', 'SOLICITAR_AUTH', 'Falha ao criar autorização inadimplente', { error_message: error.message });
     alert('Erro ao solicitar autorização!'); return;
   }
-  Logger.info('vendas', 'SOLICITAR_AUTH', 'Autorização solicitada', { codigo });
-  window._autorizacaoInadimplenteId = aut.id;
-  const div = document.getElementById('resultado-busca-cliente');
-  div.innerHTML += `
-    <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:12px 14px;text-align:center;margin-top:.5rem;">
-      <div style="font-size:12px;color:#555;margin-bottom:6px;">Informe este código ao gestor:</div>
-      <div style="font-size:36px;font-weight:700;color:#185FA5;letter-spacing:6px;">${escHtml(codigo)}</div>
-      <div style="font-size:11px;color:#888;margin-top:6px;">Aguardando autorização...</div>
-    </div>`;
-  pollInterval = setInterval(async () => {
-    const { data } = await sb.from('autorizacoes_venda').select('status').eq('id', aut.id).single();
-    if (data?.status === 'autorizado') {
-      clearInterval(pollInterval); pollInterval = null;
-      window._clienteInadimplente = false;
-      window._autorizacaoInadimplenteId = null;
-      document.getElementById('resultado-busca-cliente').innerHTML =
-        `<div class="cliente-encontrado">✓ Autorizado pelo gestor! Confira os dados do cliente antes de continuar.</div>`;
-      await mostrarEdicaoClienteVenda(clienteId);
-    } else if (data?.status === 'negado') {
-      clearInterval(pollInterval); pollInterval = null;
-      document.getElementById('resultado-busca-cliente').innerHTML = `
-        <div style="background:#FCEBEB;border:1px solid #f5c6c6;border-radius:8px;padding:12px 14px;">
-          <div style="font-size:13px;font-weight:600;color:#A32D2D;">❌ Autorização negada pelo gestor.</div>
-          <div style="font-size:12px;color:#A32D2D;margin-top:4px;">Não é possível realizar esta venda.</div>
-        </div>`;
-    }
-  }, 5000);
+  Logger.info('vendas', 'SOLICITAR_AUTH', 'Autorização solicitada', { codigo: aut.codigo });
+  _iniciarEsperaAutorizacaoInadimplente(aut, clienteId);
 }
 
 async function carregarAutorizacoesPendentes() {
@@ -5635,20 +5701,40 @@ async function carregarAutorizacoesPendentes() {
   const { data } = await sb.from('autorizacoes_venda').select('*').eq('status', 'pendente').order('criado_em', { ascending: false });
   if (!data?.length) { wrap.style.display = 'none'; return; }
   wrap.style.display = 'block';
+
+  // Resolve vendedor e cliente à parte (em vez de embutir no select acima)
+  // pra não depender de a FK vendedor_id/cliente_id estar configurada de um
+  // jeito que o PostgREST consiga montar o join sozinho.
+  const vendedorIds = [...new Set(data.map(a => a.vendedor_id).filter(Boolean))];
+  const clienteIds = [...new Set(data.filter(a => a.tipo === 'inadimplente').map(a => a.cliente_id).filter(Boolean))];
+  const [{ data: vendedores }, { data: clientesEnvolvidos }] = await Promise.all([
+    vendedorIds.length ? sb.from('funcionarios').select('id, nome').in('id', vendedorIds) : Promise.resolve({ data: [] }),
+    clienteIds.length ? sb.from('clientes').select('id, nome, codigo').in('id', clienteIds) : Promise.resolve({ data: [] }),
+  ]);
+  const mapaVendedores = new Map((vendedores || []).map(v => [v.id, v.nome]));
+  const mapaClientes = new Map((clientesEnvolvidos || []).map(c => [c.id, c]));
+
   let rows = '';
   data.forEach(function(a) {
     const isInadimplente = a.tipo === 'inadimplente';
     const tipoBadge = isInadimplente
       ? '<span class="badge vermelho">Inadimplente</span>'
       : '<span class="badge amarelo">Sem CPF</span>';
-    const descricaoLinha = isInadimplente
-      ? (a.descricao || 'Cliente inadimplente')
-      : (a.codigo + ' solicitando venda sem CPF');
-    const hora = new Date(a.criado_em).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+    const nomeVendedor = mapaVendedores.get(a.vendedor_id) || 'Vendedor não identificado';
+    const cliente = isInadimplente ? mapaClientes.get(a.cliente_id) : null;
+    const dataHora = new Date(a.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const detalhes = isInadimplente
+      ? 'Cliente: <strong>' + escHtml(cliente?.nome || '—') + '</strong> (Código ' + escHtml(cliente?.codigo || '—') + ')'
+        + ' · ' + (a.qtd_atrasadas ?? '—') + ' parcela(s) em atraso'
+        + (a.valor_atrasado != null ? ' — R$ ' + Number(a.valor_atrasado).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '')
+      : 'Solicitando venda sem CPF';
+
     rows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #fde8b8;">'
       + '<div>'
-      + '<div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:2px;">' + tipoBadge + (isInadimplente ? ' ' + escHtml(a.codigo) : '') + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + escHtml(descricaoLinha) + ' · ' + hora + '</div>'
+      + '<div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:2px;">' + tipoBadge + ' Vendedor: ' + escHtml(nomeVendedor) + '</div>'
+      + '<div style="font-size:12px;color:#555;margin-bottom:2px;">' + detalhes + '</div>'
+      + '<div style="font-size:11px;color:#888;">Pedido em ' + dataHora + '</div>'
       + '</div>'
       + '<div style="display:flex;gap:6px;">'
       + '<button class="btn" style="font-size:11px;padding:3px 10px;background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;" onclick="autorizarVenda(\'' + a.id + '\')">Autorizar</button>'
