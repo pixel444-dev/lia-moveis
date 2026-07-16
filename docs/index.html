@@ -8,6 +8,7 @@
 <script src="js/vendor/supabase-js.js"></script>
 <script src="js/vendor/xlsx.full.min.js"></script>
 <script src="js/vendor/jspdf.umd.min.js"></script>
+<script src="js/vendor/pdf.min.js"></script>
 <script src="js/vendor/chart.umd.js"></script>
 <link rel="stylesheet" href="js/vendor/leaflet.css">
 <script src="js/vendor/leaflet.js"></script>
@@ -4165,7 +4166,43 @@ async function carregarCatalogoAtivo() {
       <div style="font-size:15px;font-weight:600;margin-bottom:10px;">${escHtml(catalogo.nome)}</div>
       <a class="btn primario" href="${escHtml(url)}" target="_blank" rel="noopener">📄 Abrir catálogo em PDF</a>
     </div>
-    <iframe src="${escHtml(url)}" style="width:100%;height:calc(100vh - 260px);min-height:420px;border:1px solid #e0e0e0;border-radius:12px;"></iframe>`;
+    <div id="catalogo-pdf-paginas"></div>`;
+  renderizarPdfNoContainer(url, 'catalogo-pdf-paginas');
+}
+
+// Desenha cada página do PDF num <canvas>, empilhadas (rolagem contínua tipo
+// revista digital). Necessário porque navegador mobile (Chrome/WebView
+// Android) não exibe PDF embutido em <iframe> — só mostra um card "Abrir"
+// (o plugin nativo de PDF do Chrome não roda dentro de frames no Android).
+// Renderizar com pdf.js em canvas funciona igual em qualquer navegador,
+// incluindo o WebView do app nativo.
+async function renderizarPdfNoContainer(url, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (!window.pdfjsLib) {
+    container.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Visualizador de PDF não carregou. Use "Abrir catálogo em PDF" acima.</p>';
+    return;
+  }
+  container.innerHTML = '<p style="color:#888;padding:1rem;">Carregando páginas do catálogo...</p>';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'js/vendor/pdf.worker.min.js';
+  try {
+    const doc = await pdfjsLib.getDocument(url).promise;
+    container.innerHTML = '';
+    const larguraDisponivel = container.clientWidth || 320;
+    for (let n = 1; n <= doc.numPages; n++) {
+      const pagina = await doc.getPage(n);
+      const escala = larguraDisponivel / pagina.getViewport({ scale: 1 }).width;
+      const viewport = pagina.getViewport({ scale: escala * (window.devicePixelRatio || 1) });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.cssText = 'width:100%;height:auto;display:block;margin-bottom:10px;border-radius:10px;border:1px solid #e0e0e0;';
+      container.appendChild(canvas);
+      await pagina.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    }
+  } catch (e) {
+    container.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Não foi possível exibir as páginas do catálogo aqui. Use "Abrir catálogo em PDF" acima.</p>';
+  }
 }
 
 function precoSugeridoProduto(nome) {
