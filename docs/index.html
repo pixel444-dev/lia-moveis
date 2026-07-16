@@ -5127,17 +5127,41 @@ async function carregarFonteItensVenda() {
   await carregarProdutosCatalogo();
   if (perfilAtivo.perfil === 'vendedor') {
     if (!equipeAtiva?.caminhao_id) { window._fonteItensVenda = []; return; }
-    const { data: estoque, error } = await sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', equipeAtiva.caminhao_id);
-    let linhas;
-    if (error) {
-      linhas = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error))
-        ? await OfflineFlow.estoqueCaminhaoDoCache(equipeAtiva.caminhao_id) : null;
-    } else {
-      linhas = estoque || [];
-      if (window.OfflineFlow) OfflineFlow.salvarEstoqueCaminhaoNoCache(equipeAtiva.caminhao_id, linhas);
+
+    // Equipe viajando em grupo: o estoque disponível pra venda combina o
+    // próprio caminhão com o(s) caminhão(ões) parceiro(s) do grupo.
+    let caminhaoIds = [equipeAtiva.caminhao_id];
+    if (equipeAtiva.grupo_id) {
+      const { data: parceiras } = await sb.from('equipes')
+        .select('caminhao_id')
+        .eq('grupo_id', equipeAtiva.grupo_id)
+        .eq('encerrada', false);
+      if (parceiras) {
+        caminhaoIds = [...new Set([equipeAtiva.caminhao_id, ...parceiras.map(p => p.caminhao_id).filter(Boolean)])];
+      }
     }
-    window._fonteItensVenda = (linhas || [])
-      .map(e => ({ nome: e.produtos?.nome || '', produtoId: e.produto_id, disponivel: e.quantidade }))
+
+    const porProduto = new Map(); // produtoId -> { nome, disponivel, doGrupo }
+    for (const caminhaoId of caminhaoIds) {
+      const { data: estoque, error } = await sb.from('caminhao_estoque').select('produto_id, quantidade, produtos(nome)').eq('caminhao_id', caminhaoId);
+      let linhas;
+      if (error) {
+        linhas = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error))
+          ? await OfflineFlow.estoqueCaminhaoDoCache(caminhaoId) : null;
+      } else {
+        linhas = estoque || [];
+        if (window.OfflineFlow) OfflineFlow.salvarEstoqueCaminhaoNoCache(caminhaoId, linhas);
+      }
+      (linhas || []).forEach(e => {
+        if (!e.produto_id || !e.quantidade) return;
+        const atual = porProduto.get(e.produto_id) || { nome: e.produtos?.nome || '', disponivel: 0, doGrupo: false };
+        atual.disponivel += e.quantidade;
+        if (caminhaoId !== equipeAtiva.caminhao_id) atual.doGrupo = true;
+        porProduto.set(e.produto_id, atual);
+      });
+    }
+    window._fonteItensVenda = Array.from(porProduto.entries())
+      .map(([produtoId, v]) => ({ nome: v.nome, produtoId, disponivel: v.disponivel, doGrupo: v.doGrupo }))
       .filter(f => f.nome && f.disponivel > 0);
   } else {
     window._fonteItensVenda = window._produtosCatalogo.map(p => ({ nome: p.nome, produtoId: p.id, disponivel: null }));
@@ -5151,7 +5175,7 @@ function novaLinhaItemVenda() {
   const div = document.createElement('div');
   div.className = 'item-venda-linha';
   div.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;';
-  const opcoes = fonte.map(f => `<option value="${escHtml(f.nome)}" data-produto-id="${f.produtoId || ''}">${escHtml(f.nome)}${isVendedor ? ' (' + f.disponivel + ' disponível' + (f.disponivel > 1 ? 'is' : '') + ')' : ''}</option>`).join('');
+  const opcoes = fonte.map(f => `<option value="${escHtml(f.nome)}" data-produto-id="${f.produtoId || ''}">${escHtml(f.nome)}${isVendedor ? ' (' + f.disponivel + ' disponível' + (f.disponivel > 1 ? 'is' : '') + (f.doGrupo ? ', inclui caminhão do grupo' : '') + ')' : ''}</option>`).join('');
   div.innerHTML = `
     <div style="flex:1;">
       <select class="iv-produto" onchange="onMudaItemVenda(this)" style="width:100%;padding:12px;font-size:15px;border-radius:10px;border:1px solid #ddd;">
@@ -11597,12 +11621,14 @@ function renderEquipes(semanas, equipes, somenteLeitura) {
       for (const eq of eqSemana) {
         const chefe = eq.equipe_membros?.find(m => m.papel === 'chefe');
         const ajudantes = eq.equipe_membros?.filter(m => m.papel === 'ajudante') || [];
+        const parceirasGrupo = eq.grupo_id ? eqSemana.filter(o => o.id !== eq.id && o.grupo_id === eq.grupo_id) : [];
         html += `<div class="eqsem-card">
           <div class="eqsem-card-top">
             <div>
               <div class="eqsem-card-titulo">${escHtml(eq.caminhoes?.identificacao||'—')} <span class="eqsem-card-placa">${escHtml(eq.caminhoes?.placa||'')}</span></div>
               <div class="eqsem-card-linha">Chefe: <strong>${escHtml(chefe?.funcionarios?.nome||'—')}</strong>${ajudantes.length?' · '+ajudantes.map(a=>escHtml(a.funcionarios?.nome||'')).join(', '):''}</div>
               ${eq.rota?`<div class="eqsem-card-linha">Rota: ${escHtml(eq.rota)}</div>`:''}
+              ${parceirasGrupo.length?`<div class="eqsem-card-linha">🔗 Estoque mesclado com: ${parceirasGrupo.map(p=>escHtml(p.caminhoes?.identificacao||'—')).join(', ')}</div>`:''}
               <div class="eqsem-card-linha">Saída: ${eq.data_saida?new Date(eq.data_saida+'T12:00:00').toLocaleDateString('pt-BR'):'—'}${eq.data_retorno?' · Retorno prev.: '+new Date(eq.data_retorno+'T12:00:00').toLocaleDateString('pt-BR'):''}</div>
             </div>
             <div style="text-align:right;flex-shrink:0;">
@@ -11936,6 +11962,7 @@ async function toggleDetalhesEquipe(equipeId) {
 
 async function abrirNovaEquipe() {
   document.getElementById('equipe-id').value = '';
+  document.getElementById('equipe-grupo-id').value = '';
   document.getElementById('equipe-rota').value = '';
   document.getElementById('equipe-meta').value = '';
   document.getElementById('equipe-data-saida').value = new Date().toISOString().split('T')[0];
@@ -11959,6 +11986,7 @@ async function abrirNovaEquipe() {
   const optsVend = (vendedores||[]).map(f=>`<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
   document.getElementById('equipe-chefe').innerHTML = '<option value="">Selecione...</option>'+optsVend;
   document.getElementById('equipe-ajudantes').innerHTML = optsVend;
+  atualizarOpcoesParceirasEquipe();
   document.getElementById('modal-nova-equipe').style.display = 'flex';
 }
 
@@ -11967,6 +11995,7 @@ async function abrirEditarEquipe(equipeId) {
   const eq = equipesAtivas.find(e => e.id === equipeId);
   if (!eq) { alert('Equipe não encontrada.'); return; }
   document.getElementById('equipe-id').value = eq.id;
+  document.getElementById('equipe-grupo-id').value = eq.grupo_id || '';
   document.getElementById('equipe-rota').value = eq.rota || '';
   document.getElementById('equipe-meta').value = eq.meta || '';
   document.getElementById('equipe-data-saida').value = eq.data_saida || '';
@@ -11994,7 +12023,26 @@ async function abrirEditarEquipe(equipeId) {
   document.getElementById('equipe-chefe').value = chefeMembro?.funcionario_id || '';
   document.getElementById('equipe-ajudantes').innerHTML = optsVend;
   Array.from(document.getElementById('equipe-ajudantes').options).forEach(o => { o.selected = ajudantesIds.has(o.value); });
+  atualizarOpcoesParceirasEquipe();
   document.getElementById('modal-nova-equipe').style.display = 'flex';
+}
+
+// Lista, no seletor "Viajando junto com outra(s) equipe(s)?", as demais
+// equipes em campo na mesma semana (excluindo a própria) — pré-seleciona as
+// que já estão no mesmo grupo desta equipe, se houver.
+function atualizarOpcoesParceirasEquipe() {
+  const semanaId = document.getElementById('equipe-semana').value;
+  const equipeId = document.getElementById('equipe-id').value;
+  const grupoId = document.getElementById('equipe-grupo-id').value;
+  const sel = document.getElementById('equipe-parceiras');
+  if (!sel) return;
+  const candidatas = (equipesAtivas || []).filter(e => e.semana_id === semanaId && !e.encerrada && e.id !== equipeId);
+  sel.innerHTML = candidatas.map(e => {
+    const chefe = e.equipe_membros?.find(m => m.papel === 'chefe')?.funcionarios?.nome || '';
+    const label = `${e.caminhoes?.identificacao || 'Caminhão'}${chefe ? ' — ' + chefe : ''}`;
+    const selecionada = !!(grupoId && e.grupo_id === grupoId);
+    return `<option value="${e.id}"${selecionada ? ' selected' : ''}>${escHtml(label)}</option>`;
+  }).join('');
 }
 
 async function salvarEquipe() {
@@ -12049,6 +12097,9 @@ async function salvarEquipe() {
     ajudantes.forEach(id => membros.push({ equipe_id: equipe.id, funcionario_id: id, papel: 'ajudante' }));
     const { error: errMembros } = await sb.from('equipe_membros').insert(membros);
     if (errMembros) console.error('Erro membros:', errMembros);
+    const parceiros = Array.from(document.getElementById('equipe-parceiras').selectedOptions).map(o => o.value);
+    const { error: errGrupo } = await sb.rpc('sincronizar_grupo_equipe', { p_equipe_id: equipe.id, p_parceiros: parceiros });
+    if (errGrupo) console.error('Erro ao sincronizar grupo de equipes:', errGrupo);
     fecharModal('modal-nova-equipe');
     await carregarEquipes();
   } catch(e) {
@@ -12891,6 +12942,7 @@ async function gerarProximoMes() {
       <button onclick="fecharModal('modal-nova-equipe')">×</button>
     </div>
     <input type="hidden" id="equipe-id">
+    <input type="hidden" id="equipe-grupo-id">
     <div class="grid2">
       <div class="campo">
         <label>Caminhão *</label>
@@ -12899,7 +12951,7 @@ async function gerarProximoMes() {
       </div>
       <div class="campo">
         <label>Semana *</label>
-        <select id="equipe-semana"><option value="">Selecione...</option></select>
+        <select id="equipe-semana" onchange="atualizarOpcoesParceirasEquipe()"><option value="">Selecione...</option></select>
       </div>
     </div>
     <div class="campo">
@@ -12909,6 +12961,10 @@ async function gerarProximoMes() {
     <div class="campo">
       <label>Ajudantes <span style="font-size:11px;color:#888;">(Ctrl+clique para selecionar múltiplos)</span></label>
       <select id="equipe-ajudantes" multiple style="height:90px;padding:6px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:100%;"></select>
+    </div>
+    <div class="campo">
+      <label>Viajando junto com outra(s) equipe(s)? <span style="font-size:11px;color:#888;">(o estoque dos caminhões passa a se mesclar nas vendas; Ctrl+clique para selecionar múltiplas)</span></label>
+      <select id="equipe-parceiras" multiple style="height:70px;padding:6px;border:1px solid #ddd;border-radius:8px;font-size:13px;width:100%;"></select>
     </div>
     <div class="campo">
       <label>Rota</label>
