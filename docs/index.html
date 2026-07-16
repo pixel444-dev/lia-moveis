@@ -4854,7 +4854,11 @@ async function salvarNovoClienteVenda() {
     } else {
       Logger.info('clientes', 'UPLOAD_FOTO', 'Foto enviada com sucesso (venda)', { tamanho_kb: tamanhoKbVnc });
       const { data: pub } = sb.storage.from('fotos-clientes').getPublicUrl(path);
-      await sb.rpc('atualizar_cliente_venda', { p_cliente_id: clienteId, p_dados: { foto_casa: pub.publicUrl } });
+      const { error: errFoto } = await sb.rpc('atualizar_cliente_venda', { p_cliente_id: clienteId, p_dados: { foto_casa: pub.publicUrl } });
+      if (errFoto) {
+        Logger.error('clientes', 'UPLOAD_FOTO', 'Falha ao vincular foto ao cliente (venda)', { supabase_code: errFoto.code });
+        alert(`Foto enviada, mas não foi possível vincular ao cliente: ${errFoto.message}`);
+      }
     }
   }
 
