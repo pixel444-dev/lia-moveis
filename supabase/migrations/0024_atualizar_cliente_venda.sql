@@ -13,7 +13,11 @@
 -- mas o UPDATE de clientes é). Resultado: o UPDATE roda, afeta 0 linhas, e
 -- como isso não é erro pra Postgres/PostgREST, a tela mostra "✓ Cliente
 -- atualizado" com o nome recém-digitado mesmo sem ter gravado nada — a
--- mesma foto acontecia no upload de foto_casa logo em seguida.
+-- mesma foto acontecia no upload de foto_casa logo em seguida. O mesmo
+-- padrão de UPDATE direto existe no handler de sincronização offline
+-- (docs/js/sync-handlers.js, handler 'cliente_upsert' e
+-- _reconciliarClientePorCpf) — lá é ainda pior, porque a operação enfileirada
+-- é dada como concluída e some da fila mesmo sem ter gravado nada.
 --
 -- Igual às duas correções anteriores para esta tabela: em vez de alargar a
 -- policy geral de UPDATE de `clientes`, criamos uma função security definer
