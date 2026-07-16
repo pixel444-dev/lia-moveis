@@ -62,11 +62,6 @@ body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#1a1a1a;}
 .card-metrica .label{font-size:11px;color:#888;margin-bottom:4px;}
 .card-metrica .valor{font-size:20px;font-weight:600;color:#1a1a1a;}
 .valor.verde{color:#3B6D11;}.valor.vermelho{color:#A32D2D;}.valor.azul{color:#185FA5;}.valor.amarelo{color:#854F0B;}
-.catalogo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;}
-.catalogo-card{background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem 1rem;text-align:center;}
-.catalogo-card-ico{font-size:32px;margin-bottom:10px;}
-.catalogo-card-nome{font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:6px;}
-.catalogo-card-preco{font-size:15px;font-weight:700;color:#185FA5;}
 .tabela-wrap{background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;margin-bottom:1.5rem;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th{background:#f9f9f9;padding:9px 12px;text-align:left;font-weight:500;color:#666;font-size:11px;border-bottom:1px solid #e0e0e0;}
@@ -546,8 +541,16 @@ tr:hover td{background:#fafafa;}
     <div class="page" id="page-catalogo">
       <div class="topbar-pg">
         <div class="page-title" style="margin:0">🛋️ Catálogo</div>
+        <button class="btn primario" id="btn-novo-catalogo" onclick="abrirUploadCatalogo()" style="display:none;">+ Novo catálogo</button>
       </div>
-      <div id="lista-catalogo">Carregando...</div>
+      <div id="catalogo-gestor-wrap" style="display:none;">
+        <div id="catalogo-atual-wrap" style="margin-bottom:1.5rem;"></div>
+        <div class="page-title" style="font-size:14px;margin-bottom:.75rem;">Histórico</div>
+        <div id="lista-catalogos-historico">Carregando...</div>
+      </div>
+      <div id="catalogo-vendedor-wrap">
+        <div id="catalogo-viewer">Carregando...</div>
+      </div>
     </div>
 
     <div class="page" id="page-clientes">
@@ -1509,6 +1512,29 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
+<!-- MODAL CATÁLOGO -->
+<div class="modal-bg" id="modal-catalogo">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <strong>Novo catálogo</strong>
+      <button onclick="fecharModal('modal-catalogo')">×</button>
+    </div>
+    <div class="campo">
+      <label>Nome do catálogo *</label>
+      <input id="catalogo-nome" type="text" placeholder="Ex: Catálogo 2026">
+    </div>
+    <div class="campo">
+      <label>Arquivo PDF *</label>
+      <input id="catalogo-arquivo" type="file" accept="application/pdf">
+    </div>
+    <div id="msg-catalogo"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="fecharModal('modal-catalogo')">Cancelar</button>
+      <button class="btn primario" id="btn-salvar-catalogo" onclick="salvarCatalogo()">Publicar catálogo</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function toggleMenu() {
   document.querySelector('.sidebar').classList.toggle('aberta');
@@ -2215,7 +2241,7 @@ function aplicarPermissoes(perfil) {
   // Visibilidade por data-page (robusto contra emojis no textContent)
   const regras = {
     dashboard:           gestor,
-    catalogo:            vendedor,
+    catalogo:            vendedor || gestor,
     clientes:            gestorOuCobrador,
     rotas:               gestor,
     meses:               gestor,
@@ -2260,6 +2286,8 @@ function aplicarPermissoes(perfil) {
   if (btnNovoCliente) btnNovoCliente.style.display = gestor ? '' : 'none';
   const btnNovaEquipe = document.getElementById('btn-nova-equipe');
   if (btnNovaEquipe) btnNovaEquipe.style.display = gestor ? '' : 'none';
+  const btnNovoCatalogo = document.getElementById('btn-novo-catalogo');
+  if (btnNovoCatalogo) btnNovoCatalogo.style.display = gestor ? '' : 'none';
   const buscaVendas = document.getElementById('busca-vendas-wrap');
   if (buscaVendas) buscaVendas.style.display = gestor ? '' : 'none';
 }
@@ -2271,7 +2299,7 @@ function pg(nome, el) {
   el.classList.add('active');
   if (rankingPollInterval) { clearInterval(rankingPollInterval); rankingPollInterval = null; }
   if (nome === 'dashboard') carregarDashboard();
-  if (nome === 'catalogo') carregarCatalogoVendedor();
+  if (nome === 'catalogo') carregarPaginaCatalogo();
   if (nome === 'rotas') carregarRotas();
   if (nome === 'meses') carregarMeses();
   if (nome === 'clientes') carregarClientes();
@@ -3967,21 +3995,156 @@ async function carregarProdutosCatalogo() {
   return window._produtosCatalogo;
 }
 
-async function carregarCatalogoVendedor() {
-  const el = document.getElementById('lista-catalogo');
-  if (!el) return;
-  el.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
-  const produtos = await carregarProdutosCatalogo();
-  if (!produtos.length) {
-    el.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum produto disponível no momento.</p>';
+// ===== CATÁLOGO EM PDF =====
+// Gestor publica um PDF (fica guardado no bucket "catalogos" + uma linha na
+// tabela catalogos); vendedor só vê o catálogo ativo, sempre a primeira
+// tela ao abrir o app (ver carregarDashboard). Publicar um novo desativa o
+// anterior automaticamente (RPC publicar_catalogo), mas o histórico continua
+// acessível pro gestor reativar ou excluir.
+
+async function carregarPaginaCatalogo() {
+  const ehGestor = perfilAtivo.perfil === 'gestor';
+  const wrapGestor = document.getElementById('catalogo-gestor-wrap');
+  const wrapVendedor = document.getElementById('catalogo-vendedor-wrap');
+  if (wrapGestor) wrapGestor.style.display = ehGestor ? '' : 'none';
+  if (wrapVendedor) wrapVendedor.style.display = ehGestor ? 'none' : '';
+  if (ehGestor) await carregarCatalogosGestor();
+  else await carregarCatalogoAtivo();
+}
+
+async function carregarCatalogosGestor() {
+  const atualWrap = document.getElementById('catalogo-atual-wrap');
+  const historico = document.getElementById('lista-catalogos-historico');
+  if (!atualWrap || !historico) return;
+  atualWrap.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+  historico.innerHTML = '';
+  const { data, error } = await sb.from('catalogos').select('*').order('criado_em', { ascending: false });
+  if (error) {
+    atualWrap.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao carregar catálogos.</p>';
     return;
   }
-  el.innerHTML = '<div class="catalogo-grid">' + produtos.map(p => `
-    <div class="catalogo-card">
-      <div class="catalogo-card-ico">🛋️</div>
-      <div class="catalogo-card-nome">${escHtml(p.nome)}</div>
-      <div class="catalogo-card-preco">${p.preco != null ? 'R$ ' + Number(p.preco).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : 'Preço sob consulta'}</div>
-    </div>`).join('') + '</div>';
+  const lista = data || [];
+  window._catalogosGestor = lista;
+  const ativo = lista.find(c => c.ativo);
+  if (!ativo) {
+    atualWrap.innerHTML = '<div class="tabela-wrap" style="padding:1.25rem;color:#888;font-size:13px;">Nenhum catálogo publicado ainda. Envie um PDF para os vendedores verem ao abrir o app.</div>';
+  } else {
+    const url = await urlAssinada('catalogos', ativo.arquivo_path);
+    atualWrap.innerHTML = `
+      <div class="dv2-card">
+        <div class="dv2-card-title">Catálogo ativo <span class="badge verde">Publicado</span></div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:4px;">${escHtml(ativo.nome)}</div>
+        <div style="font-size:12px;color:#888;margin-bottom:12px;">Publicado em ${new Date(ativo.criado_em).toLocaleString('pt-BR')}</div>
+        ${url ? `<a class="btn primario" href="${escHtml(url)}" target="_blank" rel="noopener">📄 Ver PDF</a>` : ''}
+      </div>`;
+  }
+  const antigos = lista.filter(c => !c.ativo);
+  if (!antigos.length) {
+    historico.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum catálogo anterior.</p>';
+    return;
+  }
+  historico.innerHTML = `
+    <div class="tabela-wrap"><table>
+      <thead><tr><th>Nome</th><th>Publicado em</th><th>Ações</th></tr></thead>
+      <tbody>${antigos.map(c => {
+        const nomeEsc = escJs(c.nome);
+        return `
+        <tr>
+          <td>${escHtml(c.nome)}</td>
+          <td>${new Date(c.criado_em).toLocaleString('pt-BR')}</td>
+          <td>
+            <button class="btn" style="font-size:11px;padding:3px 8px;" onclick="verCatalogo('${c.id}')">Ver</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="reativarCatalogo('${c.id}')">Reativar</button>
+            <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;color:#C0392B;border-color:#C0392B;" onclick="excluirCatalogo('${c.id}','${nomeEsc}')">Excluir</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+async function verCatalogo(id) {
+  const catalogo = (window._catalogosGestor || []).find(c => c.id === id);
+  if (!catalogo) return;
+  const url = await urlAssinada('catalogos', catalogo.arquivo_path);
+  if (url) window.open(url, '_blank');
+  else alert('Não foi possível abrir o catálogo agora.');
+}
+
+async function reativarCatalogo(id) {
+  const { error } = await sb.rpc('ativar_catalogo', { p_id: id });
+  if (error) { alert('Erro ao ativar catálogo: ' + error.message); return; }
+  carregarCatalogosGestor();
+}
+
+async function excluirCatalogo(id, nome) {
+  if (!confirm('Excluir o catálogo "' + nome + '"?\nEsta ação não pode ser desfeita.')) return;
+  const { error } = await sb.from('catalogos').delete().eq('id', id);
+  if (error) { alert('Erro ao excluir: ' + error.message); return; }
+  carregarCatalogosGestor();
+}
+
+function abrirUploadCatalogo() {
+  document.getElementById('catalogo-nome').value = '';
+  document.getElementById('catalogo-arquivo').value = '';
+  document.getElementById('msg-catalogo').innerHTML = '';
+  document.getElementById('modal-catalogo').style.display = 'flex';
+}
+
+async function salvarCatalogo() {
+  const btn = document.getElementById('btn-salvar-catalogo');
+  const msg = document.getElementById('msg-catalogo');
+  const nome = document.getElementById('catalogo-nome').value.trim();
+  const arquivo = document.getElementById('catalogo-arquivo').files[0];
+  if (!nome) { msg.innerHTML = '<div class="msg erro">Digite um nome para o catálogo!</div>'; return; }
+  if (!arquivo) { msg.innerHTML = '<div class="msg erro">Selecione o arquivo PDF!</div>'; return; }
+  if (arquivo.type !== 'application/pdf') { msg.innerHTML = '<div class="msg erro">O arquivo precisa ser um PDF!</div>'; return; }
+  msg.innerHTML = '';
+  const original = _travarBotao(btn, 'Enviando...');
+  try {
+    const caminho = Date.now() + '_' + arquivo.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const { error: errUpload } = await sb.storage.from('catalogos').upload(caminho, arquivo, { contentType: 'application/pdf', upsert: true });
+    if (errUpload) { msg.innerHTML = `<div class="msg erro">Erro ao enviar arquivo: ${escHtml(errUpload.message)}</div>`; return; }
+    const { error: errRpc } = await sb.rpc('publicar_catalogo', { p_nome: nome, p_arquivo_path: caminho });
+    if (errRpc) { msg.innerHTML = `<div class="msg erro">Erro ao publicar: ${escHtml(errRpc.message)}</div>`; return; }
+    fecharModal('modal-catalogo');
+    carregarCatalogosGestor();
+  } finally {
+    _destravarBotao(btn, original);
+  }
+}
+
+async function carregarCatalogoAtivo() {
+  const el = document.getElementById('catalogo-viewer');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+  const { data, error } = await sb.from('catalogos').select('*').eq('ativo', true).order('criado_em', { ascending: false }).limit(1).maybeSingle();
+  let catalogo = data;
+  if (error) {
+    catalogo = (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(error))
+      ? await OfflineFlow.catalogoAtivoDoCache() : null;
+    if (!catalogo) {
+      el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Não foi possível carregar o catálogo agora. Verifique sua conexão.</p>';
+      return;
+    }
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarCatalogoAtivoNoCache(catalogo);
+  }
+  if (!catalogo) {
+    el.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum catálogo publicado ainda.</p>';
+    return;
+  }
+  const url = await urlAssinada('catalogos', catalogo.arquivo_path);
+  if (!url) {
+    el.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Sem conexão — não foi possível abrir o PDF do catálogo agora.</p>';
+    return;
+  }
+  el.innerHTML = `
+    <div class="dv2-card" style="margin-bottom:1rem;">
+      <div style="font-size:15px;font-weight:600;margin-bottom:10px;">${escHtml(catalogo.nome)}</div>
+      <a class="btn primario" href="${escHtml(url)}" target="_blank" rel="noopener">📄 Abrir catálogo em PDF</a>
+    </div>
+    <iframe src="${escHtml(url)}" style="width:100%;height:calc(100vh - 260px);min-height:420px;border:1px solid #e0e0e0;border-radius:12px;"></iframe>`;
 }
 
 function precoSugeridoProduto(nome) {

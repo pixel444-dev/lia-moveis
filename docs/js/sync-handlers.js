@@ -656,6 +656,23 @@
     return lista.length ? lista : null;
   }
 
+  // Só guarda os metadados (nome, caminho do arquivo) do catálogo em PDF
+  // ativo — o PDF em si sempre vem da rede (URL assinada), não é baixado
+  // pra abrir offline. Isso permite ao menos mostrar "catálogo X publicado"
+  // e um aviso de sem conexão, em vez de tela em branco, quando o vendedor
+  // abre o app sem internet.
+  async function salvarCatalogoAtivoNoCache(catalogo) {
+    if (!_nativo() || !window.DbLocal || !catalogo) return;
+    try { await DbLocal.salvarNoCache('catalogo_ativo', [Object.assign({ id: 'ativo' }, catalogo)]); }
+    catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function catalogoAtivoDoCache() {
+    if (!_nativo() || !window.DbLocal) return null;
+    var lista = await DbLocal.lerDoCache('catalogo_ativo');
+    return lista.length ? lista[0] : null;
+  }
+
   async function salvarMembrosEquipeNoCache(equipeId, lista) {
     if (!_nativo() || !window.DbLocal || !equipeId || !Array.isArray(lista)) return;
     try {
@@ -939,6 +956,8 @@
     estoqueCaminhaoDoCache: estoqueCaminhaoDoCache,
     salvarProdutosCatalogoNoCache: salvarProdutosCatalogoNoCache,
     produtosCatalogoDoCache: produtosCatalogoDoCache,
+    salvarCatalogoAtivoNoCache: salvarCatalogoAtivoNoCache,
+    catalogoAtivoDoCache: catalogoAtivoDoCache,
     salvarMembrosEquipeNoCache: salvarMembrosEquipeNoCache,
     membrosEquipeDoCache: membrosEquipeDoCache,
     salvarVendasEquipeNoCache: salvarVendasEquipeNoCache,
