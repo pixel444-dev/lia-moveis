@@ -62,6 +62,11 @@ body{font-family:system-ui,sans-serif;background:#f5f5f5;color:#1a1a1a;}
 .card-metrica .label{font-size:11px;color:#888;margin-bottom:4px;}
 .card-metrica .valor{font-size:20px;font-weight:600;color:#1a1a1a;}
 .valor.verde{color:#3B6D11;}.valor.vermelho{color:#A32D2D;}.valor.azul{color:#185FA5;}.valor.amarelo{color:#854F0B;}
+.catalogo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;}
+.catalogo-card{background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem 1rem;text-align:center;}
+.catalogo-card-ico{font-size:32px;margin-bottom:10px;}
+.catalogo-card-nome{font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:6px;}
+.catalogo-card-preco{font-size:15px;font-weight:700;color:#185FA5;}
 .tabela-wrap{background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;margin-bottom:1.5rem;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th{background:#f9f9f9;padding:9px 12px;text-align:left;font-weight:500;color:#666;font-size:11px;border-bottom:1px solid #e0e0e0;}
@@ -474,6 +479,7 @@ tr:hover td{background:#fafafa;}
     <div class="nav-grupo">
       <div class="nav-sep">Geral</div>
       <div class="nav-item active" data-page="dashboard" onclick="pg('dashboard',this)"><span class="nav-ico">📊</span>Dashboard</div>
+      <div class="nav-item" id="nav-catalogo" data-page="catalogo" onclick="pg('catalogo',this)"><span class="nav-ico">🛋️</span>Catálogo</div>
       <div class="nav-item" data-page="clientes" onclick="pg('clientes',this)"><span class="nav-ico">👥</span>Clientes</div>
       <div class="nav-item" id="nav-funcionarios" data-page="funcionarios" onclick="pg('funcionarios',this)"><span class="nav-ico">🧑‍💼</span>Funcionários</div>
       <div class="nav-item" id="nav-produtos" data-page="produtos" onclick="pg('produtos',this)"><span class="nav-ico">📦</span>Produtos</div>
@@ -535,6 +541,13 @@ tr:hover td{background:#fafafa;}
     <div class="page active" id="page-dashboard">
       <div class="page-title" style="display:none;">Dashboard</div>
       <div id="dash-inner"></div>
+    </div>
+
+    <div class="page" id="page-catalogo">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">🛋️ Catálogo</div>
+      </div>
+      <div id="lista-catalogo">Carregando...</div>
     </div>
 
     <div class="page" id="page-clientes">
@@ -2196,11 +2209,14 @@ async function limparLogsAntigos() {
 function aplicarPermissoes(perfil) {
   const gestor = perfil === 'gestor';
   const cobrador = perfil === 'cobrador';
+  const vendedor = perfil === 'vendedor';
   const gestorOuCobrador = gestor || cobrador;
 
   // Visibilidade por data-page (robusto contra emojis no textContent)
   const regras = {
     dashboard:           gestor,
+    catalogo:            vendedor,
+    clientes:            gestorOuCobrador,
     rotas:               gestor,
     meses:               gestor,
     funcionarios:        gestor,
@@ -2255,6 +2271,7 @@ function pg(nome, el) {
   el.classList.add('active');
   if (rankingPollInterval) { clearInterval(rankingPollInterval); rankingPollInterval = null; }
   if (nome === 'dashboard') carregarDashboard();
+  if (nome === 'catalogo') carregarCatalogoVendedor();
   if (nome === 'rotas') carregarRotas();
   if (nome === 'meses') carregarMeses();
   if (nome === 'clientes') carregarClientes();
@@ -2805,6 +2822,9 @@ async function carregarDashboard() {
     if (perfilAtivo?.perfil === 'cobrador') {
       const el = document.querySelector('.nav-item[data-page="cobrancas"]');
       if (el) pg('cobrancas', el);
+    } else if (perfilAtivo?.perfil === 'vendedor') {
+      const el = document.querySelector('.nav-item[data-page="catalogo"]');
+      if (el) pg('catalogo', el);
     }
     return;
   }
@@ -3945,6 +3965,23 @@ async function carregarProdutosCatalogo() {
   window._produtosCatalogo = data || [];
   if (window.OfflineFlow) OfflineFlow.salvarProdutosCatalogoNoCache(window._produtosCatalogo);
   return window._produtosCatalogo;
+}
+
+async function carregarCatalogoVendedor() {
+  const el = document.getElementById('lista-catalogo');
+  if (!el) return;
+  el.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+  const produtos = await carregarProdutosCatalogo();
+  if (!produtos.length) {
+    el.innerHTML = '<p style="color:#888;padding:1rem;">Nenhum produto disponível no momento.</p>';
+    return;
+  }
+  el.innerHTML = '<div class="catalogo-grid">' + produtos.map(p => `
+    <div class="catalogo-card">
+      <div class="catalogo-card-ico">🛋️</div>
+      <div class="catalogo-card-nome">${escHtml(p.nome)}</div>
+      <div class="catalogo-card-preco">${p.preco != null ? 'R$ ' + Number(p.preco).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : 'Preço sob consulta'}</div>
+    </div>`).join('') + '</div>';
 }
 
 function precoSugeridoProduto(nome) {
