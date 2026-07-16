@@ -110,21 +110,39 @@ tr:hover td{background:#fafafa;}
 .cliente-nao-encontrado{background:#FAEEDA;border:1px solid #FAC775;border-radius:8px;padding:10px 14px;margin-bottom:.75rem;font-size:13px;}
 .secao{font-size:12px;font-weight:600;color:#185FA5;margin:.875rem 0 .5rem;padding-bottom:4px;border-bottom:1px solid #e0e0e0;}
 .parcelas-preview{background:#f9f9f9;border:1px solid #e0e0e0;border-radius:8px;padding:10px 14px;margin-top:.5rem;font-size:12px;color:#555;}
-.carne-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:.5rem;}
-.carne-item{border:1px solid #333;border-radius:6px;padding:12px 14px;font-size:12px;position:relative;background:#fff;}
-.carne-pago{opacity:.6;background:#f9f9f9;}
-.carne-devolvido{opacity:.6;background:#f9f9f9;}
-.carne-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding-bottom:6px;border-bottom:1px dashed #ccc;}
-.carne-empresa{font-weight:700;font-size:13px;color:#185FA5;}
-.carne-codigo{font-size:11px;color:#888;}
-.carne-cliente{font-size:13px;margin-bottom:2px;}
-.carne-produto{font-size:11px;color:#666;margin-bottom:8px;}
-.carne-linha{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;}
-.carne-campo{text-align:center;}
-.carne-label{font-size:10px;color:#888;margin-bottom:2px;}
-.carne-valor-destaque{font-size:13px;font-weight:700;color:#1a1a1a;}
-.carne-assinatura{font-size:10px;color:#888;margin-top:4px;border-top:1px solid #ddd;padding-top:4px;}
-.carne-status-label{font-size:11px;font-weight:700;color:#A32D2D;text-align:center;margin-top:4px;}
+.carne-sheet{width:210mm;max-width:100%;margin:.5rem auto 0;background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;}
+.carne-row{position:relative;display:flex;flex-direction:column;border-bottom:1px dashed #c7c2b3;}
+.carne-row:last-child{border-bottom:none;}
+.carne-row-vias{position:relative;display:flex;}
+.carne-row-tesoura{position:absolute;color:#b7b2a3;font-size:11px;line-height:1;pointer-events:none;}
+.carne-row-rodape{border-top:1px solid #f0ede4;padding:3px 10px;text-align:center;font-size:9.5px;color:#a39e93;}
+.carne-via{display:flex;flex-direction:column;box-sizing:border-box;min-width:0;}
+.carne-via-esq{width:40%;flex-shrink:0;border-right:1px dashed #c7c2b3;}
+.carne-via-dir{width:60%;}
+.carne-via-header{display:flex;align-items:center;gap:7px;padding:7px 10px;}
+.carne-via-empresa{color:#fff;font-weight:800;font-size:13px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.carne-via-badge{margin-left:auto;flex-shrink:0;font-size:8px;font-weight:600;color:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.45);border-radius:10px;padding:2px 7px;letter-spacing:.03em;white-space:nowrap;}
+.carne-via-loja{padding:3px 10px 0;font-size:8px;color:#8a8578;line-height:1.35;}
+.carne-via-sep{height:1px;background:#e7e3da;margin:6px 10px 0;flex-shrink:0;}
+.carne-via-cliente{padding:6px 10px 5px;flex-shrink:0;}
+.carne-via-cliente-label{font-size:7.5px;font-weight:700;color:#9a9488;text-transform:uppercase;letter-spacing:.07em;}
+.carne-via-cliente-nome{font-size:14.5px;font-weight:700;color:#221f1a;margin-top:2px;}
+.carne-via-cliente-meta{font-size:9px;color:#8a8578;margin-top:2px;}
+.carne-via-parcela{flex:1;display:flex;flex-direction:column;justify-content:center;gap:5px;padding:6px 10px;min-height:0;}
+.carne-via-parcela-linha{display:flex;justify-content:space-between;gap:8px;}
+.carne-via-parcela-label{font-size:8px;font-weight:600;color:#9a9488;text-transform:uppercase;letter-spacing:.06em;}
+.carne-via-parcela-valor{font-size:13.5px;font-weight:700;color:#221f1a;margin-top:2px;}
+.carne-via-destaque{border-radius:10px;padding:6px 12px;text-align:center;}
+.carne-via-destaque-label{font-size:8px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;opacity:.75;}
+.carne-via-destaque-valor{font-size:22px;font-weight:800;letter-spacing:-.01em;margin-top:2px;}
+.carne-via-produto{font-size:9.5px;color:#6b675e;}
+.carne-via-rodape{flex-shrink:0;padding:6px 10px 8px;min-height:52px;display:flex;flex-direction:column;justify-content:center;}
+.carne-via-stamp{display:inline-block;transform:rotate(-5deg);border:2px solid;font-weight:800;font-size:13px;letter-spacing:.06em;border-radius:8px;padding:5px 16px;}
+.carne-via-assinatura-label{font-size:9px;color:#6b675e;}
+.carne-via-assinatura-linha{border-top:1px solid #ccc;margin-top:14px;padding-top:4px;text-align:center;font-size:8.5px;color:#9a9488;}
+.carne-via-endereco-label{font-size:7.5px;font-weight:700;color:#9a9488;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;}
+.carne-via-endereco-linha{font-size:10px;color:#3a362d;}
+.carne-via-endereco-sub{font-size:9.5px;color:#6b675e;margin-top:2px;}
 
 @media print {
   @page { size: A4 portrait; margin: 0; }
@@ -142,72 +160,24 @@ tr:hover td{background:#fafafa;}
   .main { margin-left: 0 !important; padding: 0 !important; }
   .page { display: none !important; }
   #page-carnes { display: block !important; padding: 0 !important; margin: 0 !important; }
-  .carne-grid {
-    display: grid !important;
-    grid-template-columns: 105mm 105mm;
-    grid-template-rows: repeat(auto-fill, 99mm);
-    gap: 0;
-    width: 210mm;
-    margin: 0;
-    padding: 0;
-  }
-  .carne-item {
-    width: 105mm;
-    height: 99mm;
+  .carne-sheet {
+    width: 210mm !important;
+    max-width: none !important;
+    margin: 0 !important;
     border: none !important;
-    border-right: 1px dashed #999 !important;
-    border-bottom: 1px dashed #999 !important;
     border-radius: 0 !important;
-    padding: 6mm 7mm !important;
+  }
+  .carne-row {
+    width: 210mm !important;
+    height: 90mm !important;
     box-sizing: border-box;
     break-inside: avoid;
     page-break-inside: avoid;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+    border-bottom: 1px dashed #999 !important;
   }
-  .carne-item:nth-child(even) {
-    border-right: none !important;
-    border-left: 1px dashed #999 !important;
-  }
-  .carne-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 4px;
-    border-bottom: 1px solid #333 !important;
-    margin-bottom: 4px;
-  }
-  .carne-empresa { font-size: 14px !important; font-weight: 700 !important; color: #185FA5 !important; }
-  .carne-codigo { font-size: 10px !important; color: #666 !important; }
-  .carne-cliente { font-size: 12px !important; font-weight: 600 !important; margin-bottom: 2px !important; }
-  .carne-produto { font-size: 10px !important; color: #444 !important; margin-bottom: 4px !important; }
-  .carne-linha {
-    display: grid !important;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 4px;
-    margin-bottom: 4px;
-  }
-  .carne-campo { text-align: center; }
-  .carne-label { font-size: 9px !important; color: #666 !important; margin-bottom: 2px !important; }
-  .carne-valor-destaque { font-size: 13px !important; font-weight: 700 !important; }
-  .carne-assinatura {
-    font-size: 9px !important;
-    color: #888 !important;
-    border-top: 1px solid #ccc !important;
-    padding-top: 3px !important;
-    margin-top: auto !important;
-  }
-  .carne-status-label {
-    font-size: 12px !important;
-    font-weight: 700 !important;
-    color: #A32D2D !important;
-    text-align: center;
-    margin-top: auto !important;
-  }
-  .carne-pago { background: #f9f9f9 !important; }
-  .carne-devolvido { background: #f9f9f9 !important; }
+  .carne-row:nth-child(3n) { page-break-after: always !important; }
+  .carne-row:last-child { page-break-after: auto !important; }
+  .carne-via-esq { border-right: 1px dashed #999 !important; }
 }
 
 /* ── MOBILE ── */
@@ -9306,16 +9276,111 @@ function buscarVendaCarnePorCodigo(vendaId, codigo) {
   buscarVendaCarne(codigo);
 }
 
+let _carneAtual = null;
+
+function hexToRgb(hex) {
+  if (!hex) return null;
+  const m = hex.replace('#','').match(/^([0-9a-f]{6})$/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return { r: (n>>16)&255, g: (n>>8)&255, b: n&255 };
+}
+
+function _carneCorRgba(hex, alpha) {
+  const c = hexToRgb(hex) || { r: 12, g: 68, b: 124 };
+  return `rgba(${c.r},${c.g},${c.b},${alpha})`;
+}
+
+function _carneViaHtml(isEsq, d, cfg, carneCfg) {
+  const cor = cfg.cor || '#0C447C';
+  const mostrarLogo = carneCfg.mostrar_logo ?? true;
+  const dadosLoja = [];
+  if (carneCfg.mostrar_endereco && cfg.endereco) dadosLoja.push(escHtml(cfg.endereco));
+  if (carneCfg.mostrar_telefone && cfg.telefone) dadosLoja.push('Tel: ' + escHtml(cfg.telefone));
+  if (carneCfg.mostrar_cnpj && cfg.cnpj) dadosLoja.push('CNPJ: ' + escHtml(cfg.cnpj));
+  const statusLabel = d.status === 'pago' ? 'PAGO' : d.status === 'devolvido' ? 'DEVOLVIDO' : '';
+  const statusColor = d.status === 'pago' ? '#3B6D11' : '#A32D2D';
+  const statusBg = d.status === 'pago' ? '#EAF3DE' : '#FCEBEB';
+  const metaCliente = [
+    d.codigoCliente ? `Cód. cliente ${escHtml(d.codigoCliente)}` : '',
+    d.codigoVenda ? `Venda #${escHtml(d.codigoVenda)}` : '',
+    d.cpfCliente ? `CPF ${escHtml(d.cpfCliente)}` : '',
+  ].filter(Boolean).join(' &middot; ');
+  const enderecoSub = [d.bairroCliente, d.cidadeCliente].filter(Boolean).map(escHtml).join(' &middot; ');
+
+  return `
+    <div class="carne-via ${isEsq ? 'carne-via-esq' : 'carne-via-dir'}">
+      <div class="carne-via-header" style="background:${cor};">
+        ${mostrarLogo ? '<svg width="14" height="14" viewBox="0 0 50 50" style="flex-shrink:0;"><polyline points="10,38 20,24 30,31 40,12" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline><polyline points="34,12 40,12 40,18" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></polyline><circle cx="40" cy="12" r="4" fill="white"></circle></svg>' : ''}
+        <span class="carne-via-empresa">${escHtml(cfg.nome_loja || 'Lia Móveis')}</span>
+        <span class="carne-via-badge">${isEsq ? '1&#170; via' : '2&#170; via'}</span>
+      </div>
+      ${dadosLoja.length ? `<div class="carne-via-loja">${dadosLoja.join(' &middot; ')}</div>` : ''}
+      <div class="carne-via-sep"></div>
+      <div class="carne-via-cliente">
+        <div class="carne-via-cliente-label">Cliente</div>
+        <div class="carne-via-cliente-nome">${escHtml(d.nomeCliente)}</div>
+        ${metaCliente ? `<div class="carne-via-cliente-meta">${metaCliente}</div>` : ''}
+      </div>
+      <div class="carne-via-sep"></div>
+      <div class="carne-via-parcela">
+        <div class="carne-via-parcela-linha">
+          <div>
+            <div class="carne-via-parcela-label">Vencimento</div>
+            <div class="carne-via-parcela-valor">${escHtml(d.vencimentoTexto)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="carne-via-parcela-label">Parcela</div>
+            <div class="carne-via-parcela-valor">${escHtml(d.parcelaTexto)}</div>
+          </div>
+        </div>
+        <div class="carne-via-destaque" style="background:${_carneCorRgba(cor,0.07)};border:1px solid ${_carneCorRgba(cor,0.22)};">
+          <div class="carne-via-destaque-label" style="color:${cor};">Valor da parcela</div>
+          <div class="carne-via-destaque-valor" style="color:${cor};">R$ ${escHtml(d.valorTexto)}</div>
+        </div>
+        <div class="carne-via-produto">Produto: <strong>${escHtml(d.produtoTexto)}</strong></div>
+      </div>
+      <div class="carne-via-sep"></div>
+      <div class="carne-via-rodape">
+        ${isEsq
+          ? (statusLabel
+              ? `<div style="text-align:center;"><span class="carne-via-stamp" style="border-color:${statusColor};color:${statusColor};background:${statusBg};">${statusLabel}</span></div>`
+              : `<div><div class="carne-via-assinatura-label">Recebido por:</div><div class="carne-via-assinatura-linha">Assinatura</div></div>`)
+          : `<div>
+              <div class="carne-via-endereco-label">Endereço para cobrança</div>
+              ${d.enderecoCliente ? `<div class="carne-via-endereco-linha">${escHtml(d.enderecoCliente)}</div>` : ''}
+              ${enderecoSub ? `<div class="carne-via-endereco-sub">${enderecoSub}</div>` : ''}
+            </div>`}
+      </div>
+    </div>`;
+}
+
+function _carneRowHtml(d, cfg, carneCfg, isLast) {
+  const statusClass = d.status === 'pago' ? 'carne-pago' : d.status === 'devolvido' ? 'carne-devolvido' : '';
+  const rodapeTxt = (carneCfg.texto_rodape || '').trim();
+  return `
+    <div class="carne-row ${statusClass}">
+      <div class="carne-row-vias">
+        ${_carneViaHtml(true, d, cfg, carneCfg)}
+        ${_carneViaHtml(false, d, cfg, carneCfg)}
+        <span class="carne-row-tesoura" style="left:40%;top:50%;transform:translate(-50%,-50%) rotate(90deg);">&#9986;</span>
+      </div>
+      ${rodapeTxt ? `<div class="carne-row-rodape">${escHtml(rodapeTxt)}</div>` : ''}
+      ${!isLast ? `<span class="carne-row-tesoura" style="left:10px;bottom:0;transform:translateY(50%);">&#9986;</span>` : ''}
+    </div>`;
+}
+
 async function buscarVendaCarne(codigoParam) {
   const codigo = (codigoParam || document.getElementById('carne-filtro-texto').value || '').trim();
   if (!codigo) { alert('Digite o código da venda!'); return; }
   const { data, error } = await sb.from('vendas')
-    .select('*, clientes(nome, cpf, endereco, cidade, bairro), funcionarios(nome)')
+    .select('*, clientes(codigo, nome, cpf, endereco, cidade, bairro), funcionarios(nome)')
     .eq('codigo', codigo)
     .single();
   if (error || !data) {
     document.getElementById('resultado-carne').innerHTML = '<p style="color:#A32D2D;padding:.5rem;">Venda não encontrada. Verifique o código.</p>';
     document.getElementById('preview-carne').innerHTML = '';
+    _carneAtual = null;
     return;
   }
   const { data: parcelas } = await sb.from('parcelas')
@@ -9329,45 +9394,32 @@ async function buscarVendaCarne(codigoParam) {
     </div>`;
   if (!parcelas || !parcelas.length) {
     document.getElementById('preview-carne').innerHTML = '<p style="color:#888;">Nenhuma parcela encontrada para esta venda.</p>';
+    _carneAtual = null;
     return;
   }
-  const carnesHtml = parcelas.map(p => {
+  const cfg = await getConfigImpressao();
+  const carneCfg = cfg.carne || {};
+  _carneAtual = { venda: data, parcelas, cfg, carneCfg };
+  const carnesHtml = parcelas.map((p, idx) => {
     const venc = new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR');
-    const status = p.pago ? 'PAGO' : p.status === 'devolvida' ? 'DEVOLVIDO' : '';
-    return `
-      <div class="carne-item ${p.pago?'carne-pago':p.status==='devolvida'?'carne-devolvido':''}">
-        <div class="carne-header">
-          <span class="carne-empresa">Lia Móveis</span>
-          <span class="carne-codigo">Venda #${escHtml(data.codigo)}</span>
-        </div>
-        <div class="carne-cliente"><strong>${escHtml(data.clientes?.nome)}</strong></div>
-        <div class="carne-produto">${escHtml(data.produto)}</div>
-        <div class="carne-linha">
-          <div class="carne-campo">
-            <div class="carne-label">Parcela</div>
-            <div class="carne-valor-destaque">${p.numero}/${p.total_parcelas}</div>
-          </div>
-          <div class="carne-campo">
-            <div class="carne-label">Vencimento</div>
-            <div class="carne-valor-destaque">${venc}</div>
-          </div>
-          <div class="carne-campo">
-            <div class="carne-label">Valor</div>
-            <div class="carne-valor-destaque">R$ ${Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
-          </div>
-        </div>
-        ${status ? `<div class="carne-status-label">${status}</div>` : '<div class="carne-assinatura">Assinatura: ___________________</div>'}
-      </div>`;
+    const status = p.pago ? 'pago' : p.status === 'devolvida' ? 'devolvido' : '';
+    const d = {
+      nomeCliente: data.clientes?.nome || '',
+      codigoCliente: data.clientes?.codigo || '',
+      cpfCliente: data.clientes?.cpf || '',
+      codigoVenda: data.codigo || '',
+      vencimentoTexto: venc,
+      parcelaTexto: `${p.numero}/${p.total_parcelas}`,
+      valorTexto: Number(p.valor).toLocaleString('pt-BR',{minimumFractionDigits:2}),
+      produtoTexto: data.produto || '',
+      status,
+      enderecoCliente: data.clientes?.endereco || '',
+      bairroCliente: data.clientes?.bairro || '',
+      cidadeCliente: data.clientes?.cidade || '',
+    };
+    return _carneRowHtml(d, cfg, carneCfg, idx === parcelas.length - 1);
   }).join('');
-  document.getElementById('preview-carne').innerHTML = `<div class="carne-grid">${carnesHtml}</div>`;
-}
-
-function hexToRgb(hex) {
-  if (!hex) return null;
-  const m = hex.replace('#','').match(/^([0-9a-f]{6})$/i);
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return { r: (n>>16)&255, g: (n>>8)&255, b: n&255 };
+  document.getElementById('preview-carne').innerHTML = `<div class="carne-sheet">${carnesHtml}</div>`;
 }
 
 async function carregarLogoDataUrl(url) {
@@ -9390,240 +9442,270 @@ async function carregarLogoDataUrl(url) {
 }
 
 async function imprimirCarne() {
+  if (!_carneAtual) { alert('Busque uma venda antes de imprimir o carnê.'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  // ===== Dimensões e paginação (mantidas exatamente como antes) =====
+  // ===== Dimensões e paginação =====
   const largura = 210;
   const altura = 90;
-  const colunas = 1;
   const linhasPorPagina = 3;
-  const divisorX = largura * 0.4; // via esquerda ~40% / via direita ~60%
+  const divisorX = largura * 0.4; // via esquerda 40% / via direita 60%
 
-  const cfg = await getConfigImpressao();
-  const carneCfg = cfg.carne || {};
+  const { venda, parcelas, cfg, carneCfg } = _carneAtual;
+  const cliente = venda.clientes || {};
   const corRgb = hexToRgb(cfg.cor) || { r: 12, g: 68, b: 124 };
+  const corTint = hexToRgb(cfg.cor) ? {
+    r: Math.round(corRgb.r + (255 - corRgb.r) * 0.93),
+    g: Math.round(corRgb.g + (255 - corRgb.g) * 0.93),
+    b: Math.round(corRgb.b + (255 - corRgb.b) * 0.93),
+  } : { r: 229, g: 236, b: 243 };
+  const corBorda = {
+    r: Math.round(corRgb.r + (255 - corRgb.r) * 0.78),
+    g: Math.round(corRgb.g + (255 - corRgb.g) * 0.78),
+    b: Math.round(corRgb.b + (255 - corRgb.b) * 0.78),
+  };
   const nomeLoja = cfg.nome_loja || 'Lia Móveis';
   const logoUrlAssinada = (carneCfg.mostrar_logo && cfg.logo_url) ? await urlAssinada('comprovantes', cfg.logo_url) : null;
   const logoData = logoUrlAssinada ? await carregarLogoDataUrl(logoUrlAssinada) : null;
 
-  const carnes = document.querySelectorAll('.carne-item');
+  const dadosLoja = [];
+  if (carneCfg.mostrar_endereco && cfg.endereco) dadosLoja.push(cfg.endereco);
+  if (carneCfg.mostrar_telefone && cfg.telefone) dadosLoja.push('Tel: ' + cfg.telefone);
+  if (carneCfg.mostrar_cnpj && cfg.cnpj) dadosLoja.push('CNPJ: ' + cfg.cnpj);
+  const textoLoja = dadosLoja.join('  ·  ');
 
-  // Dados extras do cliente (código, CPF, endereço, bairro, cidade) não existem no DOM do
-  // carnê — buscados uma única vez no banco, a partir do código da venda já exibido no carnê.
-  let clienteExtra = null;
-  if (carnes.length) {
-    const codigoEl0 = carnes[0].querySelector('.carne-codigo');
-    const codigoVendaBusca = (codigoEl0?.textContent || '').replace(/^Venda\s*#/i, '').trim();
-    if (codigoVendaBusca) {
-      try {
-        const { data: vendaExtra } = await sb.from('vendas')
-          .select('codigo, clientes(codigo, cpf, endereco, bairro, cidade)')
-          .eq('codigo', codigoVendaBusca)
-          .single();
-        clienteExtra = vendaExtra?.clientes || null;
-      } catch (e) { clienteExtra = null; }
-    }
-  }
+  const linhaCodigos = [];
+  if (cliente.codigo) linhaCodigos.push('Cód. cliente: ' + cliente.codigo);
+  if (venda.codigo) linhaCodigos.push('Venda: ' + venda.codigo);
+  if (cliente.cpf) linhaCodigos.push('CPF: ' + cliente.cpf);
+  const textoCliente = linhaCodigos.join('  ·  ');
 
-  let col = 0;
   let lin = 0;
-  let pagina = 0;
 
-  for (let i = 0; i < carnes.length; i++) {
-    const x = col * largura;
+  for (let i = 0; i < parcelas.length; i++) {
+    const p = parcelas[i];
     const y = lin * altura;
 
-    if (i > 0 && col === 0 && lin === 0) {
+    if (i > 0 && lin === 0) {
       doc.addPage();
     }
 
-    // ===== Borda externa do carnê (mantida) =====
-    doc.setDrawColor(150);
-    doc.setLineWidth(0.3);
-    doc.rect(x + 1, y + 1, largura - 2, altura - 2);
+    const venc = new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR');
+    const parcelaTexto = `${p.numero}/${p.total_parcelas}`;
+    const valorTexto = 'R$ ' + Number(p.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    const status = p.pago ? 'pago' : p.status === 'devolvida' ? 'devolvido' : '';
+    const statusLabel = status === 'pago' ? 'PAGO' : status === 'devolvido' ? 'DEVOLVIDO' : '';
+    const statusRgb = status === 'pago' ? { r: 59, g: 109, b: 17 } : { r: 163, g: 45, b: 45 };
+    const statusBgRgb = status === 'pago' ? { r: 234, g: 243, b: 222 } : { r: 252, g: 235, b: 235 };
 
-    // ===== Linha de corte tracejada entre carnês (mantida) =====
-    doc.setDrawColor(180);
-    doc.setLineDashPattern([2, 2], 0);
-    if (lin < linhasPorPagina - 1 && i + colunas < carnes.length) {
-      doc.line(x, y + altura, x + largura, y + altura);
-    }
-    doc.setLineDashPattern([], 0);
-
-    // ===== Leitura dos dados do carnê a partir do DOM (compatibilidade mantida) =====
-    const codigoEl = carnes[i].querySelector('.carne-codigo');
-    const clienteEl = carnes[i].querySelector('.carne-cliente');
-    const produtoEl = carnes[i].querySelector('.carne-produto');
-    const campos = carnes[i].querySelectorAll('.carne-campo');
-    const statusEl = carnes[i].querySelector('.carne-status-label');
-    const assinaturaEl = carnes[i].querySelector('.carne-assinatura');
-
-    const textoCodigoVenda = (codigoEl?.textContent || '').replace(/^Venda\s*#/i, '').trim();
-    const nomeCliente = clienteEl?.textContent || '';
-    const produtoTexto = produtoEl?.textContent || '';
-    const parcelaTexto = campos[0]?.querySelector('.carne-valor-destaque')?.textContent || '';
-    const vencimentoTexto = campos[1]?.querySelector('.carne-valor-destaque')?.textContent || '';
-    const valorTexto = campos[2]?.querySelector('.carne-valor-destaque')?.textContent || '';
-
-    const codigoCliente = clienteExtra?.codigo || '';
-    const cpfCliente = clienteExtra?.cpf || '';
-    const enderecoCliente = clienteExtra?.endereco || '';
-    const bairroCliente = clienteExtra?.bairro || '';
-    const cidadeCliente = clienteExtra?.cidade || '';
-
-    // ===== Posições-base das duas vias (interna ao carnê — largura total continua 210mm) =====
-    const xViaEsq = x + 3;
-    const xViaEsqFim = x + divisorX - 3;
-    const xViaDir = x + divisorX + 3;
-    const xViaDirFim = x + largura - 3;
+    // ===== Posições-base das duas vias =====
+    const xViaEsq = 3;
+    const xViaEsqFim = divisorX - 3;
+    const xViaDir = divisorX + 3;
+    const xViaDirFim = largura - 3;
     const vias = [
-      { xIni: xViaEsq, xFim: xViaEsqFim },
-      { xIni: xViaDir, xFim: xViaDirFim },
+      { xIni: xViaEsq, xFim: xViaEsqFim, isEsq: true },
+      { xIni: xViaDir, xFim: xViaDirFim, isEsq: false },
     ];
 
-    // ===== Cabeçalho: barra colorida com logo + nome da loja em ambas as vias =====
+    // ===== Cabeçalho: barra colorida com logo + nome da loja + selo de via =====
     doc.setFillColor(corRgb.r, corRgb.g, corRgb.b);
-    doc.rect(x + 1, y + 1, largura - 2, 10, 'F');
+    doc.rect(0, y, largura, 9, 'F');
 
     vias.forEach(via => {
       let xTexto = via.xIni;
       if (logoData) {
-        const altLogo = 7.5;
-        const largLogo = logoData.h ? altLogo * (logoData.w / logoData.h) : 7.5;
-        try { doc.addImage(logoData.dataUrl, 'PNG', via.xIni, y + 1.25, largLogo, altLogo); } catch (e) {}
+        const altLogo = 5.5;
+        const largLogo = logoData.h ? altLogo * (logoData.w / logoData.h) : 5.5;
+        try { doc.addImage(logoData.dataUrl, 'PNG', via.xIni, y + 1.75, largLogo, altLogo); } catch (e) {}
         xTexto = via.xIni + largLogo + 2;
       }
-      doc.setTextColor(255, 255, 255);
+      const badge = via.isEsq ? '1ª via' : '2ª via';
       doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      const badgeW = doc.getTextWidth(badge) + 5;
+
+      doc.setTextColor(255, 255, 255);
       doc.setFontSize(9);
-      doc.text(nomeLoja, xTexto, y + 7, { maxWidth: via.xFim - xTexto });
+      doc.text(nomeLoja, xTexto, y + 5.75, { maxWidth: via.xFim - xTexto - badgeW - 2 });
+
+      doc.setFontSize(6.5);
+      const badgeX = via.xFim - badgeW;
+      doc.setDrawColor(255, 255, 255);
+      doc.setLineWidth(0.15);
+      doc.roundedRect(badgeX, y + 2.3, badgeW, 4.4, 2.2, 2.2);
+      doc.text(badge, badgeX + badgeW / 2, y + 5.2, { align: 'center' });
     });
 
-    // ===== Dados da loja abaixo do nome (endereço / telefone / CNPJ), em ambas as vias =====
-    const dadosLoja = [];
-    if (carneCfg.mostrar_endereco && cfg.endereco) dadosLoja.push(cfg.endereco);
-    if (carneCfg.mostrar_telefone && cfg.telefone) dadosLoja.push('Tel: ' + cfg.telefone);
-    if (carneCfg.mostrar_cnpj && cfg.cnpj) dadosLoja.push('CNPJ: ' + cfg.cnpj);
-    if (dadosLoja.length) {
-      const textoLoja = dadosLoja.join('  ·  ');
+    let yb = y + 9;
+
+    // ===== Dados da loja abaixo do cabeçalho =====
+    if (textoLoja) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(5.5);
-      doc.setTextColor(90, 90, 90);
-      vias.forEach(via => {
-        doc.text(textoLoja, via.xIni, y + 14.5, { maxWidth: via.xFim - via.xIni });
-      });
+      doc.setTextColor(120, 115, 105);
+      vias.forEach(via => doc.text(textoLoja, via.xIni, yb + 3.3, { maxWidth: via.xFim - via.xIni }));
+      yb += 4.8;
+    } else {
+      yb += 2;
     }
 
-    // ===== Linha divisória 1: cabeçalho -> dados do cliente =====
-    doc.setDrawColor(210);
+    doc.setDrawColor(231, 227, 218);
     doc.setLineWidth(0.2);
-    doc.line(x + 3, y + 16.5, x + largura - 3, y + 16.5);
+    doc.line(3, yb + 1.2, largura - 3, yb + 1.2);
+    yb += 3.2;
 
-    // ===== Dados do cliente (nome em destaque + códigos + CPF), em ambas as vias =====
+    // ===== Dados do cliente (label + nome em destaque + códigos/CPF) =====
     vias.forEach(via => {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text(nomeCliente, via.xIni, y + 21.5, { maxWidth: via.xFim - via.xIni });
+      doc.setFontSize(6);
+      doc.setTextColor(154, 148, 136);
+      doc.text('CLIENTE', via.xIni, yb + 2.5);
 
-      const linhaCodigos = [];
-      if (codigoCliente) linhaCodigos.push('Cód. cliente: ' + codigoCliente);
-      if (textoCodigoVenda) linhaCodigos.push('Venda: ' + textoCodigoVenda);
-      if (cpfCliente) linhaCodigos.push('CPF: ' + cpfCliente);
-      if (linhaCodigos.length) {
+      doc.setFontSize(10.5);
+      doc.setTextColor(34, 31, 26);
+      doc.text(cliente.nome || '', via.xIni, yb + 7.3, { maxWidth: via.xFim - via.xIni });
+
+      if (textoCliente) {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.5);
-        doc.setTextColor(80, 80, 80);
-        doc.text(linhaCodigos.join('  ·  '), via.xIni, y + 26.5, { maxWidth: via.xFim - via.xIni });
+        doc.setTextColor(138, 133, 120);
+        doc.text(textoCliente, via.xIni, yb + 11.2, { maxWidth: via.xFim - via.xIni });
       }
     });
+    yb += 13.7;
 
-    // ===== Linha divisória 2: dados do cliente -> dados da parcela =====
-    doc.setDrawColor(210);
-    doc.setLineWidth(0.2);
-    doc.line(x + 3, y + 29.5, x + largura - 3, y + 29.5);
+    doc.setDrawColor(231, 227, 218);
+    doc.line(3, yb, largura - 3, yb);
+    yb += 3.2;
 
-    // ===== Dados da parcela, organizados em linhas — valor é o maior destaque =====
+    // ===== Vencimento / Parcela lado a lado =====
+    vias.forEach(via => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(154, 148, 136);
+      doc.text('VENCIMENTO', via.xIni, yb + 2.2);
+      doc.text('PARCELA', via.xFim, yb + 2.2, { align: 'right' });
+
+      doc.setFontSize(10.5);
+      doc.setTextColor(34, 31, 26);
+      doc.text(venc, via.xIni, yb + 6.6);
+      doc.text(parcelaTexto, via.xFim, yb + 6.6, { align: 'right' });
+    });
+    yb += 9;
+
+    // ===== Caixa de destaque com o valor da parcela =====
+    const boxH = 11.5;
+    vias.forEach(via => {
+      const boxW = via.xFim - via.xIni;
+      doc.setFillColor(corTint.r, corTint.g, corTint.b);
+      doc.setDrawColor(corBorda.r, corBorda.g, corBorda.b);
+      doc.setLineWidth(0.2);
+      doc.roundedRect(via.xIni, yb, boxW, boxH, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6);
+      doc.setTextColor(corRgb.r, corRgb.g, corRgb.b);
+      doc.text('VALOR DA PARCELA', via.xIni + boxW / 2, yb + 4, { align: 'center' });
+
+      doc.setFontSize(13.5);
+      doc.text(valorTexto, via.xIni + boxW / 2, yb + 9.3, { align: 'center' });
+    });
+    yb += boxH + 2;
+
+    // ===== Produto =====
     vias.forEach(via => {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(60, 60, 60);
-      doc.text('Vencimento: ' + vencimentoTexto, via.xIni, y + 35, { maxWidth: via.xFim - via.xIni });
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.setTextColor(0, 0, 0);
-      doc.text('Valor: ' + valorTexto, via.xIni, y + 44, { maxWidth: via.xFim - via.xIni });
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(60, 60, 60);
-      doc.text('Produto: ' + produtoTexto, via.xIni, y + 52, { maxWidth: via.xFim - via.xIni });
-      doc.text('Parcela: ' + parcelaTexto, via.xIni, y + 57.5, { maxWidth: via.xFim - via.xIni });
+      doc.setFontSize(7);
+      doc.setTextColor(107, 103, 94);
+      doc.text('Produto: ' + (venda.produto || ''), via.xIni, yb + 3, { maxWidth: via.xFim - via.xIni });
     });
+    yb += 6;
 
-    // ===== Linha divisória 3: dados da parcela -> área inferior =====
-    doc.setDrawColor(210);
-    doc.setLineWidth(0.2);
-    doc.line(x + 3, y + 63.5, x + largura - 3, y + 63.5);
+    doc.setDrawColor(231, 227, 218);
+    doc.line(3, yb, largura - 3, yb);
+    const yRodapeVia = yb + 1;
+    const yRodapeFim = y + altura - (carneCfg.texto_rodape ? 5.5 : 2);
 
-    // ===== Área inferior — via esquerda: status (se pago/devolvido) ou recibo/assinatura =====
-    if (statusEl) {
+    // ===== Área inferior — via esquerda: carimbo de status ou recibo/assinatura =====
+    if (statusLabel) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
-      doc.setTextColor(163, 45, 45);
-      doc.text(statusEl.textContent, xViaEsq + (xViaEsqFim - xViaEsq) / 2, y + 79, { align: 'center' });
+      const padX = 5, padY = 2.2;
+      const textW = doc.getTextWidth(statusLabel);
+      const boxW2 = textW + padX * 2;
+      const boxH2 = 6.5 + padY;
+      const cx = xViaEsq + (xViaEsqFim - xViaEsq) / 2;
+      const cy = yRodapeVia + (yRodapeFim - yRodapeVia) / 2;
+      doc.setFillColor(statusBgRgb.r, statusBgRgb.g, statusBgRgb.b);
+      doc.setDrawColor(statusRgb.r, statusRgb.g, statusRgb.b);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(cx - boxW2 / 2, cy - boxH2 / 2, boxW2, boxH2, 1.5, 1.5, 'FD');
+      doc.setTextColor(statusRgb.r, statusRgb.g, statusRgb.b);
+      doc.text(statusLabel, cx, cy + 2, { align: 'center' });
     } else {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
-      doc.setTextColor(80, 80, 80);
-      doc.text('Recebido por:', xViaEsq, y + 71);
+      doc.setTextColor(107, 103, 94);
+      doc.text('Recebido por:', xViaEsq, yRodapeVia + 3);
       doc.setDrawColor(150);
       doc.setLineWidth(0.2);
-      doc.line(xViaEsq, y + 84, xViaEsqFim, y + 84);
-      doc.text('Ass.: ___________________________', xViaEsq, y + 88);
+      doc.line(xViaEsq, yRodapeFim - 3, xViaEsqFim, yRodapeFim - 3);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(154, 148, 136);
+      doc.text('Assinatura', xViaEsq + (xViaEsqFim - xViaEsq) / 2, yRodapeFim - 0.8, { align: 'center' });
     }
 
-    // ===== Área inferior — via direita: endereço do cliente (somente o que existir) =====
+    // ===== Área inferior — via direita: endereço para cobrança =====
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(154, 148, 136);
+    doc.text('ENDEREÇO PARA COBRANÇA', xViaDir, yRodapeVia + 2.2);
+    let yEndereco = yRodapeVia + 6;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
-    doc.setTextColor(80, 80, 80);
-    let yEndereco = y + 71;
-    if (enderecoCliente) { doc.text(enderecoCliente, xViaDir, yEndereco, { maxWidth: xViaDirFim - xViaDir }); yEndereco += 5; }
-    if (bairroCliente) { doc.text('Bairro: ' + bairroCliente, xViaDir, yEndereco, { maxWidth: xViaDirFim - xViaDir }); yEndereco += 5; }
-    if (cidadeCliente) { doc.text('Cidade: ' + cidadeCliente, xViaDir, yEndereco, { maxWidth: xViaDirFim - xViaDir }); yEndereco += 5; }
+    doc.setTextColor(58, 54, 45);
+    if (cliente.endereco) { doc.text(cliente.endereco, xViaDir, yEndereco, { maxWidth: xViaDirFim - xViaDir }); yEndereco += 4; }
+    const bairroCidade = [cliente.bairro, cliente.cidade].filter(Boolean).join('  ·  ');
+    if (bairroCidade) {
+      doc.setFontSize(6.5);
+      doc.setTextColor(107, 103, 94);
+      doc.text(bairroCidade, xViaDir, yEndereco, { maxWidth: xViaDirFim - xViaDir });
+    }
 
-    // ===== Linha divisória 4: área inferior -> rodapé =====
-    doc.setDrawColor(210);
-    doc.setLineWidth(0.2);
-    doc.line(x + 3, y + 90, x + largura - 3, y + 90);
+    // ===== Divisória tracejada entre as duas vias =====
+    doc.setDrawColor(199, 194, 179);
+    doc.setLineWidth(0.25);
+    doc.setLineDashPattern([1.2, 1], 0);
+    doc.line(divisorX, y + 1, divisorX, y + altura - 1);
+    doc.setLineDashPattern([], 0);
 
-    // ===== Rodapé configurável (mantido) =====
+    // ===== Rodapé configurável, linha inteira =====
     if (carneCfg.texto_rodape) {
+      doc.setDrawColor(240, 237, 228);
+      doc.setLineWidth(0.2);
+      doc.line(3, y + altura - 3.3, largura - 3, y + altura - 3.3);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6);
-      doc.setTextColor(140, 140, 140);
-      doc.text(carneCfg.texto_rodape, x + largura / 2 - 7, y + 94.5, { align: 'center', maxWidth: largura - 14 });
-      doc.setTextColor(0, 0, 0);
+      doc.setTextColor(163, 158, 147);
+      doc.text(carneCfg.texto_rodape, largura / 2, y + altura - 1.3, { align: 'center', maxWidth: largura - 14 });
     }
 
-    // ===== Linha vertical central separando as duas vias (cinza claro, fina) =====
-    doc.setDrawColor(190);
-    doc.setLineWidth(0.25);
-    doc.line(x + divisorX, y + 1, x + divisorX, y + altura - 1);
-
-    // Próxima posição
-    col++;
-    if (col >= colunas) {
-      col = 0;
-      lin++;
-      if (lin >= linhasPorPagina) {
-        lin = 0;
-      }
+    // ===== Linha de corte tracejada entre parcelas =====
+    if (lin < linhasPorPagina - 1 && i + 1 < parcelas.length) {
+      doc.setDrawColor(180);
+      doc.setLineDashPattern([2, 2], 0);
+      doc.line(0, y + altura, largura, y + altura);
+      doc.setLineDashPattern([], 0);
     }
+
+    lin++;
+    if (lin >= linhasPorPagina) lin = 0;
   }
 
+  doc.setTextColor(0, 0, 0);
   doc.save('carnes-lia-moveis.pdf');
 }
 
