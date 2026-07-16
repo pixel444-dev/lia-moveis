@@ -5581,20 +5581,40 @@ async function carregarAutorizacoesPendentes() {
   const { data } = await sb.from('autorizacoes_venda').select('*').eq('status', 'pendente').order('criado_em', { ascending: false });
   if (!data?.length) { wrap.style.display = 'none'; return; }
   wrap.style.display = 'block';
+
+  // Resolve vendedor e cliente à parte (em vez de embutir no select acima)
+  // pra não depender de a FK vendedor_id/cliente_id estar configurada de um
+  // jeito que o PostgREST consiga montar o join sozinho.
+  const vendedorIds = [...new Set(data.map(a => a.vendedor_id).filter(Boolean))];
+  const clienteIds = [...new Set(data.filter(a => a.tipo === 'inadimplente').map(a => a.cliente_id).filter(Boolean))];
+  const [{ data: vendedores }, { data: clientesEnvolvidos }] = await Promise.all([
+    vendedorIds.length ? sb.from('funcionarios').select('id, nome').in('id', vendedorIds) : Promise.resolve({ data: [] }),
+    clienteIds.length ? sb.from('clientes').select('id, nome, codigo').in('id', clienteIds) : Promise.resolve({ data: [] }),
+  ]);
+  const mapaVendedores = new Map((vendedores || []).map(v => [v.id, v.nome]));
+  const mapaClientes = new Map((clientesEnvolvidos || []).map(c => [c.id, c]));
+
   let rows = '';
   data.forEach(function(a) {
     const isInadimplente = a.tipo === 'inadimplente';
     const tipoBadge = isInadimplente
       ? '<span class="badge vermelho">Inadimplente</span>'
       : '<span class="badge amarelo">Sem CPF</span>';
-    const descricaoLinha = isInadimplente
-      ? (a.descricao || 'Cliente inadimplente')
-      : (a.codigo + ' solicitando venda sem CPF');
-    const hora = new Date(a.criado_em).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
+    const nomeVendedor = mapaVendedores.get(a.vendedor_id) || 'Vendedor não identificado';
+    const cliente = isInadimplente ? mapaClientes.get(a.cliente_id) : null;
+    const dataHora = new Date(a.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const detalhes = isInadimplente
+      ? 'Cliente: <strong>' + escHtml(cliente?.nome || '—') + '</strong> (Código ' + escHtml(cliente?.codigo || '—') + ')'
+        + ' · ' + (a.qtd_atrasadas ?? '—') + ' parcela(s) em atraso'
+        + (a.valor_atrasado != null ? ' — R$ ' + Number(a.valor_atrasado).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '')
+      : 'Solicitando venda sem CPF';
+
     rows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #fde8b8;">'
       + '<div>'
-      + '<div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:2px;">' + tipoBadge + (isInadimplente ? ' ' + escHtml(a.codigo) : '') + '</div>'
-      + '<div style="font-size:12px;color:#888;">' + escHtml(descricaoLinha) + ' · ' + hora + '</div>'
+      + '<div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:2px;">' + tipoBadge + ' Vendedor: ' + escHtml(nomeVendedor) + '</div>'
+      + '<div style="font-size:12px;color:#555;margin-bottom:2px;">' + detalhes + '</div>'
+      + '<div style="font-size:11px;color:#888;">Pedido em ' + dataHora + '</div>'
       + '</div>'
       + '<div style="display:flex;gap:6px;">'
       + '<button class="btn" style="font-size:11px;padding:3px 10px;background:#EAF3DE;color:#3B6D11;border-color:#c0dd97;" onclick="autorizarVenda(\'' + a.id + '\')">Autorizar</button>'
