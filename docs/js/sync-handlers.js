@@ -78,10 +78,16 @@
     ['telefone', 'data_nascimento', 'bairro', 'referencia', 'cobrador_id', 'latitude', 'longitude', 'localizacao_endereco'].forEach(function (campo) {
       if (dados[campo]) dadosUpdate[campo] = dados[campo];
     });
-    var upd = await sb.from('clientes').update(dadosUpdate).eq('id', existente.data.id);
+    // RPC security definer (atualizar_cliente_venda, migration 0024) em vez
+    // de UPDATE direto — mesmo motivo do fluxo online (salvarNovoClienteVenda):
+    // um UPDATE direto aqui pode bater na mesma policy de RLS que não cobre
+    // "cliente achado por CPF fora da carteira/equipe de quem sincroniza",
+    // afetar 0 linhas e não virar erro. A RPC já devolve a linha atualizada
+    // via RETURNING *, então dispensa o SELECT extra de antes (que tinha a
+    // mesma exposição).
+    var upd = await sb.rpc('atualizar_cliente_venda', { p_cliente_id: existente.data.id, p_dados: dadosUpdate });
     if (upd.error) throw erroDeBanco(upd.error);
-    var atualizado = await sb.from('clientes').select('*').eq('id', existente.data.id).single();
-    return atualizado.data || { id: existente.data.id };
+    return upd.data || { id: existente.data.id };
   }
 
   // payload: { clienteId (uuid real p/ edição, "offline-..." p/ novo),
@@ -125,9 +131,12 @@
           await DbLocal.salvarNoCache('cliente_id_map', [{ id: payload.clienteId, real_id: clienteId }]);
         }
       } else {
-        var resUpd = await sb.from('clientes').update(payload.dados).eq('id', clienteId);
+        // Mesmo motivo do ramo de reconciliação acima: RPC security definer
+        // em vez de UPDATE direto, pra não marcar a operação como concluída
+        // e sumir da fila quando na verdade 0 linhas foram afetadas por RLS.
+        var resUpd = await sb.rpc('atualizar_cliente_venda', { p_cliente_id: clienteId, p_dados: payload.dados });
         if (resUpd.error) throw erroDeBanco(resUpd.error);
-        await DbLocal.salvarNoCache('clientes', [Object.assign({ id: clienteId }, payload.dados)]);
+        await DbLocal.salvarNoCache('clientes', [resUpd.data || Object.assign({ id: clienteId }, payload.dados)]);
       }
       if (payload.fotoBase64) {
         // insert/update já valeu — persiste o progresso pra um retry
@@ -144,7 +153,7 @@
       var up = await sb.storage.from('fotos-clientes').upload(path, blob, { contentType: 'image/webp', upsert: true });
       if (up.error) throw erroDeBanco(up.error);
       var pub = sb.storage.from('fotos-clientes').getPublicUrl(path);
-      var resFoto = await sb.from('clientes').update({ foto_casa: pub.data.publicUrl }).eq('id', clienteId);
+      var resFoto = await sb.rpc('atualizar_cliente_venda', { p_cliente_id: clienteId, p_dados: { foto_casa: pub.data.publicUrl } });
       if (resFoto.error) throw erroDeBanco(resFoto.error);
     }
   });
