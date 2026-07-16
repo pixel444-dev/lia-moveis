@@ -11285,6 +11285,9 @@ function renderEquipes(semanas, equipes, somenteLeitura) {
               <button class="btn" style="font-size:11px;padding:3px 10px;color:#854F0B;border-color:#FAC775;" onclick="abrirEncerrarEquipe('${eq.id}')">Encerrar equipe</button>
               ${somenteLeitura?'<span style="font-size:11px;color:#888;align-self:center;">(mês histórico — correções manuais liberadas)</span>':''}
             `:''}
+            ${eq.encerrada && perfilAtivo.perfil==='gestor'?`
+              <button class="btn" style="font-size:11px;padding:3px 10px;color:#C0392B;border-color:#C0392B;" onclick="apagarEquipe('${eq.id}')">Apagar equipe</button>
+            `:''}
           </div>
           <div id="detalhes-equipe-${eq.id}" class="eqsem-card-detalhes" style="display:none;"></div>
         </div>`;
@@ -11776,6 +11779,20 @@ async function confirmarEncerrarEquipe() {
   }
 
   fecharModal('modal-encerrar-equipe');
+  await carregarEquipesDoMes(mesEquipesSelecionadoId);
+}
+
+// Apaga só o registro da equipe (encerrada) — vendas, parcelas e clientes
+// dela continuam intactos, apenas soltam o vínculo com a equipe apagada.
+// Ver função apagar_equipe() no banco (migration 0023).
+async function apagarEquipe(equipeId) {
+  if (!confirm('Apagar esta equipe encerrada?\n\nAs vendas e os clientes registrados por ela NÃO serão apagados — só a equipe some da lista.\n\nEsta ação não pode ser desfeita.')) return;
+  const { error } = await sb.rpc('apagar_equipe', { p_equipe_id: equipeId });
+  if (error) {
+    console.error('Erro ao apagar equipe:', error);
+    alert('Erro ao apagar equipe: ' + error.message);
+    return;
+  }
   await carregarEquipesDoMes(mesEquipesSelecionadoId);
 }
 
