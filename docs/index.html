@@ -1233,8 +1233,13 @@ tr:hover td{background:#fafafa;}
         <div id="aviso-venda-avista" style="display:none;background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#3B6D11;">
           💵 Venda à vista sem CPF: apenas nome, endereço, cidade e localização são obrigatórios. Esta venda só poderá ser registrada como à vista.
         </div>
-        <button class="btn verde" onclick="salvarNovoClienteVenda()" style="width:100%;padding:16px;font-size:16px;font-weight:700;border-radius:12px;">✅ Salvar cliente e continuar</button>
+        <button id="btn-salvar-cliente-venda" class="btn verde" onclick="salvarNovoClienteVenda()" style="width:100%;padding:16px;font-size:16px;font-weight:700;border-radius:12px;">✅ Salvar cliente e continuar</button>
       </div>
+    </div>
+
+    <div id="venda-passo2-carregando" style="display:none;text-align:center;padding:32px 0;">
+      <span class="btn-spinner" style="width:20px;height:20px;border-width:3px;color:#185FA5;"></span>
+      <div style="margin-top:12px;font-size:14px;color:#185FA5;font-weight:600;">Carregando dados da venda... aguarde</div>
     </div>
 
     <div id="form-dados-venda" style="display:none;">
@@ -4614,6 +4619,7 @@ async function abrirNovaVenda() {
   document.getElementById('resultado-busca-cliente').innerHTML = '';
   document.getElementById('venda-cliente-id').value = '';
   document.getElementById('form-novo-cliente-venda').style.display = 'none';
+  document.getElementById('venda-passo2-carregando').style.display = 'none';
   document.getElementById('form-dados-venda').style.display = 'none';
   document.getElementById('btn-salvar-venda').style.display = 'none';
   document.getElementById('painel-autorizacao').style.display = 'none';
@@ -4934,6 +4940,8 @@ async function buscarClientePorCPF() {
 }
 
 async function salvarNovoClienteVenda() {
+  const btn = document.getElementById('btn-salvar-cliente-venda');
+  if (btn && btn.disabled) return;
   const cpf = document.getElementById('venda-cpf-busca').value.replace(/[^\d]/g, '');
   const nome = document.getElementById('vnc-nome').value.trim();
   const nascimentoBR = document.getElementById('vnc-nascimento').value.trim();
@@ -4993,6 +5001,8 @@ async function salvarNovoClienteVenda() {
     localizacao_endereco: document.getElementById('vnc-localizacao-endereco').value || null,
   };
 
+  const original = _travarBotao(btn, 'Salvando...');
+  try {
   let clienteId, clienteNome, clienteCodigo, offlineEnfileirado = false;
   if (editId) {
     // Alguns perfis (ex.: vendedor) podem não ter permissão de leitura completa
@@ -5085,7 +5095,12 @@ async function salvarNovoClienteVenda() {
   document.getElementById('resultado-busca-cliente').innerHTML = avisoOfflineCliente + `<div class="cliente-encontrado">✓ ${editId ? 'Cliente atualizado' : 'Cliente cadastrado'}: <strong>${clienteNome}</strong>${clienteCodigo ? ' — Código ' + clienteCodigo : ''}</div>`;
   document.getElementById('vnc-edit-id').value = '';
   document.getElementById('form-novo-cliente-venda').style.display = 'none';
+  document.getElementById('venda-passo2-carregando').style.display = 'block';
   await mostrarFormVenda();
+  } finally {
+    document.getElementById('venda-passo2-carregando').style.display = 'none';
+    _destravarBotao(btn, original);
+  }
 }
 
 async function mostrarFormVenda() {
