@@ -486,6 +486,7 @@ tr:hover td{background:#fafafa;}
     <div class="nav-grupo" id="nav-grupo-vendas">
       <div class="nav-sep">Vendas</div>
       <div class="nav-item" id="nav-vendas" data-page="vendas" onclick="pg('vendas',this)"><span class="nav-ico">🛒</span>Vendas</div>
+      <div class="nav-item" id="nav-autorizacoes" data-page="autorizacoes" onclick="pg('autorizacoes',this)"><span class="nav-ico">🔑</span>Autorizações</div>
       <div class="nav-item" id="nav-ranking" data-page="ranking" onclick="pg('ranking',this)"><span class="nav-ico">🏆</span>Ranking</div>
       <div class="nav-item" id="nav-equipes" data-page="equipes" onclick="pg('equipes',this)"><span class="nav-ico">🚚</span>Equipes / Semanas</div>
       <div class="nav-item" id="nav-caminhoes" data-page="caminhoes" onclick="pg('caminhoes',this)"><span class="nav-ico">🚛</span>Caminhões</div>
@@ -648,6 +649,16 @@ tr:hover td{background:#fafafa;}
         <button class="btn primario" onclick="buscarVendasFiltro()" style="padding:8px 16px;" title="Buscar">🔍</button>
       </div>
       <div id="lista-vendas">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-autorizacoes">
+      <div class="topbar-pg">
+        <div class="page-title" style="margin:0">🔑 Autorizações</div>
+        <button class="btn" style="font-size:13px;padding:8px 16px;" onclick="carregarMinhasAutorizacoes()">🔄 Atualizar</button>
+      </div>
+      <div id="autorizacoes-pendentes-vendedor" style="margin-bottom:1.5rem;"></div>
+      <div class="page-title" style="font-size:14px;margin-bottom:.75rem;">Histórico</div>
+      <div id="autorizacoes-historico-vendedor">Carregando...</div>
     </div>
 
     <div class="page" id="page-ranking">
@@ -1732,6 +1743,7 @@ let autorizacaoAtualId = null;
 let pollInterval = null;
 let gestorPollInterval = null;
 let rankingPollInterval = null;
+let autorizacoesVendedorPollInterval = null;
 const isMobile = () => window.innerWidth <= 768;
 
 // === Logout automático por inatividade ===
@@ -1948,6 +1960,7 @@ async function sair() {
   await sb.auth.signOut();
   if (gestorPollInterval) { clearInterval(gestorPollInterval); gestorPollInterval = null; }
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  if (autorizacoesVendedorPollInterval) { clearInterval(autorizacoesVendedorPollInterval); autorizacoesVendedorPollInterval = null; }
   perfilAtivo = null;
   funcionarioLogado = null;
   equipeAtiva = null;
@@ -2267,6 +2280,7 @@ function aplicarPermissoes(perfil) {
     localidades:         gestorOuCobrador,
     mapa:                gestorOuCobrador,
     'meu-historico':     cobrador,
+    autorizacoes:        vendedor,
   };
   document.querySelectorAll('.nav-item[data-page]').forEach(item => {
     const pag = item.dataset.page;
@@ -2298,6 +2312,7 @@ function pg(nome, el) {
   document.getElementById('page-' + nome).classList.add('active');
   el.classList.add('active');
   if (rankingPollInterval) { clearInterval(rankingPollInterval); rankingPollInterval = null; }
+  if (autorizacoesVendedorPollInterval) { clearInterval(autorizacoesVendedorPollInterval); autorizacoesVendedorPollInterval = null; }
   if (nome === 'dashboard') carregarDashboard();
   if (nome === 'catalogo') carregarPaginaCatalogo();
   if (nome === 'rotas') carregarRotas();
@@ -2321,6 +2336,7 @@ function pg(nome, el) {
   if (nome === 'caminhoes') carregarCaminhoes();
   if (nome === 'estoque') carregarEstoquePagina();
   if (nome === 'usuarios') carregarUsuarios();
+  if (nome === 'autorizacoes') { carregarMinhasAutorizacoes(); autorizacoesVendedorPollInterval = setInterval(carregarMinhasAutorizacoes, 10000); }
 }
 
 function fecharModal(id) {
@@ -6011,6 +6027,76 @@ async function autorizarVenda(id) {
 async function negarVenda(id) {
   await sb.from('autorizacoes_venda').update({ status: 'negado' }).eq('id', id);
   carregarAutorizacoesPendentes();
+}
+
+// Aba "Autorizações" do vendedor: mostra as próprias solicitações — as
+// pendentes (aguardando o gestor) separadas das já resolvidas (autorizadas
+// ou negadas). Usa a RPC listar_minhas_autorizacoes_venda (migration 0029)
+// em vez de ler autorizacoes_venda direto, pelo mesmo motivo de
+// verificar_autorizacao_venda: não depende de nenhuma RLS de leitura
+// específica pro vendedor enxergar só os próprios pedidos.
+async function carregarMinhasAutorizacoes() {
+  const wrapPendentes = document.getElementById('autorizacoes-pendentes-vendedor');
+  const wrapHistorico = document.getElementById('autorizacoes-historico-vendedor');
+  if (!wrapPendentes || !wrapHistorico) return;
+
+  const { data, error } = await sb.rpc('listar_minhas_autorizacoes_venda');
+  if (error) {
+    wrapPendentes.innerHTML = '';
+    wrapHistorico.innerHTML = '<p style="color:#A32D2D;">Erro ao carregar solicitações.</p>';
+    return;
+  }
+  const lista = data || [];
+
+  const clienteIds = [...new Set(lista.filter(a => a.tipo === 'inadimplente').map(a => a.cliente_id).filter(Boolean))];
+  const { data: clientesEnvolvidos } = clienteIds.length
+    ? await sb.from('clientes').select('id, nome, codigo').in('id', clienteIds)
+    : { data: [] };
+  const mapaClientes = new Map((clientesEnvolvidos || []).map(c => [c.id, c]));
+
+  const tipoBadgeAut = a => a.tipo === 'inadimplente'
+    ? '<span class="badge vermelho">Inadimplente</span>'
+    : '<span class="badge amarelo">Sem CPF</span>';
+  const detalhesAut = a => {
+    if (a.tipo !== 'inadimplente') return 'Venda sem CPF';
+    const cliente = mapaClientes.get(a.cliente_id);
+    return 'Cliente: <strong>' + escHtml(cliente?.nome || '—') + '</strong> (Código ' + escHtml(cliente?.codigo || '—') + ')'
+      + ' · ' + (a.qtd_atrasadas ?? '—') + ' parcela(s) em atraso'
+      + (a.valor_atrasado != null ? ' — R$ ' + Number(a.valor_atrasado).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '');
+  };
+  const dataHoraAut = a => new Date(a.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  const pendentes = lista.filter(a => a.status === 'pendente');
+  const resolvidas = lista.filter(a => a.status === 'autorizado' || a.status === 'negado');
+
+  wrapPendentes.innerHTML = !pendentes.length ? '' : (
+    '<div style="background:#FAEEDA;border:1px solid #FAC775;border-radius:10px;padding:1rem;">'
+    + '<div class="secao" style="margin-top:0;color:#854F0B;border-color:#FAC775;">Aguardando o gestor (' + pendentes.length + ')</div>'
+    + pendentes.map(a =>
+      '<div style="padding:.5rem 0;border-bottom:1px solid #fde8b8;">'
+      + '<div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:2px;">' + tipoBadgeAut(a) + ' Código ' + escHtml(a.codigo) + '</div>'
+      + '<div style="font-size:12px;color:#555;margin-bottom:2px;">' + detalhesAut(a) + '</div>'
+      + '<div style="font-size:11px;color:#888;">Pedido em ' + dataHoraAut(a) + '</div>'
+      + '</div>'
+    ).join('')
+    + '</div>'
+  );
+
+  wrapHistorico.innerHTML = !resolvidas.length
+    ? '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;color:#999;"><div style="font-size:48px;margin-bottom:12px;">🔑</div><div style="font-size:15px;color:#888;">Nenhuma solicitação autorizada ou negada ainda.</div></div>'
+    : resolvidas.map(a => {
+      const statusBadge = a.status === 'autorizado'
+        ? '<span class="badge verde">✓ Autorizada</span>'
+        : '<span class="badge vermelho">✗ Negada</span>';
+      return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:.875rem 1rem;margin-bottom:8px;">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:4px;">'
+        + '<div style="font-size:13px;font-weight:600;color:#1a1a1a;">' + tipoBadgeAut(a) + ' Código ' + escHtml(a.codigo) + '</div>'
+        + statusBadge
+        + '</div>'
+        + '<div style="font-size:12px;color:#555;margin-bottom:4px;">' + detalhesAut(a) + '</div>'
+        + '<div style="font-size:11px;color:#888;">Pedido em ' + dataHoraAut(a) + '</div>'
+        + '</div>';
+    }).join('');
 }
 
 function renderVendas(lista) {
