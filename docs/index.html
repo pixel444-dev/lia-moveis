@@ -6568,7 +6568,7 @@ async function _clientesDoCobrador(campos, statusErro) {
   // colapsa tudo em um registro só. Garante `id` mesmo quando o chamador
   // pede campos customizados (ex.: só `localidade_id`, pra contagem).
   const campoLista = campos ? campos.split(',').map(c => c.trim()) : ['id', 'codigo', 'nome', 'telefone', 'foto_casa', 'localidade_id'];
-  const sel = (campoLista.includes('id') ? campoLista : ['id', ...campoLista]).join(', ');
+  const sel = campoLista.includes('*') ? '*' : (campoLista.includes('id') ? campoLista : ['id', ...campoLista]).join(', ');
   if (!statusErro) statusErro = {};
 
   // Já se sabe que está offline: nem tenta a rede, vai direto à carteira
@@ -6653,12 +6653,52 @@ async function renderInterfaceCobrador() {
       carregarDesempenhoCiclo(),
       carregarCaixaECiclos(_caixaId),
     ]);
+    // Não aguarda: a tela já está pronta com o ciclo atual (acima). O
+    // download da carteira inteira roda por conta própria, em segundo
+    // plano — ver prefetchOfflineCobrador.
+    prefetchOfflineCobrador();
   } catch (e) {
     if (window.NetStatus && NetStatus.ehErroDeRede(e)) {
       _degradarPaineisCobradorOffline();
     } else {
       console.error('[COBRADOR] Falha ao carregar painéis.', e);
     }
+  }
+}
+
+// Baixa tudo que o cobrador pode precisar em campo sem internet: carteira
+// completa (todos os campos, não só o resumo da tela) e as parcelas em
+// aberto de cada cliente — não só do ciclo atual, a rota inteira. Sem isto,
+// abrir um cliente ou dar baixa sem sinal só funcionava em quem o cobrador
+// já tinha aberto individualmente com internet antes (o cache era só um
+// efeito colateral de telas visitadas, não um download de verdade). Roda
+// em segundo plano (chamador não espera) e é limitado a 1x a cada 10min
+// pra não repetir uma carga pesada toda vez que a tela de Cobranças abre.
+let _ultimoPrefetchCarteiraCobrador = 0;
+async function prefetchOfflineCobrador() {
+  if (!window.OfflineFlow || !window.NetStatus || !NetStatus.estaOnline()) return;
+  if (!_appEhNativo() || perfilAtivo?.perfil !== 'cobrador') return;
+  const agora = Date.now();
+  if (agora - _ultimoPrefetchCarteiraCobrador < 10 * 60 * 1000) return;
+  _ultimoPrefetchCarteiraCobrador = agora;
+
+  try {
+    const statusErro = {};
+    const clientes = await _clientesDoCobrador('*', statusErro);
+    if (statusErro.houveErro || !clientes.length) return;
+
+    const parcelas = await buscarInLotes(clientes.map(c => c.id), lote =>
+      sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').in('cliente_id', lote).neq('status', 'devolvida'));
+    OfflineFlow.salvarParcelasNoCache(parcelas);
+
+    const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+    if (cobradores) OfflineFlow.salvarCobradoresNoCache(cobradores);
+  } catch (e) {
+    // Melhor esforço: uma falha aqui não deve incomodar o cobrador (a tela
+    // já carregou normalmente antes desta chamada) — só registra pra
+    // investigação.
+    _ultimoPrefetchCarteiraCobrador = 0; // permite tentar de novo antes dos 10min
+    Logger.warn('cobrador', 'PREFETCH_OFFLINE', 'Falha ao baixar carteira completa para uso offline', { error_message: e?.message });
   }
 }
 
@@ -7098,6 +7138,30 @@ async function renderCicloSelecionado(cicloChave) {
     window._cobradorAtualizando = false;
     renderListaCobrador();
     salvarCacheFichas(chaveCache, clientes);
+
+    // Aproveita o que fichas_do_ciclo já trouxe (tem parcela_id de verdade)
+    // pra alimentar o cache offline de parcelas sem gastar outra consulta —
+    // sem isso, dar baixa/registrar recebimento sem internet só funcionava
+    // em clientes que o cobrador já tinha aberto individualmente antes (ver
+    // OfflineFlow.parcelasDoCacheCliente). Cobre ao menos a rota deste
+    // ciclo; prefetchOfflineCobrador (chamado por renderInterfaceCobrador)
+    // completa baixando a carteira inteira em segundo plano.
+    if (window.OfflineFlow && linhas && linhas.length) {
+      OfflineFlow.salvarParcelasNoCache(linhas.map(function(r) {
+        return {
+          id: r.parcela_id,
+          cliente_id: r.cliente_id,
+          venda_id: r.venda_id,
+          numero: r.numero,
+          total_parcelas: r.total_parcelas,
+          valor: r.valor,
+          valor_pago: r.valor_pago,
+          data_vencimento: r.data_vencimento,
+          pago: false,
+          status: 'aberta',
+        };
+      }));
+    }
   } catch (e) {
     Logger.error('cobrador', 'RENDER_CICLO_FICHAS', 'Falha ao atualizar fichas', { error_message: e?.message });
     window._cobradorAtualizando = false;
