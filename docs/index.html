@@ -2162,7 +2162,7 @@ async function iniciarSessao(user, dadosPrefetched) {
   // sincronização (bloqueia até 100%) em vez do app direto — ver o "if
   // (perfilAtivo.perfil === 'vendedor')" mais abaixo. Nos outros casos
   // (gestor, cobrador, vendedor offline/web) nada muda: app aparece na hora.
-  const aguardaSincronizacaoInicial = perfilAtivo.perfil === 'vendedor'
+  const aguardaSincronizacaoInicial = (perfilAtivo.perfil === 'vendedor' || perfilAtivo.perfil === 'cobrador')
     && typeof _appEhNativo === 'function' && _appEhNativo()
     && window.NetStatus && NetStatus.estaOnline();
   if (!aguardaSincronizacaoInicial) {
@@ -2180,6 +2180,11 @@ async function iniciarSessao(user, dadosPrefetched) {
   if (window.Sync) { Sync.atualizarContadorFila(); Sync.sincronizarAgora(); }
   if (perfilAtivo.perfil === 'cobrador') {
     aplicarPermissoes(perfilAtivo.perfil);
+    if (aguardaSincronizacaoInicial) {
+      await _aguardarSincronizacaoInicial(prefetchOfflineCobrador);
+      document.getElementById('app').style.display = 'flex';
+      document.getElementById('topbar-mobile').style.removeProperty('display');
+    }
     carregarDashboard();
     return;
   }
@@ -2193,7 +2198,7 @@ async function iniciarSessao(user, dadosPrefetched) {
   }
   if (perfilAtivo.perfil === 'vendedor') {
     if (aguardaSincronizacaoInicial) {
-      await _aguardarSincronizacaoInicialVendedor();
+      await _aguardarSincronizacaoInicial(prefetchOfflineVendedor);
       document.getElementById('app').style.display = 'flex';
       document.getElementById('topbar-mobile').style.removeProperty('display');
     } else {
@@ -5913,7 +5918,7 @@ async function carregarEquipeAtivaVendedor() {
 // no app, sem depender de login nem de rede. Sem isso o primeiro acesso
 // offline não teria nada carregado ainda. onProgress(pct, texto) é
 // opcional — usado pela tela de sincronização inicial (ver
-// _aguardarSincronizacaoInicialVendedor) pra mostrar uma barra de progresso
+// _aguardarSincronizacaoInicial) pra mostrar uma barra de progresso
 // de verdade em vez de um spinner genérico.
 async function prefetchOfflineVendedor(onProgress) {
   const marcar = (pct, texto) => { try { if (onProgress) onProgress(pct, texto); } catch (e) { /* progresso é cosmético */ } };
@@ -5938,13 +5943,15 @@ async function prefetchOfflineVendedor(onProgress) {
 }
 
 // ─── Tela de sincronização inicial (bloqueia acesso até 100%) ────
-// Só entra em cena pro vendedor, no app nativo, com internet no momento do
-// login — sem internet não tem o que baixar (o vendedor entra direto com o
-// que já tinha salvo, como sempre) e no build web não existe cache local
-// pra alimentar. Depois de alguns segundos ainda rodando, libera um botão
+// Só entra em cena no app nativo, com internet no momento do login —
+// sem internet não tem o que baixar (entra direto com o que já tinha
+// salvo, como sempre) e no build web não existe cache local pra
+// alimentar. Depois de alguns segundos ainda rodando, libera um botão
 // de "continuar mesmo assim" — o prefetch continua em segundo plano, só
-// para de bloquear a tela (evita prender o vendedor numa tela travada se a
-// conexão estiver ruim, que é justamente quando ele mais precisa do app).
+// para de bloquear a tela (evita prender o usuário numa tela travada se
+// a conexão estiver ruim, que é justamente quando ele mais precisa do
+// app). Genérica: recebe a função de prefetch do perfil (vendedor ou
+// cobrador) porque a tela/barra/escape hatch são idênticos pros dois.
 let _resolverEsperaSincronizacaoInicial = null;
 
 function _continuarSemAguardarSincronizacaoInicial() {
@@ -5954,7 +5961,7 @@ function _continuarSemAguardarSincronizacaoInicial() {
   }
 }
 
-async function _aguardarSincronizacaoInicialVendedor() {
+async function _aguardarSincronizacaoInicial(prefetchFn) {
   const tela = document.getElementById('tela-sincronizando');
   const statusEl = document.getElementById('sync-inicial-status');
   const barraEl = document.getElementById('sync-inicial-barra');
@@ -5970,11 +5977,11 @@ async function _aguardarSincronizacaoInicialVendedor() {
   tela.style.display = 'flex';
 
   let concluiu = false;
-  const prefetchPromise = prefetchOfflineVendedor((pct, texto) => {
+  const prefetchPromise = prefetchFn((pct, texto) => {
     barraEl.style.width = Math.min(100, pct) + '%';
     pctEl.textContent = Math.min(100, Math.round(pct)) + '%';
     if (texto) statusEl.textContent = texto;
-  }).catch(() => { /* prefetchOfflineVendedor já é defensivo internamente */ })
+  }).catch(() => { /* prefetch já é defensivo internamente */ })
     .then(() => { concluiu = true; });
 
   const escapePromise = new Promise((resolve) => {
@@ -6666,40 +6673,96 @@ async function renderInterfaceCobrador() {
   }
 }
 
+// ─── Download "inteligente" da carteira do cobrador para uso offline ──
 // Baixa tudo que o cobrador pode precisar em campo sem internet: carteira
 // completa (todos os campos, não só o resumo da tela) e as parcelas em
 // aberto de cada cliente — não só do ciclo atual, a rota inteira. Sem isto,
 // abrir um cliente ou dar baixa sem sinal só funcionava em quem o cobrador
 // já tinha aberto individualmente com internet antes (o cache era só um
-// efeito colateral de telas visitadas, não um download de verdade). Roda
-// em segundo plano (chamador não espera) e é limitado a 1x a cada 10min
-// pra não repetir uma carga pesada toda vez que a tela de Cobranças abre.
-let _ultimoPrefetchCarteiraCobrador = 0;
-async function prefetchOfflineCobrador() {
-  if (!window.OfflineFlow || !window.NetStatus || !NetStatus.estaOnline()) return;
-  if (!_appEhNativo() || perfilAtivo?.perfil !== 'cobrador') return;
-  const agora = Date.now();
-  if (agora - _ultimoPrefetchCarteiraCobrador < 10 * 60 * 1000) return;
-  _ultimoPrefetchCarteiraCobrador = agora;
+// efeito colateral de telas visitadas, não um download de verdade).
+//
+// Dois ritmos diferentes por tipo de dado, cada um com sua própria marca de
+// "última vez" salva no localStorage (sobrevive a reabrir o app, diferente
+// de uma variável em memória): cadastro do cliente (nome, endereço,
+// telefone) muda raramente — só baixa de novo depois de algumas horas.
+// Parcelas em aberto (o que decide se o cobrador cobra ou não) precisam
+// ficar razoavelmente frescas — recarrega a cada ~20min. Fora dessas
+// janelas, reaproveita o que já está salvo no aparelho em vez de repetir
+// uma carga pesada toda vez que o cobrador entra no app ou abre a tela de
+// Cobranças (ver _aguardarSincronizacaoInicial, que mostra o progresso
+// disso logo após o login).
+const _TTL_CARTEIRA_COBRADOR_MS = 6 * 60 * 60 * 1000;
+const _TTL_PARCELAS_COBRADOR_MS = 20 * 60 * 1000;
 
-  try {
-    const statusErro = {};
-    const clientes = await _clientesDoCobrador('*', statusErro);
-    if (statusErro.houveErro || !clientes.length) return;
+function _chaveSincCobrador(tipo) {
+  return 'ultima_sinc_' + tipo + '_cobrador_' + (funcionarioLogado?.id || 'anon');
+}
+function _sincCobradorRecente(tipo, ttlMs) {
+  try { return Date.now() - (Number(localStorage.getItem(_chaveSincCobrador(tipo))) || 0) < ttlMs; }
+  catch (e) { return false; }
+}
+function _marcarSincCobrador(tipo) {
+  try { localStorage.setItem(_chaveSincCobrador(tipo), String(Date.now())); } catch (e) { /* melhor esforço */ }
+}
 
-    const parcelas = await buscarInLotes(clientes.map(c => c.id), lote =>
-      sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').in('cliente_id', lote).neq('status', 'devolvida'));
-    OfflineFlow.salvarParcelasNoCache(parcelas);
+// onProgress(pct, texto) é opcional — usado pela tela de sincronização
+// inicial (_aguardarSincronizacaoInicial) pra mostrar uma barra de
+// progresso de verdade. Sem chamador esperando (ex.: chamada em segundo
+// plano do renderInterfaceCobrador), simplesmente roda sem UI.
+let _prefetchCobradorEmAndamento = null;
+async function prefetchOfflineCobrador(onProgress) {
+  const marcar = (pct, texto) => { try { if (onProgress) onProgress(pct, texto); } catch (e) { /* progresso é cosmético */ } };
 
-    const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
-    if (cobradores) OfflineFlow.salvarCobradoresNoCache(cobradores);
-  } catch (e) {
-    // Melhor esforço: uma falha aqui não deve incomodar o cobrador (a tela
-    // já carregou normalmente antes desta chamada) — só registra pra
-    // investigação.
-    _ultimoPrefetchCarteiraCobrador = 0; // permite tentar de novo antes dos 10min
-    Logger.warn('cobrador', 'PREFETCH_OFFLINE', 'Falha ao baixar carteira completa para uso offline', { error_message: e?.message });
+  if (!window.OfflineFlow || !window.NetStatus || !NetStatus.estaOnline() || !_appEhNativo() || perfilAtivo?.perfil !== 'cobrador') {
+    marcar(100, 'Tudo pronto!');
+    return;
   }
+  // Duas chamadas sobrepostas (ex.: tela de login aguardando + renderInterfaceCobrador
+  // disparando em segundo plano logo em seguida) reaproveitam a mesma rodada em vez de
+  // baixar tudo em dobro.
+  if (_prefetchCobradorEmAndamento) return _prefetchCobradorEmAndamento;
+
+  _prefetchCobradorEmAndamento = (async () => {
+    try {
+      const carteiraFresca = _sincCobradorRecente('carteira', _TTL_CARTEIRA_COBRADOR_MS);
+      marcar(10, carteiraFresca ? 'Conferindo carteira salva no aparelho...' : 'Baixando carteira de clientes...');
+
+      let clientes = carteiraFresca ? await OfflineFlow.carteiraDoCache() : null;
+      if (!clientes || !clientes.length) {
+        const statusErro = {};
+        clientes = await _clientesDoCobrador('*', statusErro);
+        if (statusErro.houveErro || !clientes.length) { marcar(100, 'Tudo pronto!'); return; }
+        _marcarSincCobrador('carteira');
+      }
+
+      if (_sincCobradorRecente('parcelas', _TTL_PARCELAS_COBRADOR_MS)) {
+        marcar(100, 'Tudo pronto — carteira e cobranças já estavam atualizadas!');
+        return;
+      }
+
+      marcar(55, 'Atualizando parcelas em aberto (' + clientes.length + ' clientes)...');
+      const parcelas = await buscarInLotes(clientes.map(c => c.id), lote =>
+        sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').in('cliente_id', lote).neq('status', 'devolvida'));
+      OfflineFlow.salvarParcelasNoCache(parcelas);
+      _marcarSincCobrador('parcelas');
+
+      marcar(90, 'Atualizando lista de cobradores...');
+      const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+      if (cobradores) OfflineFlow.salvarCobradoresNoCache(cobradores);
+
+      marcar(100, 'Tudo pronto para trabalhar offline!');
+    } catch (e) {
+      // Melhor esforço: uma falha aqui não deve incomodar o cobrador (a tela
+      // já carregou normalmente antes desta chamada) — só registra pra
+      // investigação. Não marca as chaves de sincronização — a próxima
+      // tentativa não fica presa esperando o TTL de algo que na verdade falhou.
+      Logger.warn('cobrador', 'PREFETCH_OFFLINE', 'Falha ao baixar carteira completa para uso offline', { error_message: e?.message });
+      marcar(100, 'Concluído (com pendências).');
+    } finally {
+      _prefetchCobradorEmAndamento = null;
+    }
+  })();
+  return _prefetchCobradorEmAndamento;
 }
 
 function _degradarPaineisCobradorOffline() {
@@ -7088,7 +7151,19 @@ function atualizarFichasCobrador() {
   carregarCaixaECiclos();
 }
 
+// Só a resposta da chamada mais recente pode atualizar a tela — ver o
+// guard logo após o Promise.all abaixo (_meuFetchCiclo !== _cicloFetchSeq).
+// Sem isso, quando duas chamadas ficam em voo ao mesmo tempo (ex.: o
+// carregamento inicial da tela ainda buscando os dados de rede enquanto o
+// cobrador já deu uma baixa, que também chama carregarCaixaECiclos →
+// renderCicloSelecionado de novo), a resposta mais ANTIGA podia chegar
+// DEPOIS da mais nova e sobrescrever a lista correta com dados velhos —
+// inclusive de um ciclo diferente do selecionado no momento, fazendo
+// clientes/vendas parecerem "trocados" na tela do nada.
+let _cicloFetchSeq = 0;
+
 async function renderCicloSelecionado(cicloChave) {
+  const meuFetchCiclo = ++_cicloFetchSeq;
   const caixa = window._caixaCobradorAtiva;
   const chaveCache = _chaveCacheFichas(cicloChave);
   const cache = lerCacheFichas(chaveCache);
@@ -7111,6 +7186,9 @@ async function renderCicloSelecionado(cicloChave) {
       sb.from('localidades').select('id, nome').eq('cobrador_id', funcionarioLogado.id).eq('ativo', true).order('ordem', { ascending: true, nullsFirst: false }).order('nome'),
       sb.rpc('fichas_do_ciclo', { p_caixa_id: caixa.id, p_ciclo_chave: cicloChave }),
     ]);
+    // Uma chamada mais nova já assumiu a tela enquanto esta esperava a rede
+    // — descarta esta resposta atrasada em vez de voltar a tela no tempo.
+    if (meuFetchCiclo !== _cicloFetchSeq) return;
     // Sem isso, uma falha de rede aqui sobrescreveria o cache bom com uma
     // lista vazia incorreta.
     if (errLoc || errFichas) {
@@ -7163,6 +7241,7 @@ async function renderCicloSelecionado(cicloChave) {
       }));
     }
   } catch (e) {
+    if (meuFetchCiclo !== _cicloFetchSeq) return; // idem: chamada mais nova já resolveu, ignora esta falha atrasada
     Logger.error('cobrador', 'RENDER_CICLO_FICHAS', 'Falha ao atualizar fichas', { error_message: e?.message });
     window._cobradorAtualizando = false;
     if (!cache) {
