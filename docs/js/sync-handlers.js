@@ -594,9 +594,15 @@
     return lista.length ? lista : null;
   }
 
+  // Mescla em vez de sobrescrever: o download proativo da carteira inteira
+  // (prefetchOfflineCobrador, index.html) grava um subconjunto de campos por
+  // parcela, e não pode apagar campos mais completos (vendas, funcionarios,
+  // comprovante_pix etc.) que uma consulta detalhada anterior já tinha salvo
+  // pra este mesmo id — mesma lógica de _salvarMesclandoNoCache já usada
+  // para clientes.
   async function salvarParcelasNoCache(lista) {
     if (!_nativo() || !window.DbLocal || !Array.isArray(lista) || !lista.length) return;
-    try { await DbLocal.salvarNoCache('parcelas', lista); } catch (e) { /* cache é melhor esforço */ }
+    try { await _salvarMesclandoNoCache('parcelas', lista); } catch (e) { /* cache é melhor esforço */ }
   }
 
   async function salvarClientesNoCache(lista) {
