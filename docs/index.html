@@ -9727,7 +9727,10 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
       + '</div>'
       + '<div style="text-align:right;">'
       + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">' + fmtR(b.valor_recebido) + '</div>'
-      + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\')">Corrigir</button>'
+      + '<div style="display:flex;gap:4px;justify-content:flex-end;margin-top:2px;">'
+      + (b.comprovante_pix ? '<button class="btn" style="font-size:10px;padding:2px 8px;" onclick="abrirAssinado(event,\'comprovantes\',\'' + b.comprovante_pix + '\')">📎 Comprovante</button>' : '')
+      + '<button class="btn" style="font-size:10px;padding:2px 8px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\')">Corrigir</button>'
+      + '</div>'
       + '</div></div></div>';
   };
 
