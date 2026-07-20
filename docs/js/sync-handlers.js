@@ -263,6 +263,46 @@
     if (res.error) throw erroDeBanco(res.error);
   });
 
+  // payload: { categoria, descricao, valor, comprovanteBase64?, comprovanteExt?,
+  //            nomeArquivo?, comprovanteUrl? } — mesmo padrão de comprovante
+  // do recebimento_registrar acima.
+  Sync.registrarHandler('gasto_registrar', async function (payload, op) {
+    if (payload.comprovanteBase64 && !payload.comprovanteUrl) {
+      var contentType = payload.comprovanteExt === 'pdf' ? 'application/pdf' : 'image/webp';
+      var blob = base64ParaBlob(payload.comprovanteBase64, contentType);
+      var up = await sb.storage.from('comprovantes').upload(payload.nomeArquivo, blob, { contentType: contentType, upsert: true });
+      if (up.error) throw erroDeBanco(up.error);
+      payload.comprovanteUrl = sb.storage.from('comprovantes').getPublicUrl(payload.nomeArquivo).data.publicUrl;
+      payload.comprovanteBase64 = null;
+      await DbLocal.atualizarPayloadOperacao(op.id, payload);
+    }
+    var res = await sb.rpc('registrar_gasto', {
+      p_categoria: payload.categoria,
+      p_descricao: payload.descricao,
+      p_valor: payload.valor,
+      p_comprovante_url: payload.comprovanteUrl || null,
+    });
+    if (res.error) throw erroDeBanco(res.error);
+  });
+
+  // payload: { valor, comprovanteBase64?, comprovanteExt?, nomeArquivo?, comprovanteUrl? }
+  Sync.registrarHandler('deposito_registrar', async function (payload, op) {
+    if (payload.comprovanteBase64 && !payload.comprovanteUrl) {
+      var contentType = payload.comprovanteExt === 'pdf' ? 'application/pdf' : 'image/webp';
+      var blob = base64ParaBlob(payload.comprovanteBase64, contentType);
+      var up = await sb.storage.from('comprovantes').upload(payload.nomeArquivo, blob, { contentType: contentType, upsert: true });
+      if (up.error) throw erroDeBanco(up.error);
+      payload.comprovanteUrl = sb.storage.from('comprovantes').getPublicUrl(payload.nomeArquivo).data.publicUrl;
+      payload.comprovanteBase64 = null;
+      await DbLocal.atualizarPayloadOperacao(op.id, payload);
+    }
+    var res = await sb.rpc('registrar_deposito', {
+      p_valor: payload.valor,
+      p_comprovante_url: payload.comprovanteUrl || null,
+    });
+    if (res.error) throw erroDeBanco(res.error);
+  });
+
   // ─── Helpers de entrada no modo offline (chamados do index.html) ──
 
   function _nativo() {
@@ -492,6 +532,62 @@
       return { ok: true };
     } catch (e) {
       console.error('[OFFLINE] Falha ao enfileirar recebimento.', e);
+      return { ok: false };
+    }
+  }
+
+  // Gasto do cobrador (fluxo de campo). Comprovante, se houver, vem de
+  // window._gastoComprovante e vai em base64 na fila. Devolve { ok, msg? }.
+  async function gastoOffline(dados) {
+    if (!_nativo() || !window.DbLocal || !window.Sync) return { ok: false };
+    try {
+      var comprovanteBase64 = null, ext = null, nomeArquivo = null;
+      if (window._gastoComprovante && !dados.comprovanteUrl) {
+        comprovanteBase64 = await blobParaBase64(window._gastoComprovante);
+        ext = window._gastoComprovanteExt || 'webp';
+        nomeArquivo = 'gasto_' + crypto.randomUUID() + '.' + ext;
+      }
+      var opId = await DbLocal.enfileirarOperacao('gasto_registrar', {
+        categoria: dados.categoria,
+        descricao: dados.descricao,
+        valor: dados.valor,
+        comprovanteBase64: comprovanteBase64,
+        comprovanteExt: ext,
+        nomeArquivo: nomeArquivo,
+        comprovanteUrl: dados.comprovanteUrl || null,
+      });
+      if (!opId) return { ok: false };
+      await Sync.atualizarContadorFila();
+      return { ok: true };
+    } catch (e) {
+      console.error('[OFFLINE] Falha ao enfileirar gasto.', e);
+      return { ok: false };
+    }
+  }
+
+  // Depósito do cobrador (fluxo de campo). Comprovante é obrigatório e vem
+  // de window._depositoComprovante, vai em base64 na fila. Devolve { ok, msg? }.
+  async function depositoOffline(dados) {
+    if (!_nativo() || !window.DbLocal || !window.Sync) return { ok: false };
+    try {
+      var comprovanteBase64 = null, ext = null, nomeArquivo = null;
+      if (window._depositoComprovante && !dados.comprovanteUrl) {
+        comprovanteBase64 = await blobParaBase64(window._depositoComprovante);
+        ext = window._depositoComprovanteExt || 'webp';
+        nomeArquivo = 'deposito_' + crypto.randomUUID() + '.' + ext;
+      }
+      var opId = await DbLocal.enfileirarOperacao('deposito_registrar', {
+        valor: dados.valor,
+        comprovanteBase64: comprovanteBase64,
+        comprovanteExt: ext,
+        nomeArquivo: nomeArquivo,
+        comprovanteUrl: dados.comprovanteUrl || null,
+      });
+      if (!opId) return { ok: false };
+      await Sync.atualizarContadorFila();
+      return { ok: true };
+    } catch (e) {
+      console.error('[OFFLINE] Falha ao enfileirar depósito.', e);
       return { ok: false };
     }
   }
@@ -862,6 +958,21 @@
         ].filter(Boolean),
       };
     }
+    if (op.tipo === 'gasto_registrar') {
+      return {
+        titulo: 'Gasto (cobrador) — ' + (payload.categoria || '—'),
+        detalhes: [
+          'Valor: ' + fmtR(payload.valor),
+          payload.descricao ? 'Desc.: ' + payload.descricao : null,
+        ].filter(Boolean),
+      };
+    }
+    if (op.tipo === 'deposito_registrar') {
+      return {
+        titulo: 'Depósito (cobrador)',
+        detalhes: ['Valor: ' + fmtR(payload.valor)],
+      };
+    }
     if (op.tipo === 'cliente_upsert') {
       var ehNovo = !payload.clienteId || /^offline-/.test(String(payload.clienteId));
       return {
@@ -946,6 +1057,8 @@
     baixaOffline: baixaOffline,
     vendaOffline: vendaOffline,
     recebimentoOffline: recebimentoOffline,
+    gastoOffline: gastoOffline,
+    depositoOffline: depositoOffline,
     parcelasAbertasDoCache: parcelasAbertasDoCache,
     salvarPerfilLogin: salvarPerfilLogin,
     perfilLoginCache: perfilLoginCache,

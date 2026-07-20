@@ -6886,6 +6886,18 @@ async function confirmarGasto() {
     return;
   }
 
+  if (window.OfflineFlow && window.NetStatus && !NetStatus.estaOnline()) {
+    const rOff = await OfflineFlow.gastoOffline({ categoria: tipo, descricao, valor });
+    if (rOff.ok) {
+      removerComprovanteGasto();
+      fecharModal('modal-gasto');
+      alert('📴 Sem conexão — gasto salvo no aparelho. Será registrado quando a internet voltar.');
+      return;
+    }
+    alert('Sem conexão e não foi possível guardar o gasto no aparelho. Tente novamente.');
+    return;
+  }
+
   // Upload primeiro (o nome do arquivo não depende mais do id da linha,
   // já que o insert agora acontece dentro da RPC registrar_gasto).
   let comprovanteUrl = null;
@@ -6905,6 +6917,18 @@ async function confirmarGasto() {
   });
 
   if (error) {
+    // Rede caiu entre o upload e a RPC (ou nunca houve rede): gasto entra
+    // na fila; se o comprovante já subiu, a URL vai junto (mesmo padrão do
+    // recebimento em confirmarRecebimento()).
+    if (window.OfflineFlow && NetStatus.ehErroDeRede(error)) {
+      const rOff = await OfflineFlow.gastoOffline({ categoria: tipo, descricao, valor, comprovanteUrl });
+      if (rOff.ok) {
+        removerComprovanteGasto();
+        fecharModal('modal-gasto');
+        alert('📴 Sem conexão — gasto salvo no aparelho. Será registrado quando a internet voltar.');
+        return;
+      }
+    }
     Logger.error('cobrador', 'REGISTRAR_GASTO', 'Erro ao registrar gasto', { supabase_code: error.code, error_message: error.message });
     alert(error.message || 'Erro ao registrar gasto!');
     return;
@@ -6952,6 +6976,18 @@ async function confirmarDeposito() {
   if (valor <= 0) { alert('Digite o valor do depósito!'); return; }
   if (!window._depositoComprovante) { alert('Comprovante do depósito é obrigatório!'); return; }
 
+  if (window.OfflineFlow && window.NetStatus && !NetStatus.estaOnline()) {
+    const rOff = await OfflineFlow.depositoOffline({ valor });
+    if (rOff.ok) {
+      removerComprovanteDeposito();
+      fecharModal('modal-deposito');
+      alert('📴 Sem conexão — depósito salvo no aparelho. Será registrado quando a internet voltar.');
+      return;
+    }
+    alert('Sem conexão e não foi possível guardar o depósito no aparelho. Tente novamente.');
+    return;
+  }
+
   const nomeArquivo = 'deposito_' + crypto.randomUUID() + '.' + window._depositoComprovanteExt;
   const comprovanteUrl = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._depositoComprovante, window._depositoComprovanteExt);
   if (!comprovanteUrl) { alert('Erro ao enviar o comprovante. Tente novamente.'); return; }
@@ -6962,6 +6998,15 @@ async function confirmarDeposito() {
   });
 
   if (error) {
+    if (window.OfflineFlow && NetStatus.ehErroDeRede(error)) {
+      const rOff = await OfflineFlow.depositoOffline({ valor, comprovanteUrl });
+      if (rOff.ok) {
+        removerComprovanteDeposito();
+        fecharModal('modal-deposito');
+        alert('📴 Sem conexão — depósito salvo no aparelho. Será registrado quando a internet voltar.');
+        return;
+      }
+    }
     Logger.error('cobrador', 'REGISTRAR_DEPOSITO', 'Erro ao registrar depósito', { supabase_code: error.code, error_message: error.message });
     alert('Erro ao registrar depósito!');
     return;
@@ -9691,7 +9736,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + '<div style="font-size:13px;font-weight:500;">' + escHtml((g.descricao || 'Gasto')) + '</div>'
         + '<div style="font-size:11px;color:#888;">' + fmtD(g.criado_em) + '</div>'
         + '</div>'
-        + (g.foto_comprovante ? '<img src="' + g.foto_comprovante + '" onclick="window.open(\'' + g.foto_comprovante + '\',\'_blank\')" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + (g.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + g.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="font-size:14px;font-weight:600;color:#854F0B;">' + fmtR(g.valor) + '</div>'
         + '</div>';
     });
@@ -9706,7 +9751,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + '<div style="font-size:13px;font-weight:500;">Depósito</div>'
         + '<div style="font-size:11px;color:#888;">' + fmtD(d.criado_em) + '</div>'
         + '</div>'
-        + (d.foto_comprovante ? '<img src="' + d.foto_comprovante + '" onclick="window.open(\'' + d.foto_comprovante + '\',\'_blank\')" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + (d.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + d.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="font-size:14px;font-weight:600;color:#185FA5;">' + fmtR(d.valor) + '</div>'
         + '</div>';
     });
@@ -9784,6 +9829,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     + '<button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-bottom:8px;" onclick="autorizarCaixa()">✓ Autorizar caixa completa</button>';
 
   document.getElementById('modal-prestacao').style.display = 'flex';
+  assinarImagens(document.getElementById('prestacao-conteudo'));
 }
 
 function conferirSaldoPrestacao(saldoEsperado) {
