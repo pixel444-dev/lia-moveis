@@ -9753,7 +9753,10 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + '<div style="font-size:11px;color:#888;">' + fmtD(g.criado_em) + '</div>'
         + '</div>'
         + (g.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + g.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + '<div style="text-align:right;">'
         + '<div style="font-size:14px;font-weight:600;color:#854F0B;">' + fmtR(g.valor) + '</div>'
+        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + g.id + '\',\'gasto\',' + g.valor + ',\'' + escJs(g.descricao || '') + '\')">Editar</button>'
+        + '</div>'
         + '</div>';
     });
   }
@@ -9768,7 +9771,10 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + '<div style="font-size:11px;color:#888;">' + fmtD(d.criado_em) + '</div>'
         + '</div>'
         + (d.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + d.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + '<div style="text-align:right;">'
         + '<div style="font-size:14px;font-weight:600;color:#185FA5;">' + fmtR(d.valor) + '</div>'
+        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + d.id + '\',\'deposito\',' + d.valor + ',\'' + escJs(d.descricao || '') + '\')">Editar</button>'
+        + '</div>'
         + '</div>';
     });
   }
@@ -9927,6 +9933,39 @@ async function cancelarBaixaPrestacao() {
 
   Logger.info('prestacao', 'CANCELAR_BAIXA', 'Baixa cancelada na prestação', { baixaId });
   fecharModal('modal-corrigir-baixa');
+  abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
+}
+
+function abrirEditarMovimentacao(movId, tipo, valor, descricao) {
+  document.getElementById('editar-mov-id').value = movId;
+  document.getElementById('editar-mov-valor').value = valor;
+  document.getElementById('editar-mov-descricao').value = descricao || '';
+  document.getElementById('editar-mov-titulo').textContent = tipo === 'deposito' ? 'Editar depósito' : 'Editar gasto';
+  document.getElementById('modal-editar-movimentacao').style.display = 'flex';
+}
+
+async function salvarEdicaoMovimentacao() {
+  const movId = document.getElementById('editar-mov-id').value;
+  const valor = parseFloat(document.getElementById('editar-mov-valor').value);
+  const descricao = document.getElementById('editar-mov-descricao').value.trim();
+
+  if (isNaN(valor) || valor <= 0) { alert('Digite um valor válido!'); return; }
+  if (!descricao) { alert('Digite uma descrição!'); return; }
+
+  // movimentacoes_caixa já tem RLS "movcx_update_gestor" (UPDATE só pra
+  // gestor) — não precisa de RPC própria, o update direto já é seguro.
+  const { error } = await sb.from('movimentacoes_caixa')
+    .update({ valor: valor, descricao: descricao })
+    .eq('id', movId);
+
+  if (error) {
+    Logger.error('prestacao', 'EDITAR_MOVIMENTACAO', 'Erro ao editar gasto/depósito', { supabase_code: error.code, error_message: error.message });
+    alert('Erro ao salvar!');
+    return;
+  }
+
+  Logger.info('prestacao', 'EDITAR_MOVIMENTACAO', 'Gasto/depósito editado', { movId, valor, descricao });
+  fecharModal('modal-editar-movimentacao');
   abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
 
@@ -14103,6 +14142,36 @@ async function gerarProximoMes() {
     </button>
     <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
       Cancelar a baixa remove o recebimento e ajusta o dinheiro em mãos.
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR GASTO/DEPÓSITO -->
+<div class="modal-bg" id="modal-editar-movimentacao">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="modal-header">
+      <div><strong id="editar-mov-titulo">Editar gasto</strong></div>
+      <button onclick="fecharModal('modal-editar-movimentacao')">×</button>
+    </div>
+    <input type="hidden" id="editar-mov-id">
+    <div class="campo">
+      <label>Descrição</label>
+      <input id="editar-mov-descricao" type="text"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+        placeholder="Descrição">
+    </div>
+    <div class="campo">
+      <label>Valor (R$)</label>
+      <input id="editar-mov-valor" type="number"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+        placeholder="0,00">
+    </div>
+    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;"
+      onclick="salvarEdicaoMovimentacao()">
+      ✓ Salvar
+    </button>
+    <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
+      Ajusta o valor e recalcula o dinheiro em mãos automaticamente.
     </div>
   </div>
 </div>
