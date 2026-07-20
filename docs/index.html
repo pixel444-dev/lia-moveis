@@ -7675,7 +7675,7 @@ function renderResumoParcelasCard(resumo, tituloTotal) {
 }
 
 // Lista única (paga + em aberto) na ordem recebida — sem separar as pagas no final.
-function renderParcelasMobileUnificado(parcelas) {
+function renderParcelasMobileUnificado(parcelas, nomeCliente) {
   const hoje = new Date();
   return parcelas.map(function(p) {
     const vencimento = new Date(p.data_vencimento + 'T12:00:00');
@@ -7725,9 +7725,10 @@ function renderParcelasMobileUnificado(parcelas) {
     html += 'R$ ' + Number(saldo).toLocaleString('pt-BR', {minimumFractionDigits:2});
     if (valorPago > 0) html += ' <span style="font-size:12px;color:#854F0B;font-weight:400;">(parcial)</span>';
     html += '</div>';
-    html += '<div style="display:flex;gap:8px;">';
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
     html += '<button class="btn primario" style="flex:1;padding:10px;font-size:14px;" onclick="abrirBaixa(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + saldo + '\',\'' + produtoSafe + '\',\'' + p.cliente_id + '\')">Dar baixa</button>';
     html += '<button class="btn" style="padding:10px 14px;font-size:14px;" onclick="abrirEditarParcela(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + p.valor + '\',\'' + p.data_vencimento + '\',\'' + produtoSafe + '\')">Editar</button>';
+    html += '<button class="btn" style="padding:10px 14px;font-size:14px;" onclick="abrirNaoRecebi(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',\'' + p.cliente_id + '\',\'' + escJs(nomeCliente||'') + '\')">📅 Remarcar</button>';
     html += '</div></div>';
     return html;
   }).join('');
@@ -7803,7 +7804,7 @@ async function verDetalhesParcela(parcelaId) {
 // Uma única linha de tabela, usada tanto na visão "por venda" quanto "por
 // cliente" — garante que as duas visões (e a tela após dar/cancelar baixa
 // ou editar) mostrem sempre as mesmas colunas, na mesma ordem.
-function _linhaParcelaDesktop(p, hoje) {
+function _linhaParcelaDesktop(p, hoje, nomeCliente) {
   const vencimento = new Date(p.data_vencimento + 'T12:00:00');
   const valorPago = p.valor_pago || 0;
   const codigoVenda = p.vendas?.codigo || '';
@@ -7835,6 +7836,7 @@ function _linhaParcelaDesktop(p, hoje) {
     <td>
       <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${escJs(p.vendas?.produto||'')}','${p.cliente_id}')">Dar baixa</button>
       <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}')">Editar</button>
+      <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirNaoRecebi('${p.id}',${p.numero},${p.total_parcelas},'${p.cliente_id}','${escJs(nomeCliente||'')}')">📅 Remarcar</button>
     </td>
   </tr>`;
 }
@@ -7937,11 +7939,11 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
 
   let listaHtml;
   if (mobile) {
-    listaHtml = renderParcelasMobileUnificado(data);
+    listaHtml = renderParcelasMobileUnificado(data, nomeCliente);
   } else {
     listaHtml = `<div class="tabela-wrap"><table>
       <thead><tr><th>Venda</th><th>Produto</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
-      <tbody>${data.map(p => _linhaParcelaDesktop(p, hoje)).join('')}</tbody>
+      <tbody>${data.map(p => _linhaParcelaDesktop(p, hoje, nomeCliente)).join('')}</tbody>
     </table></div>`;
   }
 
@@ -7983,11 +7985,11 @@ async function verParcelasCliente(clienteId, nomeCliente) {
 
   let listaHtml;
   if (mobile) {
-    listaHtml = renderParcelasMobileUnificado(data);
+    listaHtml = renderParcelasMobileUnificado(data, nomeCliente);
   } else {
     listaHtml = `<div class="tabela-wrap"><table>
       <thead><tr><th>Venda</th><th>Produto</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Situação</th><th>Ações</th></tr></thead>
-      <tbody>${data.map(p => _linhaParcelaDesktop(p, hoje)).join('')}</tbody>
+      <tbody>${data.map(p => _linhaParcelaDesktop(p, hoje, nomeCliente)).join('')}</tbody>
     </table></div>`;
   }
 
@@ -9098,15 +9100,20 @@ async function confirmarNaoRecebi() {
 
   if (error) {
     Logger.error('cobrador', 'AGENDAR_VISITA', 'Erro ao agendar visita', { supabase_code: error.code, error_message: error.message });
-    alert('Erro ao registrar!');
+    alert('Erro ao registrar: ' + error.message);
     return;
   }
 
   fecharModal('modal-nao-recebi');
-  fecharModal('modal-parcelas-cobrador');
-  fecharModal('sheet-cliente-cobrador');
-  await carregarCaixaECiclos();
-  alert('Registrado! O cliente aparecerá na sua lista no dia agendado.');
+  if (perfilAtivo?.perfil === 'gestor') {
+    atualizarParcelasView();
+    alert('Remarcado! O cobrador verá esse cliente na data agendada.');
+  } else {
+    fecharModal('modal-parcelas-cobrador');
+    fecharModal('sheet-cliente-cobrador');
+    await carregarCaixaECiclos();
+    alert('Registrado! O cliente aparecerá na sua lista no dia agendado.');
+  }
 }
 
 // ===== FIM MÓDULO LOCALIDADES =====
