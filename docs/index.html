@@ -9696,19 +9696,56 @@ async function verDetalheHistorico(caixaId, nomeCobrador) {
   assinarImagens(document.getElementById('hist-detalhe-conteudo'));
 }
 
-async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
-  window._caixaPrestacaoAtual = caixaId;
-  const resumo = await calcularResumoCaixa(caixaId);
+function diaLocal(iso) {
+  const d = new Date(iso);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 
-  const { data: baixas } = await sb.from('baixas_pendentes')
+function diasDoCiclo(inicio, fim) {
+  const dias = [];
+  const d = new Date(inicio + 'T12:00:00');
+  const fimD = new Date(fim + 'T12:00:00');
+  while (d <= fimD) {
+    dias.push(diaLocal(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return dias;
+}
+
+async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
+  if (window._caixaPrestacaoAtual !== caixaId) window._prestacaoFiltroDia = null;
+  window._caixaPrestacaoAtual = caixaId;
+
+  const { data: caixa } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  const resumoTotal = await calcularResumoCaixa(caixaId);
+
+  const { data: baixasTodas } = await sb.from('baixas_pendentes')
     .select('*, clientes(nome), parcelas(numero, total_parcelas, vendas(codigo))')
     .eq('caixa_id', caixaId).neq('status', 'cancelada').order('criado_em');
 
-  const { data: movs } = await sb.from('movimentacoes_caixa')
+  const { data: movsTodas } = await sb.from('movimentacoes_caixa')
     .select('*').eq('caixa_id', caixaId).order('criado_em');
 
-  const gastos = (movs || []).filter(function(m) { return m.tipo === 'gasto'; });
-  const depositos = (movs || []).filter(function(m) { return m.tipo === 'deposito'; });
+  const diasCiclo = diasDoCiclo(caixa.ciclo_inicio, caixa.ciclo_fim);
+  const filtroDia = window._prestacaoFiltroDia;
+  const baixas = filtroDia ? (baixasTodas || []).filter(function(b) { return diaLocal(b.criado_em) === filtroDia; }) : (baixasTodas || []);
+  const movs = filtroDia ? (movsTodas || []).filter(function(m) { return diaLocal(m.criado_em) === filtroDia; }) : (movsTodas || []);
+
+  const gastos = movs.filter(function(m) { return m.tipo === 'gasto'; });
+  const depositos = movs.filter(function(m) { return m.tipo === 'deposito'; });
+
+  const recebidoDinheiroF = baixas.filter(function(b) { return b.forma_pagamento === 'dinheiro'; }).reduce(function(a, b) { return a + Number(b.valor_recebido); }, 0);
+  const recebidoPixF = baixas.filter(function(b) { return b.forma_pagamento === 'pix'; }).reduce(function(a, b) { return a + Number(b.valor_recebido); }, 0);
+  const totalGastosF = gastos.reduce(function(a, g) { return a + Number(g.valor); }, 0);
+  const totalDepositosF = depositos.reduce(function(a, d) { return a + Number(d.valor); }, 0);
+  const resumo = {
+    totalRecebido: recebidoDinheiroF + recebidoPixF,
+    recebidoDinheiro: recebidoDinheiroF,
+    recebidoPix: recebidoPixF,
+    totalGastos: totalGastosF,
+    totalDepositos: totalDepositosF,
+    saldoEmMaos: recebidoDinheiroF - totalGastosF - totalDepositosF
+  };
 
   const { pendentes, remarcados, mapaNome } = await calcularPendentesRemarcados(caixaId);
 
@@ -9780,7 +9817,15 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   }
 
   document.getElementById('prestacao-conteudo').innerHTML =
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;">'
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem;">'
+    + '<button class="btn' + (filtroDia === null ? ' primario' : '') + '" style="font-size:12px;padding:6px 12px;border-radius:20px;" onclick="filtrarPrestacaoPorDia(null)">Cobrança total</button>'
+    + diasCiclo.map(function(dia) {
+        const label = new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        return '<button class="btn' + (filtroDia === dia ? ' primario' : '') + '" style="font-size:12px;padding:6px 12px;border-radius:20px;" onclick="filtrarPrestacaoPorDia(\'' + dia + '\')">' + label + '</button>';
+      }).join('')
+    + '</div>'
+
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;">'
     + '<div style="background:#F1EFE8;border-radius:10px;padding:1rem;text-align:center;">'
     + '<div style="font-size:11px;color:#5F5E5A;">TOTAL RECEBIDO</div>'
     + '<div style="font-size:18px;font-weight:700;color:#5F5E5A;">' + fmtR(resumo.totalRecebido) + '</div></div>'
@@ -9852,15 +9897,15 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     + '<div style="margin-bottom:1rem;">' + depositosHtml + '</div>'
 
     + '<div style="background:#f9f9f9;border-radius:10px;padding:1rem;margin-bottom:1rem;">'
-    + '<div style="font-size:13px;font-weight:600;margin-bottom:.75rem;">Conferência de caixa</div>'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:.75rem;">Conferência de caixa (ciclo completo)</div>'
     + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">'
     + '<span style="color:#888;">Saldo esperado em mãos:</span>'
-    + '<strong>' + fmtR(resumo.saldoEmMaos) + '</strong></div>'
+    + '<strong>' + fmtR(resumoTotal.saldoEmMaos) + '</strong></div>'
     + '<div class="campo" style="margin-bottom:6px;">'
     + '<label>Saldo físico entregue pelo cobrador (R$)</label>'
     + '<input id="prestacao-saldo-entregue" type="number"'
     + ' style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"'
-    + ' placeholder="0,00" oninput="conferirSaldoPrestacao(' + resumo.saldoEmMaos + ')">'
+    + ' placeholder="0,00" oninput="conferirSaldoPrestacao(' + resumoTotal.saldoEmMaos + ')">'
     + '</div>'
     + '<div id="prestacao-diferenca"></div>'
     + '</div>'
@@ -9869,6 +9914,11 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
 
   document.getElementById('modal-prestacao').style.display = 'flex';
   assinarImagens(document.getElementById('prestacao-conteudo'));
+}
+
+function filtrarPrestacaoPorDia(dia) {
+  window._prestacaoFiltroDia = dia;
+  abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
 
 function conferirSaldoPrestacao(saldoEsperado) {
