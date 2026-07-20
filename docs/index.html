@@ -7853,11 +7853,69 @@ function atualizarParcelasView() {
   }
 }
 
+async function _infoClienteCobranca(clienteId) {
+  if (!clienteId) return null;
+  const { data, error } = await sb.from('clientes')
+    .select('endereco, bairro, cidade, cobrador_id, funcionarios(nome)')
+    .eq('id', clienteId).single();
+  return error ? null : data;
+}
+
+function _renderCabecalhoClienteCobranca(clienteId, info) {
+  const endereco = [info?.endereco, info?.bairro].filter(Boolean).join(', ');
+  const cidade = info?.cidade || '';
+  const cobradorNome = info?.funcionarios?.nome || 'Sem cobrador';
+  return `
+    <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:10px;padding:.85rem 1rem;margin-bottom:.75rem;display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-end;">
+      <div style="min-width:220px;">
+        <div style="font-size:11px;color:#888;">Endereço</div>
+        <div style="font-size:13px;">${escHtml(endereco || '—')}</div>
+      </div>
+      <div style="min-width:140px;">
+        <div style="font-size:11px;color:#888;">Cidade</div>
+        <div style="font-size:13px;">${escHtml(cidade || '—')}</div>
+      </div>
+      <div style="min-width:240px;">
+        <div style="font-size:11px;color:#888;">Cobrador atual: <strong id="cobranca-cobrador-nome-atual">${escHtml(cobradorNome)}</strong></div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px;">
+          <select id="cobranca-cobrador-select" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></select>
+          <button class="btn primario" style="font-size:12px;padding:5px 10px;white-space:nowrap;" onclick="salvarCobradorCobranca('${escJs(clienteId)}')">Trocar</button>
+        </div>
+        <div id="cobranca-cobrador-msg" style="font-size:12px;color:#2E7D32;margin-top:3px;height:14px;"></div>
+      </div>
+    </div>`;
+}
+
+async function _popularSelectCobradorCobranca(cobradorIdAtual) {
+  await carregarCobradoresSelect('cobranca-cobrador-select');
+  const sel = document.getElementById('cobranca-cobrador-select');
+  if (sel) sel.value = cobradorIdAtual || '';
+}
+
+async function salvarCobradorCobranca(clienteId) {
+  const sel = document.getElementById('cobranca-cobrador-select');
+  const msg = document.getElementById('cobranca-cobrador-msg');
+  const cobradorId = sel?.value || null;
+  const { error } = await sb.from('clientes').update({ cobrador_id: cobradorId }).eq('id', clienteId);
+  if (error) {
+    Logger.error('cobrancas', 'ALTERAR_COBRADOR', 'Falha ao alterar cobrador do cliente', { supabase_code: error.code });
+    alert('Erro ao trocar o cobrador!');
+    return;
+  }
+  const infoAtualizada = await _infoClienteCobranca(clienteId);
+  const cobradorNomeEl = document.getElementById('cobranca-cobrador-nome-atual');
+  if (cobradorNomeEl) cobradorNomeEl.textContent = infoAtualizada?.funcionarios?.nome || 'Sem cobrador';
+  if (msg) { msg.textContent = '✅ Cobrador atualizado'; setTimeout(() => { if (msg) msg.textContent = ''; }, 2500); }
+}
+
 async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
-  let { data, error } = await sb.from('parcelas')
-    .select('*, vendas(codigo, produto, entrada), funcionarios(nome)')
-    .eq('venda_id', vendaId)
-    .order('numero');
+  let [{ data, error }, infoCliente] = await Promise.all([
+    sb.from('parcelas')
+      .select('*, vendas(codigo, produto, entrada), funcionarios(nome)')
+      .eq('venda_id', vendaId)
+      .order('numero'),
+    _infoClienteCobranca(clienteId),
+  ]);
   let avisoOffline = '';
   if (error || !data) {
     const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.parcelasDoCacheVenda(vendaId) : null;
@@ -7885,6 +7943,7 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
 
   document.getElementById('lista-parcelas-cliente').innerHTML = `
     ${avisoOffline}
+    ${_renderCabecalhoClienteCobranca(clienteId, infoCliente)}
     <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
       <div style="flex:3;min-width:280px;">
         <div data-tipo-view="venda" data-venda-id="${escHtml(vendaId)}" data-cliente-id="${escHtml(clienteId)}" data-codigo-venda="${escHtml(codigoVenda)}" data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">
@@ -7896,10 +7955,14 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
         ${renderResumoParcelasCard(resumo, 'Total da compra')}
       </div>
     </div>`;
+  await _popularSelectCobradorCobranca(infoCliente?.cobrador_id);
 }
 
 async function verParcelasCliente(clienteId, nomeCliente) {
-  let { data, error } = await sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').eq('cliente_id', clienteId).order('data_vencimento');
+  let [{ data, error }, infoCliente] = await Promise.all([
+    sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').eq('cliente_id', clienteId).order('data_vencimento'),
+    _infoClienteCobranca(clienteId),
+  ]);
   let avisoOffline = '';
   if (error || !data) {
     const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.parcelasDoCacheCliente(clienteId) : null;
@@ -7926,6 +7989,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
 
   document.getElementById('lista-parcelas-cliente').innerHTML = `
     ${avisoOffline}
+    ${_renderCabecalhoClienteCobranca(clienteId, infoCliente)}
     <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
       <div style="flex:3;min-width:280px;">
         <div data-tipo-view="cliente" data-cliente-id="${escHtml(clienteId)}" data-nome-cliente="${escHtml(nomeCliente)}" style="font-size:14px;font-weight:600;margin-bottom:.75rem;color:#185FA5;">${escHtml(nomeCliente)} — ${data.length} parcela(s), ${emAbertoQtd} em aberto</div>
@@ -7935,6 +7999,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
         ${renderResumoParcelasCard(resumo, 'Total das parcelas')}
       </div>
     </div>`;
+  await _popularSelectCobradorCobranca(infoCliente?.cobrador_id);
 }
 
 async function abrirBaixa(parcelaId, numero, total, valor, produto) {
