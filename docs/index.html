@@ -7855,16 +7855,20 @@ function atualizarParcelasView() {
 
 async function _infoClienteCobranca(clienteId) {
   if (!clienteId) return null;
-  const { data, error } = await sb.from('clientes')
-    .select('endereco, bairro, cidade, cobrador_id, funcionarios(nome)')
+  const { data: c, error } = await sb.from('clientes')
+    .select('endereco, bairro, cidade, cobrador_id')
     .eq('id', clienteId).single();
-  return error ? null : data;
+  if (error || !c) return null;
+  const { data: cobrador } = c.cobrador_id
+    ? await sb.from('funcionarios').select('nome').eq('id', c.cobrador_id).single()
+    : { data: null };
+  return { ...c, cobradorNome: cobrador?.nome || null };
 }
 
 function _renderCabecalhoClienteCobranca(clienteId, info) {
   const endereco = [info?.endereco, info?.bairro].filter(Boolean).join(', ');
   const cidade = info?.cidade || '';
-  const cobradorNome = info?.funcionarios?.nome || 'Sem cobrador';
+  const cobradorNome = info?.cobradorNome || 'Sem cobrador';
   return `
     <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:10px;padding:.85rem 1rem;margin-bottom:.75rem;display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-end;">
       <div style="min-width:220px;">
@@ -7904,7 +7908,7 @@ async function salvarCobradorCobranca(clienteId) {
   }
   const infoAtualizada = await _infoClienteCobranca(clienteId);
   const cobradorNomeEl = document.getElementById('cobranca-cobrador-nome-atual');
-  if (cobradorNomeEl) cobradorNomeEl.textContent = infoAtualizada?.funcionarios?.nome || 'Sem cobrador';
+  if (cobradorNomeEl) cobradorNomeEl.textContent = infoAtualizada?.cobradorNome || 'Sem cobrador';
   if (msg) { msg.textContent = '✅ Cobrador atualizado'; setTimeout(() => { if (msg) msg.textContent = ''; }, 2500); }
 }
 
