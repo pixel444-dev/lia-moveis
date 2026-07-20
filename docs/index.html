@@ -9719,7 +9719,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + '<div style="font-size:13px;font-weight:500;">' + escHtml((g.descricao || 'Gasto')) + '</div>'
         + '<div style="font-size:11px;color:#888;">' + fmtD(g.criado_em) + '</div>'
         + '</div>'
-        + (g.foto_comprovante ? '<img src="' + g.foto_comprovante + '" onclick="window.open(\'' + g.foto_comprovante + '\',\'_blank\')" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + (g.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + g.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="font-size:14px;font-weight:600;color:#854F0B;">' + fmtR(g.valor) + '</div>'
         + '</div>';
     });
@@ -9734,7 +9734,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + '<div style="font-size:13px;font-weight:500;">Depósito</div>'
         + '<div style="font-size:11px;color:#888;">' + fmtD(d.criado_em) + '</div>'
         + '</div>'
-        + (d.foto_comprovante ? '<img src="' + d.foto_comprovante + '" onclick="window.open(\'' + d.foto_comprovante + '\',\'_blank\')" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
+        + (d.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + d.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="font-size:14px;font-weight:600;color:#185FA5;">' + fmtR(d.valor) + '</div>'
         + '</div>';
     });
@@ -9812,6 +9812,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     + '<button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-bottom:8px;" onclick="autorizarCaixa()">✓ Autorizar caixa completa</button>';
 
   document.getElementById('modal-prestacao').style.display = 'flex';
+  assinarImagens(document.getElementById('prestacao-conteudo'));
 }
 
 function conferirSaldoPrestacao(saldoEsperado) {
