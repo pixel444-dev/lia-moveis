@@ -9755,7 +9755,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + (g.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + g.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="text-align:right;">'
         + '<div style="font-size:14px;font-weight:600;color:#854F0B;">' + fmtR(g.valor) + '</div>'
-        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + g.id + '\',\'gasto\',' + g.valor + ',\'' + escJs(g.descricao || '') + '\')">Editar</button>'
+        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + g.id + '\',\'gasto\',' + g.valor + ',\'' + escJs(g.descricao || '') + '\',' + (g.foto_comprovante ? '\'' + g.foto_comprovante + '\'' : 'null') + ')">Editar</button>'
         + '</div>'
         + '</div>';
     });
@@ -9773,7 +9773,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + (d.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + d.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="text-align:right;">'
         + '<div style="font-size:14px;font-weight:600;color:#185FA5;">' + fmtR(d.valor) + '</div>'
-        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + d.id + '\',\'deposito\',' + d.valor + ',\'' + escJs(d.descricao || '') + '\')">Editar</button>'
+        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + d.id + '\',\'deposito\',' + d.valor + ',\'' + escJs(d.descricao || '') + '\',' + (d.foto_comprovante ? '\'' + d.foto_comprovante + '\'' : 'null') + ')">Editar</button>'
         + '</div>'
         + '</div>';
     });
@@ -9936,12 +9936,47 @@ async function cancelarBaixaPrestacao() {
   abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
 
-function abrirEditarMovimentacao(movId, tipo, valor, descricao) {
+function abrirEditarMovimentacao(movId, tipo, valor, descricao, fotoComprovante) {
   document.getElementById('editar-mov-id').value = movId;
   document.getElementById('editar-mov-valor').value = valor;
   document.getElementById('editar-mov-descricao').value = descricao || '';
   document.getElementById('editar-mov-titulo').textContent = tipo === 'deposito' ? 'Editar depósito' : 'Editar gasto';
+
+  removerNovoComprovanteEditarMov();
+  const linkAtual = document.getElementById('editar-mov-comprovante-atual');
+  if (fotoComprovante) {
+    linkAtual.style.display = 'block';
+    linkAtual.onclick = function(event) { abrirAssinado(event, 'comprovantes', fotoComprovante); };
+  } else {
+    linkAtual.style.display = 'none';
+  }
+
   document.getElementById('modal-editar-movimentacao').style.display = 'flex';
+}
+
+async function processarNovoComprovanteEditarMov(input) {
+  if (!input.files || !input.files[0]) return;
+  input.disabled = true;
+  try {
+    const blob = await comprimirArquivo(input.files[0]);
+    window._editarMovComprovante = blob.dados;
+    window._editarMovComprovanteExt = blob.ext;
+    document.getElementById('editar-mov-comprovante-preview').style.display = 'block';
+    document.getElementById('editar-mov-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF selecionado' : 'Novo comprovante selecionado';
+  } catch (e) {
+    Logger.warn('prestacao', 'PROCESSAR_COMPROVANTE_EDICAO', 'Erro ao processar comprovante', { msg: e.message });
+    alert('Erro ao processar o comprovante. Tente novamente ou escolha um arquivo menor.');
+  } finally {
+    input.disabled = false;
+  }
+}
+
+function removerNovoComprovanteEditarMov() {
+  window._editarMovComprovante = null;
+  window._editarMovComprovanteExt = null;
+  document.getElementById('editar-mov-comprovante-preview').style.display = 'none';
+  document.getElementById('editar-mov-camera').value = '';
+  document.getElementById('editar-mov-arquivo').value = '';
 }
 
 async function salvarEdicaoMovimentacao() {
@@ -9952,10 +9987,21 @@ async function salvarEdicaoMovimentacao() {
   if (isNaN(valor) || valor <= 0) { alert('Digite um valor válido!'); return; }
   if (!descricao) { alert('Digite uma descrição!'); return; }
 
+  const payload = { valor: valor, descricao: descricao };
+
+  // Só mexe no comprovante se um novo arquivo foi escolhido — sem isso,
+  // o comprovante atual (se houver) permanece intacto.
+  if (window._editarMovComprovante) {
+    const nomeArquivo = 'correcao_' + crypto.randomUUID() + '.' + window._editarMovComprovanteExt;
+    const url = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._editarMovComprovante, window._editarMovComprovanteExt);
+    if (!url) { alert('Erro ao enviar o novo comprovante. Tente novamente.'); return; }
+    payload.foto_comprovante = url;
+  }
+
   // movimentacoes_caixa já tem RLS "movcx_update_gestor" (UPDATE só pra
   // gestor) — não precisa de RPC própria, o update direto já é seguro.
   const { error } = await sb.from('movimentacoes_caixa')
-    .update({ valor: valor, descricao: descricao })
+    .update(payload)
     .eq('id', movId);
 
   if (error) {
@@ -9964,7 +10010,8 @@ async function salvarEdicaoMovimentacao() {
     return;
   }
 
-  Logger.info('prestacao', 'EDITAR_MOVIMENTACAO', 'Gasto/depósito editado', { movId, valor, descricao });
+  Logger.info('prestacao', 'EDITAR_MOVIMENTACAO', 'Gasto/depósito editado', { movId, valor, descricao, trocouComprovante: !!payload.foto_comprovante });
+  removerNovoComprovanteEditarMov();
   fecharModal('modal-editar-movimentacao');
   abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
@@ -14166,12 +14213,34 @@ async function gerarProximoMes() {
         style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
         placeholder="0,00">
     </div>
+    <div class="campo">
+      <label>Comprovante</label>
+      <a href="#" id="editar-mov-comprovante-atual" style="display:none;font-size:12px;color:#185FA5;margin-bottom:8px;">📎 Ver comprovante atual</a>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <button type="button" onclick="document.getElementById('editar-mov-camera').click()"
+          style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:24px;">📷</span> Tirar foto
+        </button>
+        <button type="button" onclick="document.getElementById('editar-mov-arquivo').click()"
+          style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:24px;">📎</span> Escolher arquivo
+        </button>
+      </div>
+      <input type="file" id="editar-mov-camera" accept="image/*" capture="environment" style="display:none;" onchange="processarNovoComprovanteEditarMov(this)">
+      <input type="file" id="editar-mov-arquivo" accept="image/png,image/jpeg,image/jpg,application/pdf" style="display:none;" onchange="processarNovoComprovanteEditarMov(this)">
+      <div id="editar-mov-comprovante-preview" style="display:none;">
+        <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px;display:flex;align-items:center;justify-content:space-between;">
+          <span id="editar-mov-comprovante-nome" style="font-size:12px;color:#3B6D11;font-weight:500;">Novo comprovante selecionado</span>
+          <button type="button" onclick="removerNovoComprovanteEditarMov()" style="background:none;border:none;color:#A32D2D;cursor:pointer;font-size:18px;">×</button>
+        </div>
+      </div>
+    </div>
     <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;"
       onclick="salvarEdicaoMovimentacao()">
       ✓ Salvar
     </button>
     <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
-      Ajusta o valor e recalcula o dinheiro em mãos automaticamente.
+      Ajusta o valor e recalcula o dinheiro em mãos automaticamente. Escolher um novo comprovante substitui o anterior.
     </div>
   </div>
 </div>
