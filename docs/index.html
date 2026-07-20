@@ -6904,8 +6904,24 @@ async function confirmarGasto() {
   let comprovanteUrl = null;
   if (window._gastoComprovante) {
     const nomeArquivo = 'gasto_' + crypto.randomUUID() + '.' + window._gastoComprovanteExt;
-    comprovanteUrl = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._gastoComprovante, window._gastoComprovanteExt);
-    if (!comprovanteUrl) { alert('Erro ao enviar o comprovante. Tente novamente.'); return; }
+    const up = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._gastoComprovante, window._gastoComprovanteExt);
+    if (up.error) {
+      // Mesmo padrão do recebimento (confirmarRecebimento): fetch do upload
+      // falhou por rede mesmo com o app achando que estava online — cai
+      // para a fila offline em vez de travar o cobrador em campo.
+      if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(up.error)) {
+        const rOff = await OfflineFlow.gastoOffline({ categoria: tipo, descricao, valor });
+        if (rOff.ok) {
+          removerComprovanteGasto();
+          fecharModal('modal-gasto');
+          alert('📴 Sem conexão — gasto salvo no aparelho. Será registrado quando a internet voltar.');
+          return;
+        }
+      }
+      alert('Erro ao enviar o comprovante. Tente novamente.');
+      return;
+    }
+    comprovanteUrl = up.url;
   }
 
   // O limite de R$40/dia em alimentação agora é validado dentro da RPC
@@ -6990,8 +7006,24 @@ async function confirmarDeposito() {
   }
 
   const nomeArquivo = 'deposito_' + crypto.randomUUID() + '.' + window._depositoComprovanteExt;
-  const comprovanteUrl = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._depositoComprovante, window._depositoComprovanteExt);
-  if (!comprovanteUrl) { alert('Erro ao enviar o comprovante. Tente novamente.'); return; }
+  const up = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._depositoComprovante, window._depositoComprovanteExt);
+  if (up.error) {
+    // Mesmo padrão do recebimento/gasto: fetch do upload falhou por rede
+    // mesmo com o app achando que estava online — cai para a fila offline
+    // em vez de travar o cobrador em campo.
+    if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(up.error)) {
+      const rOff = await OfflineFlow.depositoOffline({ valor });
+      if (rOff.ok) {
+        removerComprovanteDeposito();
+        fecharModal('modal-deposito');
+        alert('📴 Sem conexão — depósito salvo no aparelho. Será registrado quando a internet voltar.');
+        return;
+      }
+    }
+    alert('Erro ao enviar o comprovante. Tente novamente.');
+    return;
+  }
+  const comprovanteUrl = up.url;
 
   const { error } = await sb.rpc('registrar_deposito', {
     p_valor: valor,
@@ -7041,11 +7073,11 @@ async function uploadArquivoComprovante(bucket, nomeArquivo, dados, ext) {
   const contentType = ext === 'pdf' ? 'application/pdf' : 'image/webp';
   const { error } = await sb.storage.from(bucket).upload(nomeArquivo, dados, { contentType, upsert: true });
   if (error) {
-    Logger.error('cobrador', 'UPLOAD_COMPROVANTE', 'Erro upload', { error_message: error.message });
-    return null;
+    Logger.error('cobrador', 'UPLOAD_COMPROVANTE', 'Erro upload', { error_message: error.message, error_name: error.name, nomeArquivo });
+    return { url: null, error };
   }
   const { data } = sb.storage.from(bucket).getPublicUrl(nomeArquivo);
-  return data.publicUrl;
+  return { url: data.publicUrl, error: null };
 }
 
 async function carregarDesempenhoCiclo() {
@@ -8902,7 +8934,7 @@ function removerComprovante() {
 async function uploadComprovante() {
   if (!window._comprovanteBlob) {
     console.log('[upload] Sem blob para upload');
-    return null;
+    return { url: null, error: null };
   }
   const ext = window._comprovanteExt || 'webp';
   // Nome gerado no cliente (não depende mais do id de uma linha já criada):
@@ -8925,13 +8957,15 @@ async function uploadComprovante() {
       error_name: error.name,
       nomeArquivo
     });
-    alert('Erro ao enviar comprovante: ' + error.message);
-    return null;
+    // Não decide aqui se é definitivo ou não: quem chama sabe se dá pra
+    // cair no fluxo offline (rede caiu no meio do fetch) ou se precisa
+    // mesmo mostrar o erro pro usuário.
+    return { url: null, error };
   }
 
   const { data: urlData } = sb.storage.from('comprovantes').getPublicUrl(nomeArquivo);
   console.log('[upload] URL pública:', urlData.publicUrl);
-  return urlData.publicUrl;
+  return { url: urlData.publicUrl, error: null };
 }
 
 async function confirmarRecebimento() {
@@ -8978,8 +9012,27 @@ async function confirmarRecebimento() {
       alert('Sem conexão e não foi possível guardar o recebimento no aparelho. Tente novamente.');
       return;
     }
-    comprovanteUrl = await uploadComprovante();
-    if (!comprovanteUrl) { alert('Erro ao enviar comprovante. Tente novamente.'); return; }
+    const up = await uploadComprovante();
+    if (up.error) {
+      // O fetch do upload falhou por rede (ex.: "Failed to fetch" com uma
+      // conexão instável) mesmo com o app achando que estava online: cai no
+      // mesmo fluxo offline de cima, guardando o comprovante em base64 para
+      // subir na sincronização, em vez de travar o cobrador em campo.
+      if (window.OfflineFlow && window.NetStatus && NetStatus.ehErroDeRede(up.error)) {
+        const rOff = await OfflineFlow.recebimentoOffline({ parcelaId, tipo, valorRecebido, forma, observacao: obs });
+        if (rOff.ok) {
+          removerComprovante();
+          fecharModal('modal-recebimento');
+          fecharModal('modal-parcelas-cobrador');
+          fecharModal('sheet-cliente-cobrador');
+          alert('📴 Sem conexão — recebimento salvo no aparelho (com o comprovante). Será registrado quando a internet voltar.');
+          return;
+        }
+      }
+      alert('Erro ao enviar comprovante: ' + up.error.message);
+      return;
+    }
+    comprovanteUrl = up.url;
   }
 
   const { error } = await sb.rpc('registrar_recebimento', {
@@ -9512,11 +9565,11 @@ async function processarLogoConfig(input) {
   input.disabled = true;
   try {
     const blob = await comprimirArquivo(input.files[0]);
-    const url = await uploadArquivoComprovante('comprovantes', `config_logo_${Date.now()}.${blob.ext}`, blob.dados, blob.ext);
-    if (!url) { alert('Erro ao enviar a logo.'); return; }
-    document.getElementById('cfg-logo-url').value = url;
+    const up = await uploadArquivoComprovante('comprovantes', `config_logo_${Date.now()}.${blob.ext}`, blob.dados, blob.ext);
+    if (up.error) { alert('Erro ao enviar a logo.'); return; }
+    document.getElementById('cfg-logo-url').value = up.url;
     const prev = document.getElementById('cfg-logo-preview');
-    prev.src = url; prev.style.display = 'block';
+    prev.src = up.url; prev.style.display = 'block';
   } catch (e) {
     Logger.warn('config', 'PROCESSAR_LOGO', 'Erro ao processar logo', { msg: e.message });
     alert('Erro ao processar a imagem. Tente novamente.');
