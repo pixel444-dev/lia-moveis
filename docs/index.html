@@ -9717,24 +9717,28 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   const fmtR = function(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2}); };
   const fmtD = function(s) { return new Date(s).toLocaleDateString('pt-BR'); };
 
-  let baixasHtml = '<p style="font-size:12px;color:#888;">Nenhuma parcela recebida.</p>';
-  if (baixas && baixas.length) {
-    baixasHtml = '';
-    baixas.forEach(function(b) {
-      baixasHtml += '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
-        + '<div style="display:flex;justify-content:space-between;align-items:center;">'
-        + '<div>'
-        + '<div style="font-size:13px;font-weight:500;">' + escHtml((b.clientes?.nome || '—')) + '</div>'
-        + '<div style="font-size:11px;color:#888;">Venda ' + (b.parcelas?.vendas?.codigo || '—')
-        + ' · Parcela ' + (b.parcelas?.numero || '') + '/' + (b.parcelas?.total_parcelas || '')
-        + ' · ' + ((b.forma_pagamento || '').toUpperCase()) + '</div>'
-        + '</div>'
-        + '<div style="text-align:right;">'
-        + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">' + fmtR(b.valor_recebido) + '</div>'
-        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\')">Corrigir</button>'
-        + '</div></div></div>';
-    });
-  }
+  const renderBaixaItem = function(b) {
+    return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+      + '<div>'
+      + '<div style="font-size:13px;font-weight:500;">' + escHtml((b.clientes?.nome || '—')) + '</div>'
+      + '<div style="font-size:11px;color:#888;">Venda ' + (b.parcelas?.vendas?.codigo || '—')
+      + ' · Parcela ' + (b.parcelas?.numero || '') + '/' + (b.parcelas?.total_parcelas || '') + '</div>'
+      + '</div>'
+      + '<div style="text-align:right;">'
+      + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">' + fmtR(b.valor_recebido) + '</div>'
+      + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\')">Corrigir</button>'
+      + '</div></div></div>';
+  };
+
+  const baixasEspecie = (baixas || []).filter(function(b) { return b.forma_pagamento === 'dinheiro'; });
+  const baixasPix = (baixas || []).filter(function(b) { return b.forma_pagamento === 'pix'; });
+  const baixasEspecieHtml = baixasEspecie.length
+    ? baixasEspecie.map(renderBaixaItem).join('')
+    : '<p style="font-size:12px;color:#888;">Nenhuma parcela recebida em espécie.</p>';
+  const baixasPixHtml = baixasPix.length
+    ? baixasPix.map(renderBaixaItem).join('')
+    : '<p style="font-size:12px;color:#888;">Nenhuma parcela recebida via Pix.</p>';
 
   let gastosHtml = '<p style="font-size:12px;color:#888;">Nenhum gasto.</p>';
   if (gastos.length) {
@@ -9782,10 +9786,15 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     + '<div style="font-size:16px;font-weight:700;color:#555;">' + fmtR(resumo.totalDepositos) + '</div></div>'
     + '</div>'
 
-    + '<div onclick="togglePrestacaoSecao(\'sec-recebidas\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#EAF3DE;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
-    + '<span style="font-size:13px;font-weight:600;color:#3B6D11;">Parcelas recebidas (' + (baixas || []).length + ')</span>'
-    + '<span id="seta-sec-recebidas" style="font-size:14px;color:#3B6D11;">▸</span></div>'
-    + '<div id="sec-recebidas" style="display:none;margin-bottom:1rem;">' + baixasHtml + '</div>'
+    + '<div onclick="togglePrestacaoSecao(\'sec-recebidas-especie\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#EAF3DE;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
+    + '<span style="font-size:13px;font-weight:600;color:#3B6D11;">💵 Recebidos em espécie (' + baixasEspecie.length + ')</span>'
+    + '<span id="seta-sec-recebidas-especie" style="font-size:14px;color:#3B6D11;">▸</span></div>'
+    + '<div id="sec-recebidas-especie" style="display:none;margin-bottom:1rem;">' + baixasEspecieHtml + '</div>'
+
+    + '<div onclick="togglePrestacaoSecao(\'sec-recebidas-pix\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#EEEDFE;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
+    + '<span style="font-size:13px;font-weight:600;color:#3C3489;">📱 Recebidos em Pix (' + baixasPix.length + ')</span>'
+    + '<span id="seta-sec-recebidas-pix" style="font-size:14px;color:#3C3489;">▸</span></div>'
+    + '<div id="sec-recebidas-pix" style="display:none;margin-bottom:1rem;">' + baixasPixHtml + '</div>'
 
     + '<div onclick="togglePrestacaoSecao(\'sec-pendentes\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#FCEBEB;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
     + '<span style="font-size:13px;font-weight:600;color:#A32D2D;">Pendentes neste ciclo (' + pendentes.length + ')</span>'
