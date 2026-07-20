@@ -10016,6 +10016,24 @@ async function salvarEdicaoMovimentacao() {
   abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
 
+async function excluirMovimentacaoPrestacao() {
+  const movId = document.getElementById('editar-mov-id').value;
+  if (!confirm('Excluir este lançamento?\nEsta ação não pode ser desfeita e o dinheiro em mãos será ajustado.')) return;
+
+  const { error } = await sb.rpc('excluir_movimentacao_caixa', { p_mov_id: movId });
+
+  if (error) {
+    Logger.error('prestacao', 'EXCLUIR_MOVIMENTACAO', 'Erro ao excluir gasto/depósito', { supabase_code: error.code, error_message: error.message });
+    alert(error.message || 'Erro ao excluir!');
+    return;
+  }
+
+  Logger.info('prestacao', 'EXCLUIR_MOVIMENTACAO', 'Gasto/depósito excluído', { movId });
+  removerNovoComprovanteEditarMov();
+  fecharModal('modal-editar-movimentacao');
+  abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
+}
+
 async function autorizarCaixa() {
   const caixaId = window._caixaPrestacaoAtual;
   const entregue = parseFloat(document.getElementById('prestacao-saldo-entregue').value) || 0;
@@ -14235,9 +14253,13 @@ async function gerarProximoMes() {
         </div>
       </div>
     </div>
-    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;"
+    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-bottom:8px;"
       onclick="salvarEdicaoMovimentacao()">
       ✓ Salvar
+    </button>
+    <button class="btn" style="width:100%;padding:14px;font-size:15px;border-radius:10px;color:#A32D2D;border-color:#f5c6c6;background:#FCEBEB;"
+      onclick="excluirMovimentacaoPrestacao()">
+      🗑️ Excluir lançamento
     </button>
     <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
       Ajusta o valor e recalcula o dinheiro em mãos automaticamente. Escolher um novo comprovante substitui o anterior.
