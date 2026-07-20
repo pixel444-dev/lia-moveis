@@ -501,6 +501,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" id="nav-localidades" data-page="localidades" onclick="pg('localidades',this);carregarLocalidades()"><span class="nav-ico">🗺️</span>Localidades</div>
       <div class="nav-item" id="nav-mapa" data-page="mapa" onclick="pg('mapa',this)"><span class="nav-ico">📍</span>Mapa</div>
       <div class="nav-item" id="nav-ciclos" data-page="ciclos" onclick="pg('ciclos',this)"><span class="nav-ico">🔄</span>Ciclos</div>
+      <div class="nav-item" id="nav-cobrancas-mes" data-page="cobrancas-mes" onclick="pg('cobrancas-mes',this)"><span class="nav-ico">📆</span>Cobranças do mês</div>
       <div class="nav-item" id="nav-caixa-cobradores" data-page="caixa-cobradores" onclick="pg('caixa-cobradores',this)"><span class="nav-ico">💰</span>Caixa cobradores</div>
       <div class="nav-item" id="nav-prestacao" data-page="prestacao" onclick="pg('prestacao',this)"><span class="nav-ico">🧾</span>Prestação de contas</div>
       <div class="nav-item" id="nav-meu-historico" data-page="meu-historico" onclick="pg('meu-historico',this)"><span class="nav-ico">📚</span>Histórico</div>
@@ -762,6 +763,24 @@ tr:hover td{background:#fafafa;}
     <div class="page" id="page-ciclos">
       <div class="page-title">Ciclos de cobrança</div>
       <div id="lista-ciclos">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-cobrancas-mes">
+      <div class="page-title">Cobranças do mês</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div class="campo" style="max-width:280px;flex:1;min-width:220px;">
+          <label>Cobrador</label>
+          <select id="cm-cobrador" onchange="atualizarResumoCiclosMes()" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+            <option value="">Selecione o cobrador...</option>
+          </select>
+        </div>
+        <div class="campo" style="max-width:200px;flex:1;min-width:160px;">
+          <label>Mês</label>
+          <input type="month" id="cm-mes" onchange="atualizarResumoCiclosMes()" style="width:100%;padding:11px 12px;border:1px solid #ddd;border-radius:8px;font-size:16px;box-sizing:border-box;">
+        </div>
+      </div>
+      <div id="resumo-ciclos-mes" style="margin-top:.5rem;"><p style="color:#888;">Selecione um cobrador para ver as cobranças do mês.</p></div>
+      <div id="detalhe-ciclo-mes"></div>
     </div>
 
     <div class="page" id="page-localidades">
@@ -2287,6 +2306,7 @@ function aplicarPermissoes(perfil) {
     'config-impressao':  gestor,
     cobrancas:           gestorOuCobrador,
     ciclos:              gestorOuCobrador,
+    'cobrancas-mes':     gestor,
     'caixa-cobradores':  gestorOuCobrador,
     localidades:         gestorOuCobrador,
     mapa:                gestorOuCobrador,
@@ -2337,6 +2357,7 @@ function pg(nome, el) {
   if (nome === 'localidades') carregarLocalidades();
   if (nome === 'mapa') carregarMapaClientes();
   if (nome === 'ciclos') carregarCiclos();
+  if (nome === 'cobrancas-mes') carregarCobrancasDoMes();
   if (nome === 'prestacao') carregarPrestacaoContas();
   if (nome === 'historico-caixas') carregarHistoricoCaixas();
   if (nome === 'meu-historico') carregarMeuHistorico();
@@ -9796,6 +9817,181 @@ async function carregarCiclos() {
         <td><span class="badge ${c.encerrado?'cinza':'verde'}">${c.encerrado?'Encerrado':'Em andamento'}</span></td>
       </tr>`).join('')}</tbody>
     </table></div>`;
+}
+
+// ===== COBRANÇAS DO MÊS (visão do gestor) =====
+// Prévia, por cobrador e por mês, de quantas vendas cada um dos 6 ciclos
+// quinzenais tem pra cobrar — mesma separação que o app já faz quando o
+// cobrador abre a própria caixa (fichas_do_ciclo), só que aqui o gestor
+// pode navegar por qualquer mês, aberto ou não. Backend: migration 0030
+// (intervalo_ciclo_mes / fichas_do_periodo / resumo_ciclos_mes).
+
+async function carregarCobrancasDoMes() {
+  if (perfilAtivo.perfil !== 'gestor') {
+    document.getElementById('resumo-ciclos-mes').innerHTML = '<p style="color:#888;">Acesso restrito ao gestor.</p>';
+    return;
+  }
+
+  const selEl = document.getElementById('cm-cobrador');
+  if (selEl.options.length <= 1) {
+    const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+    selEl.innerHTML = '<option value="">Selecione o cobrador...</option>'
+      + (cobradores || []).map(c => '<option value="' + c.id + '">' + escHtml(c.nome) + '</option>').join('');
+  }
+
+  const mesEl = document.getElementById('cm-mes');
+  if (!mesEl.value) {
+    const hoje = new Date();
+    mesEl.value = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
+  }
+
+  await atualizarResumoCiclosMes();
+}
+
+async function atualizarResumoCiclosMes() {
+  const cobradorId = document.getElementById('cm-cobrador').value;
+  const mesVal = document.getElementById('cm-mes').value;
+  const resumoEl = document.getElementById('resumo-ciclos-mes');
+  document.getElementById('detalhe-ciclo-mes').innerHTML = '';
+
+  if (!cobradorId) {
+    resumoEl.innerHTML = '<p style="color:#888;">Selecione um cobrador para ver as cobranças do mês.</p>';
+    return;
+  }
+  if (!mesVal) {
+    resumoEl.innerHTML = '<p style="color:#888;">Selecione o mês.</p>';
+    return;
+  }
+
+  const [ano, mes] = mesVal.split('-').map(Number);
+  resumoEl.innerHTML = '<p style="color:#888;">Carregando...</p>';
+
+  const { data, error } = await sb.rpc('resumo_ciclos_mes', { p_cobrador_id: cobradorId, p_ano: ano, p_mes: mes });
+  if (error) {
+    Logger.error('cobrancas_mes', 'RESUMO', 'Erro ao carregar resumo de ciclos', { error_message: error.message });
+    resumoEl.innerHTML = '<p style="color:#A32D2D;">Erro ao carregar as cobranças do mês. Tente novamente.</p>';
+    return;
+  }
+
+  window._resumoCiclosMesAtual = { cobradorId, ano, mes, ciclos: data || [] };
+
+  const hojeStr = dataLocalYMD();
+  resumoEl.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">'
+    + (data || []).map(c => cardResumoCicloMesHtml(c, hojeStr)).join('')
+    + '</div>';
+}
+
+function cardResumoCicloMesHtml(c, hojeStr) {
+  const emAndamento = hojeStr >= c.data_inicio && hojeStr <= c.data_fim;
+  const periodo = _fmtBR(c.data_inicio) + ' a ' + _fmtBR(c.data_fim);
+  return '<div onclick="abrirDetalheCicloMes(\'' + c.chave + '\')" style="background:#fff;border:1px solid ' + (emAndamento ? '#185FA5' : '#e0e0e0') + ';border-radius:12px;padding:14px;cursor:pointer;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:6px;">'
+    + '<strong style="font-size:14px;">Ciclo ' + escHtml(c.chave) + '</strong>'
+    + (emAndamento ? '<span class="badge azul">Em andamento</span>' : '')
+    + '</div>'
+    + '<div style="font-size:12px;color:#888;margin-bottom:10px;">' + periodo + '</div>'
+    + '<div style="font-size:26px;font-weight:700;color:#221F1A;line-height:1;">' + c.qtd_vendas + '</div>'
+    + '<div style="font-size:11.5px;color:#888;margin-bottom:8px;">venda(s) para cobrar · ' + c.qtd_parcelas + ' parcela(s)</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;min-height:20px;">'
+    + (c.qtd_atrasadas > 0 ? '<span class="badge vermelho">' + c.qtd_atrasadas + ' atrasada(s)</span>' : '')
+    + (c.qtd_remarcadas > 0 ? '<span class="badge amarelo">' + c.qtd_remarcadas + ' remarcada(s)</span>' : '')
+    + '</div>'
+    + '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed #eee;font-size:13px;font-weight:600;color:#3B6D11;">R$ ' + Number(c.valor_total).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + '</div>'
+    + '</div>';
+}
+
+async function abrirDetalheCicloMes(chave) {
+  const ctx = window._resumoCiclosMesAtual;
+  if (!ctx) return;
+  const ciclo = ctx.ciclos.find(c => c.chave === chave);
+  if (!ciclo) return;
+
+  const detalheEl = document.getElementById('detalhe-ciclo-mes');
+  detalheEl.innerHTML = '<div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid #eee;"><p style="color:#888;">Carregando fichas do ciclo...</p></div>';
+  detalheEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const [{ data: localidades, error: errLoc }, { data: linhas, error: errFichas }] = await Promise.all([
+    sb.from('localidades').select('id, nome').eq('cobrador_id', ctx.cobradorId).eq('ativo', true).order('ordem', { ascending: true, nullsFirst: false }).order('nome'),
+    sb.rpc('fichas_do_periodo', {
+      p_cobrador_id: ctx.cobradorId,
+      p_ciclo_inicio: ciclo.data_inicio,
+      p_ciclo_fim: ciclo.data_fim,
+      p_ciclo_chave: chave,
+    }),
+  ]);
+
+  if (errLoc || errFichas) {
+    Logger.error('cobrancas_mes', 'DETALHE', 'Erro ao carregar fichas do ciclo', { error_message: (errFichas || errLoc).message });
+    detalheEl.innerHTML = '<div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid #eee;"><p style="color:#A32D2D;">Erro ao carregar fichas deste ciclo.</p></div>';
+    return;
+  }
+
+  const fichas = (linhas || []).map(r => ({
+    cliente: { id: r.cliente_id, nome: r.cliente_nome, telefone: r.cliente_telefone, localidade_id: r.localidade_id },
+    parcela: { numero: r.numero, total_parcelas: r.total_parcelas, valor: r.valor, valor_pago: r.valor_pago },
+    dataEfetivaStr: r.data_efetiva,
+    vencStr: r.data_vencimento,
+    atrasada: r.tipo === 'atrasada',
+    remarcada: r.tipo === 'remarcada',
+    novaVenda: r.nova_venda,
+  }));
+
+  const mapaLocalidade = {};
+  (localidades || []).forEach((l, i) => { mapaLocalidade[l.id] = { nome: l.nome, ordem: i }; });
+
+  const clientes = construirListaClientesCobrador(fichas, mapaLocalidade);
+  const periodo = _fmtBR(ciclo.data_inicio) + ' a ' + _fmtBR(ciclo.data_fim);
+
+  const corpo = clientes.length
+    ? renderClientesAgrupadosPorLocalidadeGestor(clientes)
+    : '<div style="text-align:center;padding:2rem 1rem;color:#9A9488;">Nenhuma ficha para cobrar neste ciclo.</div>';
+
+  detalheEl.innerHTML = '<div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid #eee;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;">'
+    + '<strong style="font-size:15px;">Ciclo ' + escHtml(chave) + ' · ' + periodo + '</strong>'
+    + '<button onclick="document.getElementById(\'detalhe-ciclo-mes\').innerHTML=\'\';" style="border:none;background:none;color:#888;font-size:13px;cursor:pointer;">✕ Fechar</button>'
+    + '</div>'
+    + corpo
+    + '</div>';
+}
+
+// Mesmo agrupamento visual da lista do cobrador (renderClientesAgrupadosPorLocalidade
+// / cardClienteCobradorHtml), mas sem o onclick que abre o sheet de ações do
+// cobrador — aqui é só relatório de leitura para o gestor.
+function renderClientesAgrupadosPorLocalidadeGestor(clientes) {
+  const grupos = new Map();
+  clientes.forEach(c => {
+    const chave = c.bairro || 'Sem localidade';
+    if (!grupos.has(chave)) grupos.set(chave, { ordem: c.localidadeOrdem, itens: [] });
+    grupos.get(chave).itens.push(c);
+  });
+
+  return [...grupos.entries()]
+    .sort((a, b) => a[1].ordem - b[1].ordem)
+    .map(([nome, g]) =>
+      '<div style="font-size:11.5px;font-weight:700;color:#9A9488;text-transform:uppercase;letter-spacing:.03em;margin:16px 0 8px;padding-left:2px;">📍 ' + escHtml(nome) + ' (' + g.itens.length + ')</div>'
+      + g.itens.map(cardClienteGestorHtml).join('')
+    ).join('');
+}
+
+function cardClienteGestorHtml(c) {
+  const corBorda = c.atrasada ? '#E3B7B0' : '#EAE6DE';
+  const corAvatar = c.atrasada ? '#FBEAE7' : '#F1EEE7';
+  const corValor = c.atrasada ? '#C0392B' : '#2B2822';
+  return '<div style="background:#fff;border:1px solid ' + corBorda + ';border-radius:14px;padding:14px;margin-bottom:10px;">'
+    + '<div style="display:flex;gap:10px;align-items:center;">'
+    + '<div style="width:44px;height:44px;border-radius:10px;background:' + corAvatar + ';display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👤</div>'
+    + '<div style="flex:1;min-width:0;">'
+    + '<div style="font-size:14.5px;font-weight:700;color:#221F1A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(c.nome) + '</div>'
+    + '<div style="font-size:12px;color:#9A9488;margin-top:2px;">' + escHtml(c.bairro) + ' · ' + escHtml(c.telefone) + '</div>'
+    + '</div>'
+    + '<div style="text-align:right;flex-shrink:0;">'
+    + '<div style="font-family:ui-monospace,monospace;font-size:15px;font-weight:700;color:' + corValor + ';">R$ ' + c.totalAberto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + '</div>'
+    + '<div style="font-size:10.5px;color:#A39E93;margin-top:2px;">' + escHtml(c.parcelaResumo) + '</div>'
+    + '</div>'
+    + '</div>'
+    + (c.badgeTexto ? '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed #EFEAE0;font-size:11.5px;font-weight:700;color:' + c.badgeCor + ';">' + escHtml(c.badgeTexto) + '</div>' : '')
+    + '</div>';
 }
 
 function abrirDevolucao(vendaId, codigo, produto) {
