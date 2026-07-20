@@ -7726,7 +7726,7 @@ function renderParcelasMobileUnificado(parcelas) {
     if (valorPago > 0) html += ' <span style="font-size:12px;color:#854F0B;font-weight:400;">(parcial)</span>';
     html += '</div>';
     html += '<div style="display:flex;gap:8px;">';
-    html += '<button class="btn primario" style="flex:1;padding:10px;font-size:14px;" onclick="abrirBaixa(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + saldo + '\',\'' + produtoSafe + '\')">Dar baixa</button>';
+    html += '<button class="btn primario" style="flex:1;padding:10px;font-size:14px;" onclick="abrirBaixa(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + saldo + '\',\'' + produtoSafe + '\',\'' + p.cliente_id + '\')">Dar baixa</button>';
     html += '<button class="btn" style="padding:10px 14px;font-size:14px;" onclick="abrirEditarParcela(\'' + p.id + '\',\'' + p.numero + '\',\'' + p.total_parcelas + '\',\'' + p.valor + '\',\'' + p.data_vencimento + '\',\'' + produtoSafe + '\')">Editar</button>';
     html += '</div></div>';
     return html;
@@ -7833,7 +7833,7 @@ function _linhaParcelaDesktop(p, hoje) {
     <td>R$ ${Number(saldo).toLocaleString('pt-BR',{minimumFractionDigits:2})} ${valorPago>0?'<span class="badge amarelo">Parcial</span>':''}</td>
     <td><span class="badge ${atrasada?'vermelho':valorPago>0?'amarelo':'azul'}">${atrasada?'Atrasada':valorPago>0?'Parcial':'Em aberto'}</span></td>
     <td>
-      <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${escJs(p.vendas?.produto||'')}')">Dar baixa</button>
+      <button class="btn primario" style="font-size:11px;padding:3px 8px;" onclick="abrirBaixa('${p.id}','${p.numero}','${p.total_parcelas}','${saldo}','${escJs(p.vendas?.produto||'')}','${p.cliente_id}')">Dar baixa</button>
       <button class="btn" style="font-size:11px;padding:3px 8px;margin-left:4px;" onclick="abrirEditarParcela('${p.id}','${p.numero}','${p.total_parcelas}','${p.valor}','${p.data_vencimento}','${escJs(p.vendas?.produto||'')}')">Editar</button>
     </td>
   </tr>`;
@@ -8006,7 +8006,7 @@ async function verParcelasCliente(clienteId, nomeCliente) {
   await _popularSelectCobradorCobranca(infoCliente?.cobrador_id);
 }
 
-async function abrirBaixa(parcelaId, numero, total, valor, produto) {
+async function abrirBaixa(parcelaId, numero, total, valor, produto, clienteId) {
   document.getElementById('baixa-parcela-id').value = parcelaId;
   document.getElementById('baixa-valor-total').value = valor;
   document.getElementById('baixa-tipo').value = 'completa';
@@ -8019,6 +8019,12 @@ async function abrirBaixa(parcelaId, numero, total, valor, produto) {
     <strong>Parcela ${escHtml(numero)}/${escHtml(total)}</strong> — ${escHtml(produto)}<br>
     <span style="color:#185FA5;">Valor: R$ ${Number(valor).toLocaleString('pt-BR',{minimumFractionDigits:2})}</span>`;
   await carregarCobradoresSelect('baixa-cobrador');
+  // Sugere o cobrador já vinculado ao cliente — evita reescolher toda vez,
+  // mas continua editável pra quem recebeu de fato foi outro cobrador.
+  if (clienteId) {
+    const { data: c } = await sb.from('clientes').select('cobrador_id').eq('id', clienteId).single();
+    document.getElementById('baixa-cobrador').value = c?.cobrador_id || '';
+  }
   document.getElementById('modal-baixa').style.display = 'flex';
 }
 
