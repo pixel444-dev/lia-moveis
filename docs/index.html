@@ -9839,10 +9839,16 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
       }).join('') : '<p style="font-size:12px;color:#888;">Nenhum remarcado.</p>')
     + '</div>'
 
-    + '<div style="font-size:13px;font-weight:600;color:#854F0B;margin-bottom:.5rem;">Gastos (' + gastos.length + ')</div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">'
+    + '<span style="font-size:13px;font-weight:600;color:#854F0B;">Gastos (' + gastos.length + ')</span>'
+    + '<button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirAdicionarMovimentacao(\'gasto\')">+ Adicionar</button>'
+    + '</div>'
     + '<div style="margin-bottom:1rem;">' + gastosHtml + '</div>'
 
-    + '<div style="font-size:13px;font-weight:600;color:#555;margin-bottom:.5rem;">Depósitos (' + depositos.length + ')</div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">'
+    + '<span style="font-size:13px;font-weight:600;color:#555;">Depósitos (' + depositos.length + ')</span>'
+    + '<button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirAdicionarMovimentacao(\'deposito\')">+ Adicionar</button>'
+    + '</div>'
     + '<div style="margin-bottom:1rem;">' + depositosHtml + '</div>'
 
     + '<div style="background:#f9f9f9;border-radius:10px;padding:1rem;margin-bottom:1rem;">'
@@ -10031,6 +10037,75 @@ async function excluirMovimentacaoPrestacao() {
   Logger.info('prestacao', 'EXCLUIR_MOVIMENTACAO', 'Gasto/depósito excluído', { movId });
   removerNovoComprovanteEditarMov();
   fecharModal('modal-editar-movimentacao');
+  abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
+}
+
+function abrirAdicionarMovimentacao(tipo) {
+  document.getElementById('adicionar-mov-tipo').value = tipo;
+  document.getElementById('adicionar-mov-titulo').textContent = tipo === 'deposito' ? 'Adicionar depósito' : 'Adicionar gasto';
+  document.getElementById('adicionar-mov-valor').value = '';
+  document.getElementById('adicionar-mov-descricao').value = '';
+  document.getElementById('adicionar-mov-campo-categoria').style.display = tipo === 'deposito' ? 'none' : 'block';
+  document.getElementById('adicionar-mov-campo-descricao').style.display = tipo === 'deposito' ? 'none' : 'block';
+  removerNovoComprovanteAdicionarMov();
+  document.getElementById('modal-adicionar-movimentacao').style.display = 'flex';
+}
+
+async function processarComprovanteAdicionarMov(input) {
+  if (!input.files || !input.files[0]) return;
+  input.disabled = true;
+  try {
+    const blob = await comprimirArquivo(input.files[0]);
+    window._adicionarMovComprovante = blob.dados;
+    window._adicionarMovComprovanteExt = blob.ext;
+    document.getElementById('adicionar-mov-comprovante-preview').style.display = 'block';
+    document.getElementById('adicionar-mov-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF anexado' : 'Comprovante anexado';
+  } catch (e) {
+    Logger.warn('prestacao', 'PROCESSAR_COMPROVANTE_ADICIONAR', 'Erro ao processar comprovante', { msg: e.message });
+    alert('Erro ao processar o comprovante. Tente novamente ou escolha um arquivo menor.');
+  } finally {
+    input.disabled = false;
+  }
+}
+
+function removerNovoComprovanteAdicionarMov() {
+  window._adicionarMovComprovante = null;
+  window._adicionarMovComprovanteExt = null;
+  document.getElementById('adicionar-mov-comprovante-preview').style.display = 'none';
+  document.getElementById('adicionar-mov-camera').value = '';
+  document.getElementById('adicionar-mov-arquivo').value = '';
+}
+
+async function salvarAdicionarMovimentacao() {
+  const tipo = document.getElementById('adicionar-mov-tipo').value;
+  const caixaId = window._caixaPrestacaoAtual;
+  const valor = parseFloat(document.getElementById('adicionar-mov-valor').value);
+  const categoria = document.getElementById('adicionar-mov-categoria').value;
+  const descricao = document.getElementById('adicionar-mov-descricao').value.trim();
+
+  if (isNaN(valor) || valor <= 0) { alert('Digite um valor válido!'); return; }
+  if (tipo === 'gasto' && !descricao) { alert('Digite uma descrição!'); return; }
+
+  let comprovanteUrl = null;
+  if (window._adicionarMovComprovante) {
+    const nomeArquivo = 'gestor_' + tipo + '_' + crypto.randomUUID() + '.' + window._adicionarMovComprovanteExt;
+    comprovanteUrl = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._adicionarMovComprovante, window._adicionarMovComprovanteExt);
+    if (!comprovanteUrl) { alert('Erro ao enviar o comprovante. Tente novamente.'); return; }
+  }
+
+  const { error } = tipo === 'deposito'
+    ? await sb.rpc('gestor_registrar_deposito', { p_caixa_id: caixaId, p_valor: valor, p_comprovante_url: comprovanteUrl })
+    : await sb.rpc('gestor_registrar_gasto', { p_caixa_id: caixaId, p_categoria: categoria, p_descricao: descricao, p_valor: valor, p_comprovante_url: comprovanteUrl });
+
+  if (error) {
+    Logger.error('prestacao', 'ADICIONAR_MOVIMENTACAO', 'Erro ao adicionar gasto/depósito', { supabase_code: error.code, error_message: error.message });
+    alert(error.message || 'Erro ao salvar!');
+    return;
+  }
+
+  Logger.info('prestacao', 'ADICIONAR_MOVIMENTACAO', 'Gasto/depósito adicionado pelo gestor', { caixaId, tipo, valor });
+  removerNovoComprovanteAdicionarMov();
+  fecharModal('modal-adicionar-movimentacao');
   abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
 
@@ -14263,6 +14338,66 @@ async function gerarProximoMes() {
     </button>
     <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
       Ajusta o valor e recalcula o dinheiro em mãos automaticamente. Escolher um novo comprovante substitui o anterior.
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADICIONAR GASTO/DEPÓSITO (GESTOR) -->
+<div class="modal-bg" id="modal-adicionar-movimentacao">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <div><strong id="adicionar-mov-titulo">Adicionar gasto</strong></div>
+      <button onclick="fecharModal('modal-adicionar-movimentacao')">×</button>
+    </div>
+    <input type="hidden" id="adicionar-mov-tipo">
+    <div class="campo" id="adicionar-mov-campo-categoria">
+      <label>Tipo de gasto</label>
+      <select id="adicionar-mov-categoria" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+        <option value="alimentacao">🍴 Alimentação</option>
+        <option value="combustivel">⛽ Combustível</option>
+        <option value="manutencao">🔧 Manutenção</option>
+        <option value="imprevisto">⚠️ Imprevisto</option>
+      </select>
+    </div>
+    <div class="campo" id="adicionar-mov-campo-descricao">
+      <label>Descrição</label>
+      <input id="adicionar-mov-descricao" type="text"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+        placeholder="Descrição">
+    </div>
+    <div class="campo">
+      <label>Valor (R$)</label>
+      <input id="adicionar-mov-valor" type="number"
+        style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+        placeholder="0,00">
+    </div>
+    <div class="campo">
+      <label>Comprovante (opcional)</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <button type="button" onclick="document.getElementById('adicionar-mov-camera').click()"
+          style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:24px;">📷</span> Tirar foto
+        </button>
+        <button type="button" onclick="document.getElementById('adicionar-mov-arquivo').click()"
+          style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:24px;">📎</span> Escolher arquivo
+        </button>
+      </div>
+      <input type="file" id="adicionar-mov-camera" accept="image/*" capture="environment" style="display:none;" onchange="processarComprovanteAdicionarMov(this)">
+      <input type="file" id="adicionar-mov-arquivo" accept="image/png,image/jpeg,image/jpg,application/pdf" style="display:none;" onchange="processarComprovanteAdicionarMov(this)">
+      <div id="adicionar-mov-comprovante-preview" style="display:none;">
+        <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px;display:flex;align-items:center;justify-content:space-between;">
+          <span id="adicionar-mov-comprovante-nome" style="font-size:12px;color:#3B6D11;font-weight:500;">Comprovante anexado</span>
+          <button type="button" onclick="removerNovoComprovanteAdicionarMov()" style="background:none;border:none;color:#A32D2D;cursor:pointer;font-size:18px;">×</button>
+        </div>
+      </div>
+    </div>
+    <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;"
+      onclick="salvarAdicionarMovimentacao()">
+      ✓ Adicionar
+    </button>
+    <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
+      Lançado direto na caixa deste cobrador — o dinheiro em mãos é recalculado automaticamente.
     </div>
   </div>
 </div>
