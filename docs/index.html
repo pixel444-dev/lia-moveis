@@ -9294,10 +9294,14 @@ async function carregarPrestacaoContas() {
       + new Date(caixa.ciclo_inicio + 'T12:00:00').toLocaleDateString('pt-BR')
       + ' a ' + new Date(caixa.ciclo_fim + 'T12:00:00').toLocaleDateString('pt-BR')
       + '</div>'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
       + '<div style="background:#EAF3DE;border-radius:8px;padding:8px;text-align:center;">'
-      + '<div style="font-size:10px;color:#3B6D11;">RECEBIDO</div>'
-      + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">R$ ' + resumo.totalRecebido.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '<div style="font-size:10px;color:#3B6D11;">ESPÉCIE</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">R$ ' + resumo.recebidoDinheiro.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '<div style="background:#EEEDFE;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#3C3489;">PIX</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#3C3489;">R$ ' + resumo.recebidoPix.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
       + '</div>'
       + '<div style="background:#FAEEDA;border-radius:8px;padding:8px;text-align:center;">'
       + '<div style="font-size:10px;color:#854F0B;">GASTOS</div>'
