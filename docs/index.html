@@ -9967,7 +9967,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
       + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">' + fmtR(b.valor_recebido) + '</div>'
       + '<div style="display:flex;gap:4px;justify-content:flex-end;margin-top:2px;">'
       + (b.comprovante_pix ? '<button class="btn" style="font-size:10px;padding:2px 8px;" onclick="abrirAssinado(event,\'comprovantes\',\'' + b.comprovante_pix + '\')">📎 Comprovante</button>' : '')
-      + (souGestor ? '<button class="btn" style="font-size:10px;padding:2px 8px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\')">Corrigir</button>' : '')
+      + (souGestor ? '<button class="btn" style="font-size:10px;padding:2px 8px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\',\'' + (b.comprovante_pix || '') + '\')">Corrigir</button>' : '')
       + '</div>'
       + '</div></div></div>';
   };
@@ -10139,13 +10139,54 @@ function conferirSaldoPrestacao(saldoEsperado) {
   }
 }
 
-function abrirCorrigirBaixa(baixaId, valor, tipoBaixa, forma, nomeCliente) {
+function abrirCorrigirBaixa(baixaId, valor, tipoBaixa, forma, nomeCliente, comprovantePix) {
   document.getElementById('corrigir-baixa-id').value = baixaId;
   document.getElementById('corrigir-valor').value = valor;
   document.getElementById('corrigir-tipo').value = tipoBaixa || 'completo';
   document.getElementById('corrigir-forma').value = forma || 'dinheiro';
   document.getElementById('corrigir-info').textContent = nomeCliente;
+
+  removerNovoComprovanteCorrigirBaixa();
+  const linkAtual = document.getElementById('corrigir-comprovante-atual');
+  if (comprovantePix) {
+    linkAtual.style.display = 'block';
+    linkAtual.onclick = function(event) { abrirAssinado(event, 'comprovantes', comprovantePix); };
+  } else {
+    linkAtual.style.display = 'none';
+  }
+  atualizarCampoComprovanteCorrigir();
+
   document.getElementById('modal-corrigir-baixa').style.display = 'flex';
+}
+
+function atualizarCampoComprovanteCorrigir() {
+  const forma = document.getElementById('corrigir-forma').value;
+  document.getElementById('corrigir-comprovante-campo').style.display = forma === 'pix' ? 'block' : 'none';
+}
+
+async function processarNovoComprovanteCorrigirBaixa(input) {
+  if (!input.files || !input.files[0]) return;
+  input.disabled = true;
+  try {
+    const blob = await comprimirArquivo(input.files[0]);
+    window._corrigirComprovante = blob.dados;
+    window._corrigirComprovanteExt = blob.ext;
+    document.getElementById('corrigir-comprovante-preview').style.display = 'block';
+    document.getElementById('corrigir-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF selecionado' : 'Novo comprovante selecionado';
+  } catch (e) {
+    Logger.warn('prestacao', 'PROCESSAR_COMPROVANTE_CORRIGIR', 'Erro ao processar comprovante', { msg: e.message });
+    alert('Erro ao processar o comprovante. Tente novamente ou escolha um arquivo menor.');
+  } finally {
+    input.disabled = false;
+  }
+}
+
+function removerNovoComprovanteCorrigirBaixa() {
+  window._corrigirComprovante = null;
+  window._corrigirComprovanteExt = null;
+  document.getElementById('corrigir-comprovante-preview').style.display = 'none';
+  document.getElementById('corrigir-comprovante-camera').value = '';
+  document.getElementById('corrigir-comprovante-arquivo').value = '';
 }
 
 async function salvarCorrecaoBaixa() {
@@ -10156,6 +10197,16 @@ async function salvarCorrecaoBaixa() {
 
   if (isNaN(valor) || valor <= 0) { alert('Digite um valor válido!'); return; }
 
+  // Só sobe um comprovante novo se o gestor de fato escolheu um arquivo —
+  // corrigir_baixa() preserva o comprovante já existente nesse caso (coalesce
+  // no backend), mesma regra da edição de gasto/depósito.
+  let comprovanteUrl = null;
+  if (window._corrigirComprovante) {
+    const nomeArquivo = 'correcao_' + crypto.randomUUID() + '.' + window._corrigirComprovanteExt;
+    comprovanteUrl = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._corrigirComprovante, window._corrigirComprovanteExt);
+    if (!comprovanteUrl) { alert('Erro ao enviar o comprovante. Tente novamente.'); return; }
+  }
+
   // corrigir_baixa() já faz a sincronização de parcelas/caixa_cobrador
   // atomicamente no backend (mesma lógica de "troca o valor antigo desta
   // baixa pelo corrigido, preservando outras baixas parciais" que existia
@@ -10164,7 +10215,8 @@ async function salvarCorrecaoBaixa() {
     p_baixa_id: baixaId,
     p_valor_recebido: valor,
     p_tipo_baixa: tipo,
-    p_forma_pagamento: forma
+    p_forma_pagamento: forma,
+    p_comprovante_url: comprovanteUrl
   });
 
   if (error) {
@@ -10173,7 +10225,8 @@ async function salvarCorrecaoBaixa() {
     return;
   }
 
-  Logger.info('prestacao', 'CORRIGIR_BAIXA', 'Baixa corrigida', { baixaId, valor, tipo, forma });
+  Logger.info('prestacao', 'CORRIGIR_BAIXA', 'Baixa corrigida', { baixaId, valor, tipo, forma, trocouComprovante: !!comprovanteUrl });
+  removerNovoComprovanteCorrigirBaixa();
   fecharModal('modal-corrigir-baixa');
   abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
@@ -14520,10 +14573,32 @@ async function gerarProximoMes() {
     </div>
     <div class="campo">
       <label>Forma de pagamento</label>
-      <select id="corrigir-forma" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+      <select id="corrigir-forma" onchange="atualizarCampoComprovanteCorrigir()" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
         <option value="dinheiro">Dinheiro</option>
         <option value="pix">PIX</option>
       </select>
+    </div>
+    <div class="campo" id="corrigir-comprovante-campo" style="display:none;">
+      <label>Comprovante do PIX</label>
+      <a href="#" id="corrigir-comprovante-atual" style="display:none;font-size:12px;color:#185FA5;margin-bottom:8px;">📎 Ver comprovante atual</a>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <button type="button" onclick="document.getElementById('corrigir-comprovante-camera').click()"
+          style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:24px;">📷</span> Tirar foto
+        </button>
+        <button type="button" onclick="document.getElementById('corrigir-comprovante-arquivo').click()"
+          style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <span style="font-size:24px;">📎</span> Escolher arquivo
+        </button>
+      </div>
+      <input type="file" id="corrigir-comprovante-camera" accept="image/*" capture="environment" style="display:none;" onchange="processarNovoComprovanteCorrigirBaixa(this)">
+      <input type="file" id="corrigir-comprovante-arquivo" accept="image/png,image/jpeg,image/jpg,application/pdf" style="display:none;" onchange="processarNovoComprovanteCorrigirBaixa(this)">
+      <div id="corrigir-comprovante-preview" style="display:none;">
+        <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px;display:flex;align-items:center;justify-content:space-between;">
+          <span id="corrigir-comprovante-nome" style="font-size:12px;color:#3B6D11;font-weight:500;">Novo comprovante selecionado</span>
+          <button type="button" onclick="removerNovoComprovanteCorrigirBaixa()" style="background:none;border:none;color:#A32D2D;cursor:pointer;font-size:18px;">×</button>
+        </div>
+      </div>
     </div>
     <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-bottom:8px;"
       onclick="salvarCorrecaoBaixa()">
