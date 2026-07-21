@@ -9366,25 +9366,34 @@ async function carregarSuaCobranca() {
   // a "cobrador vê só a própria caixa", mas filtra explícito aqui também
   // (mesmo padrão de carregarMeuHistorico()), pra nunca depender só da
   // policy pra decidir o que aparece na tela.
-  const { data: caixas, error } = await sb
+  let { data: caixas, error } = await sb
     .from('caixa_cobrador')
     .select('*, funcionarios(nome)')
     .in('status', ['aberto', 'pendente_aprovacao'])
     .eq('cobrador_id', funcionarioLogado.id)
     .order('criado_em', { ascending: false });
 
+  let avisoOffline = '';
   if (error) {
-    Logger.error('sua-cobranca', 'CARREGAR', 'Erro ao buscar caixa do cobrador', { supabase_code: error.code });
-    document.getElementById('lista-sua-cobranca').innerHTML = 'Erro ao carregar.';
-    return;
+    const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.caixaCobradorDoCache(funcionarioLogado.id) : null;
+    if (doCache) {
+      caixas = doCache;
+      avisoOffline = OfflineFlow.avisoOfflineHtml();
+    } else {
+      Logger.error('sua-cobranca', 'CARREGAR', 'Erro ao buscar caixa do cobrador', { supabase_code: error.code });
+      document.getElementById('lista-sua-cobranca').innerHTML = 'Erro ao carregar.';
+      return;
+    }
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarCaixaCobradorNoCache(funcionarioLogado.id, caixas);
   }
 
   if (!caixas || !caixas.length) {
-    document.getElementById('lista-sua-cobranca').innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:48px;margin-bottom:.75rem;">📋</div><div style="font-size:14px;">Nenhuma caixa aberta no momento.</div></div>';
+    document.getElementById('lista-sua-cobranca').innerHTML = avisoOffline + '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:48px;margin-bottom:.75rem;">📋</div><div style="font-size:14px;">Nenhuma caixa aberta no momento.</div></div>';
     return;
   }
 
-  let html = '';
+  let html = avisoOffline;
   for (const caixa of caixas) {
     const resumo = await calcularResumoCaixa(caixa.id);
     const nomeEsc = escJs(caixa.funcionarios?.nome || '');
@@ -9427,28 +9436,52 @@ async function carregarSuaCobranca() {
 }
 
 async function calcularPendentesRemarcados(caixaId) {
-  const { data: caixaInfo } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  let { data: caixaInfo, error: erroCaixaInfo } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  if (erroCaixaInfo && window.OfflineFlow && NetStatus.ehErroDeRede(erroCaixaInfo)) {
+    caixaInfo = await OfflineFlow.caixaPorIdDoCache(caixaId);
+  } else if (!erroCaixaInfo && caixaInfo && window.OfflineFlow) {
+    OfflineFlow.salvarCaixaItemNoCache(caixaInfo);
+  }
+  if (!caixaInfo) return { pendentes: [], remarcados: [], mapaNome: {} };
+
   const cobradorId = caixaInfo.cobrador_id;
   const iniCx = new Date(caixaInfo.ciclo_inicio + 'T00:00:00');
   const fimCx = new Date(caixaInfo.ciclo_fim + 'T23:59:59');
   const hojeCx = new Date(); hojeCx.setHours(12,0,0,0);
 
-  const { data: clientesCob } = await buscarTudoPaginado(() =>
+  let { data: clientesCob, error: erroClientes } = await buscarTudoPaginado(() =>
     sb.from('clientes').select('id, nome').eq('cobrador_id', cobradorId).order('id'));
+  if (erroClientes && window.OfflineFlow && NetStatus.ehErroDeRede(erroClientes)) {
+    const cache = await OfflineFlow.carteiraDoCache();
+    clientesCob = (cache||[]).filter(c => c.cobrador_id === cobradorId).map(c => ({ id: c.id, nome: c.nome }));
+  }
   const idsCli = (clientesCob||[]).map(c => c.id);
   const mapaNome = {}; (clientesCob||[]).forEach(c => mapaNome[c.id] = c.nome);
 
   let parcelasAbertas = [];
   if (idsCli.length) {
-    parcelasAbertas = await buscarInLotes(idsCli, lote => sb.from('parcelas')
-      .select('id, cliente_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
-      .in('cliente_id', lote).eq('pago', false).neq('status','devolvida').order('id'));
+    try {
+      parcelasAbertas = await buscarInLotes(idsCli, lote => sb.from('parcelas')
+        .select('id, cliente_id, numero, total_parcelas, valor, valor_pago, data_vencimento, pago, status')
+        .in('cliente_id', lote).eq('pago', false).neq('status','devolvida').order('id'));
+    } catch (e) {
+      if (window.OfflineFlow && NetStatus.ehErroDeRede(e)) {
+        parcelasAbertas = await OfflineFlow.parcelasAbertasDoCache(idsCli);
+      } else {
+        throw e;
+      }
+    }
   }
 
-  const { data: visitasCob } = await buscarTudoPaginado(() => sb.from('visitas_agendadas')
-    .select('parcela_id, cliente_id, motivo, observacao, data_agendada, concluida, criado_em')
+  let { data: visitasCob, error: erroVisitas } = await buscarTudoPaginado(() => sb.from('visitas_agendadas')
+    .select('id, parcela_id, cliente_id, motivo, observacao, data_agendada, concluida, criado_em')
     .eq('cobrador_id', cobradorId).eq('concluida', false)
     .order('criado_em', { ascending: false }));
+  if (erroVisitas && window.OfflineFlow && NetStatus.ehErroDeRede(erroVisitas)) {
+    visitasCob = await OfflineFlow.visitasAbertasDoCache(cobradorId);
+  } else if (!erroVisitas && window.OfflineFlow) {
+    OfflineFlow.salvarVisitasAbertasNoCache(cobradorId, visitasCob||[]);
+  }
 
   const remarcados = (visitasCob||[]).filter(v => new Date(v.criado_em) >= iniCx);
   const parcelasRemarcadas = new Set(remarcados.map(v => v.parcela_id));
@@ -9467,12 +9500,26 @@ async function calcularPendentesRemarcados(caixaId) {
 }
 
 async function calcularResumoCaixa(caixaId) {
-  const { data: baixas } = await sb.from('baixas_pendentes')
-    .select('valor_recebido, forma_pagamento, status')
+  let { data: baixas, error: erroBaixas } = await sb.from('baixas_pendentes')
+    .select('id, valor_recebido, forma_pagamento, status')
     .eq('caixa_id', caixaId).neq('status', 'cancelada');
 
-  const { data: movs } = await sb.from('movimentacoes_caixa')
-    .select('valor, tipo').eq('caixa_id', caixaId);
+  if (erroBaixas) {
+    const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(erroBaixas)) ? await OfflineFlow.baixasDoCacheCaixa(caixaId) : null;
+    baixas = doCache ? doCache.filter(function(b) { return b.status !== 'cancelada'; }) : [];
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarBaixasCaixaNoCache(caixaId, baixas);
+  }
+
+  let { data: movs, error: erroMovs } = await sb.from('movimentacoes_caixa')
+    .select('id, valor, tipo').eq('caixa_id', caixaId);
+
+  if (erroMovs) {
+    const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(erroMovs)) ? await OfflineFlow.movimentacoesDoCacheCaixa(caixaId) : null;
+    movs = doCache || [];
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarMovimentacoesCaixaNoCache(caixaId, movs);
+  }
 
   const totalRecebido = (baixas || []).reduce(function(a, b) { return a + Number(b.valor_recebido); }, 0);
   const recebidoDinheiro = (baixas || []).filter(function(b) { return b.forma_pagamento === 'dinheiro'; })
@@ -9827,15 +9874,45 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   // que só vai dar erro de permissão pro cobrador.
   const souGestor = perfilAtivo.perfil === 'gestor';
 
-  const { data: caixa } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  let avisoOffline = '';
+
+  let { data: caixa, error: erroCaixa } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
+  if (erroCaixa) {
+    const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(erroCaixa)) ? await OfflineFlow.caixaPorIdDoCache(caixaId) : null;
+    if (doCache) {
+      caixa = doCache;
+      avisoOffline = OfflineFlow.avisoOfflineHtml();
+    } else {
+      document.getElementById('prestacao-conteudo').innerHTML = '<p style="color:#888;">Erro ao carregar.</p>';
+      document.getElementById('modal-prestacao').style.display = 'flex';
+      return;
+    }
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarCaixaItemNoCache(caixa);
+  }
+
   const resumoTotal = await calcularResumoCaixa(caixaId);
 
-  const { data: baixasTodas } = await sb.from('baixas_pendentes')
+  let { data: baixasTodas, error: erroBaixasTodas } = await sb.from('baixas_pendentes')
     .select('*, clientes(nome), parcelas(numero, total_parcelas, vendas(codigo))')
     .eq('caixa_id', caixaId).neq('status', 'cancelada').order('criado_em');
+  if (erroBaixasTodas) {
+    const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(erroBaixasTodas)) ? await OfflineFlow.baixasDoCacheCaixa(caixaId) : null;
+    baixasTodas = doCache ? doCache.filter(function(b) { return b.status !== 'cancelada'; }) : [];
+    if (doCache) avisoOffline = OfflineFlow.avisoOfflineHtml();
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarBaixasCaixaNoCache(caixaId, baixasTodas);
+  }
 
-  const { data: movsTodas } = await sb.from('movimentacoes_caixa')
+  let { data: movsTodas, error: erroMovsTodas } = await sb.from('movimentacoes_caixa')
     .select('*').eq('caixa_id', caixaId).order('criado_em');
+  if (erroMovsTodas) {
+    const doCache = (window.OfflineFlow && NetStatus.ehErroDeRede(erroMovsTodas)) ? await OfflineFlow.movimentacoesDoCacheCaixa(caixaId) : null;
+    movsTodas = doCache || [];
+    if (doCache) avisoOffline = OfflineFlow.avisoOfflineHtml();
+  } else if (window.OfflineFlow) {
+    OfflineFlow.salvarMovimentacoesCaixaNoCache(caixaId, movsTodas);
+  }
 
   const diasCiclo = diasDoCiclo(caixa.ciclo_inicio, caixa.ciclo_fim);
   const filtroDia = window._prestacaoFiltroDia;
@@ -9941,7 +10018,8 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   }
 
   document.getElementById('prestacao-conteudo').innerHTML =
-    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem;">'
+    avisoOffline
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem;">'
     + '<button class="btn' + (filtroDia === null ? ' primario' : '') + '" style="font-size:12px;padding:6px 12px;border-radius:20px;" onclick="filtrarPrestacaoPorDia(null)">Cobrança total</button>'
     + diasCiclo.map(function(dia) {
         const label = new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });

@@ -706,6 +706,79 @@
     try { await _salvarMesclandoNoCache('clientes', lista); } catch (e) { /* cache é melhor esforço */ }
   }
 
+  // ─── Cache de "Sua Cobrança" (caixa do cobrador, recebimentos, gastos/
+  // depósitos, remarques) — mesma ideia do cache de clientes/parcelas
+  // acima: grava a cada consulta online bem-sucedida, lê quando a consulta
+  // falha por rede. Dois níveis pra caixa_cobrador: um por cobrador (lista
+  // "minha(s) caixa(s) aberta(s)", usado por carregarSuaCobranca) e um por
+  // id da própria caixa (usado por telas que já sabem o caixaId e não o
+  // cobrador_id, como abrirDetalhePrestacao/calcularPendentesRemarcados).
+
+  async function salvarCaixaItemNoCache(caixa) {
+    if (!_nativo() || !window.DbLocal || !caixa || caixa.id == null) return;
+    try { await _salvarMesclandoNoCache('caixa_item:' + caixa.id, [caixa]); } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function caixaPorIdDoCache(caixaId) {
+    if (!_nativo() || !window.DbLocal || !caixaId) return null;
+    var lista = await DbLocal.lerDoCache('caixa_item:' + caixaId);
+    return lista.length ? lista[0] : null;
+  }
+
+  async function salvarCaixaCobradorNoCache(cobradorId, caixas) {
+    if (!_nativo() || !window.DbLocal || !cobradorId || !Array.isArray(caixas) || !caixas.length) return;
+    try {
+      await DbLocal.salvarNoCache('caixa_cobrador:' + cobradorId, caixas);
+      for (var i = 0; i < caixas.length; i++) await salvarCaixaItemNoCache(caixas[i]);
+    } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function caixaCobradorDoCache(cobradorId) {
+    if (!_nativo() || !window.DbLocal || !cobradorId) return null;
+    var lista = await DbLocal.lerDoCache('caixa_cobrador:' + cobradorId);
+    return lista.length ? lista : null;
+  }
+
+  // baixas_pendentes/movimentacoes_caixa: consultas diferentes trazem
+  // subconjuntos diferentes de campos da mesma linha (calcularResumoCaixa
+  // só traz valor/forma/tipo; abrirDetalhePrestacao traz tudo, com joins)
+  // — mescla em vez de sobrescrever, mesma razão de _salvarMesclandoNoCache
+  // já usado pra clientes/parcelas.
+  async function salvarBaixasCaixaNoCache(caixaId, baixas) {
+    if (!_nativo() || !window.DbLocal || !caixaId || !Array.isArray(baixas) || !baixas.length) return;
+    try { await _salvarMesclandoNoCache('baixas_caixa:' + caixaId, baixas); } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function baixasDoCacheCaixa(caixaId) {
+    if (!_nativo() || !window.DbLocal || !caixaId) return null;
+    var lista = await DbLocal.lerDoCache('baixas_caixa:' + caixaId);
+    return lista.length ? lista : null;
+  }
+
+  async function salvarMovimentacoesCaixaNoCache(caixaId, movs) {
+    if (!_nativo() || !window.DbLocal || !caixaId || !Array.isArray(movs) || !movs.length) return;
+    try { await _salvarMesclandoNoCache('movs_caixa:' + caixaId, movs); } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function movimentacoesDoCacheCaixa(caixaId) {
+    if (!_nativo() || !window.DbLocal || !caixaId) return null;
+    var lista = await DbLocal.lerDoCache('movs_caixa:' + caixaId);
+    return lista.length ? lista : null;
+  }
+
+  // Visitas em aberto (remarques não concluídos) do cobrador — só uma
+  // consulta usa isso hoje, então sobrescreve direto (sem mesclar).
+  async function salvarVisitasAbertasNoCache(cobradorId, visitas) {
+    if (!_nativo() || !window.DbLocal || !cobradorId || !Array.isArray(visitas)) return;
+    try { await DbLocal.salvarNoCache('visitas_cobrador:' + cobradorId, visitas); } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function visitasAbertasDoCache(cobradorId) {
+    if (!_nativo() || !window.DbLocal || !cobradorId) return null;
+    var lista = await DbLocal.lerDoCache('visitas_cobrador:' + cobradorId);
+    return lista.length ? lista : null;
+  }
+
   // ─── Cache do vendedor (equipe, estoque do caminhão, catálogo) ──
   // Mesma ideia do cache do cobrador acima: grava a cada consulta online
   // bem-sucedida, lê quando a consulta falha por rede. "equipe_ativa" e
@@ -1069,6 +1142,16 @@
     carteiraDoCache: carteiraDoCache,
     salvarParcelasNoCache: salvarParcelasNoCache,
     salvarClientesNoCache: salvarClientesNoCache,
+    salvarCaixaCobradorNoCache: salvarCaixaCobradorNoCache,
+    caixaCobradorDoCache: caixaCobradorDoCache,
+    salvarCaixaItemNoCache: salvarCaixaItemNoCache,
+    caixaPorIdDoCache: caixaPorIdDoCache,
+    salvarBaixasCaixaNoCache: salvarBaixasCaixaNoCache,
+    baixasDoCacheCaixa: baixasDoCacheCaixa,
+    salvarMovimentacoesCaixaNoCache: salvarMovimentacoesCaixaNoCache,
+    movimentacoesDoCacheCaixa: movimentacoesDoCacheCaixa,
+    salvarVisitasAbertasNoCache: salvarVisitasAbertasNoCache,
+    visitasAbertasDoCache: visitasAbertasDoCache,
     salvarEquipeAtivaNoCache: salvarEquipeAtivaNoCache,
     equipeAtivaDoCache: equipeAtivaDoCache,
     salvarEstoqueCaminhaoNoCache: salvarEstoqueCaminhaoNoCache,
