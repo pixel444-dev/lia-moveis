@@ -1603,7 +1603,33 @@ document.addEventListener('DOMContentLoaded', function() {
 
 const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Fetch com consciência de rede, usado por TODAS as chamadas do supabase-js:
+// 1. Se o sistema já sabe que está offline (NetStatus), rejeita NA HORA com o
+//    mesmo formato de erro de um fetch real falhando ("Failed to fetch") — as
+//    telas caem no cache local imediatamente, em vez de cada consulta esperar
+//    o timeout do sistema operacional (no campo, com o rádio ligado mas sem
+//    dados, isso chegava a dezenas de segundos POR CONSULTA — era a causa da
+//    lentidão do app do cobrador offline).
+// 2. Online, limita leituras (GET/HEAD) a 15s: sinal "conectado mas sem
+//    internet" (torre sem dados, portal cativo) deixa o fetch pendurado sem
+//    nunca virar erro. Gravações (POST/PATCH/...) ficam SEM timeout de
+//    propósito — abortar um upload de foto ou uma RPC de venda no meio pode
+//    duplicar a operação no retry.
+const _fetchOriginal = window.fetch.bind(window);
+function _fetchComRede(input, init) {
+  if (window.NetStatus && !NetStatus.estaOnline()) {
+    return Promise.reject(new TypeError('Failed to fetch (sem conexão — curto-circuito offline)'));
+  }
+  const metodo = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+  if ((metodo === 'GET' || metodo === 'HEAD') && typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+    const sinais = [AbortSignal.timeout(15000)];
+    if (init && init.signal) sinais.push(init.signal);
+    init = Object.assign({}, init, { signal: AbortSignal.any ? AbortSignal.any(sinais) : sinais[0] });
+  }
+  return _fetchOriginal(input, init);
+}
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { global: { fetch: _fetchComRede } });
 
 // Rede voltou: renova o token da sessão (o access token pode ter expirado
 // enquanto o app estava offline) e só então descarrega a fila offline.
