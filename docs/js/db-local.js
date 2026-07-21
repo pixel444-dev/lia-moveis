@@ -157,29 +157,89 @@
     return db;
   }
 
+  // ─── Camada de memória sobre cache_registros ────────────────
+  // As telas offline leem a MESMA tabela várias vezes por interação (abrir
+  // uma ficha lê clientes + carteira + todas as parcelas), e cada leitura
+  // era um round-trip pela ponte nativa + JSON.parse da tabela inteira.
+  // Aqui cada tabela lógica é materializada UMA vez num Map (registro_id →
+  // objeto) e as leituras seguintes saem da memória; toda escrita passa por
+  // salvarNoCache/removerDoCache abaixo, que mantêm o espelho em dia.
+  var memCache = {}; // tabela → Promise<Map<registro_id, objeto>>
+
+  // Só memoiza com conexão ativa — se rodar antes do initDbLocal terminar,
+  // devolve um Map vazio SEM guardar (senão o vazio ficaria cacheado pra
+  // sempre e os dados offline "sumiriam" até reabrir o app).
+  function _tabelaEmMemoria(tabela, conexao) {
+    if (!conexao) return Promise.resolve(new Map());
+    if (!memCache[tabela]) {
+      memCache[tabela] = (async function () {
+        var mapa = new Map();
+        var res = await conexao.query('SELECT registro_id, dados FROM cache_registros WHERE tabela = ?', [tabela]);
+        var linhas = (res && res.values) || [];
+        for (var i = 0; i < linhas.length; i++) {
+          try { mapa.set(String(linhas[i].registro_id), JSON.parse(linhas[i].dados)); }
+          catch (e) { /* linha corrompida não derruba o resto da tabela */ }
+        }
+        return mapa;
+      })().catch(function (err) {
+        // Falha ao materializar não pode ficar cacheada — a próxima leitura
+        // tenta de novo direto do SQLite.
+        delete memCache[tabela];
+        throw err;
+      });
+    }
+    return memCache[tabela];
+  }
+
   // Assume que cada registro tem "id" (padrão Supabase); usa "codigo" como
-  // alternativa para tabelas que só expõem esse campo. Revisar na fase 2,
-  // quando o cache for de fato ligado às telas.
+  // alternativa para tabelas que só expõem esse campo.
   async function salvarNoCache(tabela, registros) {
     var conexao = getDb();
-    if (!conexao || !Array.isArray(registros)) return;
+    if (!conexao || !Array.isArray(registros) || !registros.length) return;
     var agora = new Date().toISOString();
+    var SQL = 'INSERT OR REPLACE INTO cache_registros (tabela, registro_id, dados, atualizado_em) VALUES (?, ?, ?, ?)';
+    var validos = [];
     for (var i = 0; i < registros.length; i++) {
       var registro = registros[i];
       var registroId = registro && (registro.id != null ? registro.id : registro.codigo);
       if (registroId == null) continue;
-      await conexao.run(
-        'INSERT OR REPLACE INTO cache_registros (tabela, registro_id, dados, atualizado_em) VALUES (?, ?, ?, ?)',
-        [tabela, String(registroId), JSON.stringify(registro), agora]
-      );
+      validos.push({ id: String(registroId), registro: registro });
+    }
+    if (!validos.length) return;
+
+    // Uma transação nativa por LOTE (executeSet), não por linha: gravar o
+    // prefetch da carteira (milhares de parcelas) linha a linha era um
+    // round-trip + COMMIT em disco por registro e segurava a ponte nativa
+    // por minutos — outra fatia da lentidão do app do cobrador. Lotes de
+    // 400 linhas mantêm cada mensagem da ponte num tamanho seguro.
+    for (var ini = 0; ini < validos.length; ini += 400) {
+      var fatia = validos.slice(ini, ini + 400);
+      var valores = fatia.map(function (v) { return [tabela, v.id, JSON.stringify(v.registro), agora]; });
+      try {
+        await conexao.executeSet([{ statement: SQL, values: valores }], true);
+      } catch (errLote) {
+        // Rede de segurança: se o executeSet falhar (plugin antigo, lote
+        // rejeitado), volta ao caminho linha a linha só para esta fatia.
+        console.warn('[DB LOCAL] executeSet falhou — gravando linha a linha.', errLote);
+        for (var j = 0; j < valores.length; j++) await conexao.run(SQL, valores[j]);
+      }
+    }
+
+    // Espelha na memória apenas se a tabela já foi materializada — senão a
+    // primeira leitura carrega tudo (inclusive isto) direto do SQLite.
+    if (memCache[tabela]) {
+      try {
+        var mapa = await memCache[tabela];
+        validos.forEach(function (v) { mapa.set(v.id, v.registro); });
+      } catch (e) { /* materialização falhou; leitura futura recarrega */ }
     }
   }
 
   async function lerDoCache(tabela) {
     var conexao = getDb();
     if (!conexao) return [];
-    var res = await conexao.query('SELECT dados FROM cache_registros WHERE tabela = ?', [tabela]);
-    return ((res && res.values) || []).map(function (linha) { return JSON.parse(linha.dados); });
+    var mapa = await _tabelaEmMemoria(tabela, conexao);
+    return Array.from(mapa.values());
   }
 
   async function enfileirarOperacao(tipo, payload) {
@@ -293,6 +353,10 @@
       'DELETE FROM cache_registros WHERE tabela = ? AND registro_id = ?',
       [tabela, String(registroId)]
     );
+    if (memCache[tabela]) {
+      try { (await memCache[tabela]).delete(String(registroId)); }
+      catch (e) { /* materialização falhou; leitura futura recarrega */ }
+    }
   }
 
   // Permite a um handler de sincronização persistir progresso parcial no

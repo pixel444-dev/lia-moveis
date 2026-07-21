@@ -43,7 +43,11 @@
     if (!err) return false;
     var msg = (typeof err === 'string') ? err : (err.message || err.msg || '');
     if (err.name === 'AuthRetryableFetchError') return true;
-    return /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet_disconnected|err_name_not_resolved|err_connection|err_network|network error/i.test(String(msg));
+    // TimeoutError/AbortError: leitura abortada pelo timeout do fetch com
+    // consciência de rede (index.html, _fetchComRede) — "conectado mas sem
+    // internet" também é falta de rede pra quem está esperando a tela.
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') return true;
+    return /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet_disconnected|err_name_not_resolved|err_connection|err_network|network error|timed out|signal is aborted/i.test(String(msg));
   }
 
   // ─── Indicador visual ───────────────────────────────────────
