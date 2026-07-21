@@ -505,6 +505,7 @@ tr:hover td{background:#fafafa;}
       <div class="nav-item" id="nav-cobrancas-mes" data-page="cobrancas-mes" onclick="pg('cobrancas-mes',this)"><span class="nav-ico">📆</span>Cobranças do mês</div>
       <div class="nav-item" id="nav-caixa-cobradores" data-page="caixa-cobradores" onclick="pg('caixa-cobradores',this)"><span class="nav-ico">💰</span>Caixa cobradores</div>
       <div class="nav-item" id="nav-prestacao" data-page="prestacao" onclick="pg('prestacao',this)"><span class="nav-ico">🧾</span>Prestação de contas</div>
+      <div class="nav-item" id="nav-sua-cobranca" data-page="sua-cobranca" onclick="pg('sua-cobranca',this)"><span class="nav-ico">🧾</span>Sua Cobrança</div>
       <div class="nav-item" id="nav-meu-historico" data-page="meu-historico" onclick="pg('meu-historico',this)"><span class="nav-ico">📚</span>Histórico</div>
     </div>
     <div class="nav-grupo" id="nav-grupo-analise">
@@ -809,6 +810,11 @@ tr:hover td{background:#fafafa;}
       <div class="page-title">Prestação de contas</div>
       <button class="btn primario" style="margin-bottom:1rem;" onclick="abrirGerenciarCaixa()">+ Definir / estender caixa</button>
       <div id="lista-prestacao">Carregando...</div>
+    </div>
+
+    <div class="page" id="page-sua-cobranca">
+      <div class="page-title">Sua Cobrança</div>
+      <div id="lista-sua-cobranca">Carregando...</div>
     </div>
 
     <div class="page" id="page-historico-caixas">
@@ -2301,6 +2307,7 @@ function aplicarPermissoes(perfil) {
     relatorios:          gestor,
     logs:                gestor,
     prestacao:           gestor,
+    'sua-cobranca':      cobrador,
     'historico-caixas':  gestor,
     carnes:              gestor,
     'imprimir-ficha':    gestor,
@@ -2360,6 +2367,7 @@ function pg(nome, el) {
   if (nome === 'ciclos') carregarCiclos();
   if (nome === 'cobrancas-mes') carregarCobrancasDoMes();
   if (nome === 'prestacao') carregarPrestacaoContas();
+  if (nome === 'sua-cobranca') carregarSuaCobranca();
   if (nome === 'historico-caixas') carregarHistoricoCaixas();
   if (nome === 'meu-historico') carregarMeuHistorico();
   if (nome === 'config-impressao') carregarConfigImpressao();
@@ -9321,6 +9329,77 @@ async function carregarPrestacaoContas() {
   document.getElementById('lista-prestacao').innerHTML = html;
 }
 
+async function carregarSuaCobranca() {
+  if (perfilAtivo.perfil !== 'cobrador') {
+    document.getElementById('lista-sua-cobranca').innerHTML = '<p style="color:#888;">Acesso restrito ao cobrador.</p>';
+    return;
+  }
+
+  // Mesma query de carregarPrestacaoContas(), só que travada no próprio
+  // cobrador logado — RLS (caixa_select) já restringiria de qualquer jeito
+  // a "cobrador vê só a própria caixa", mas filtra explícito aqui também
+  // (mesmo padrão de carregarMeuHistorico()), pra nunca depender só da
+  // policy pra decidir o que aparece na tela.
+  const { data: caixas, error } = await sb
+    .from('caixa_cobrador')
+    .select('*, funcionarios(nome)')
+    .in('status', ['aberto', 'pendente_aprovacao'])
+    .eq('cobrador_id', funcionarioLogado.id)
+    .order('criado_em', { ascending: false });
+
+  if (error) {
+    Logger.error('sua-cobranca', 'CARREGAR', 'Erro ao buscar caixa do cobrador', { supabase_code: error.code });
+    document.getElementById('lista-sua-cobranca').innerHTML = 'Erro ao carregar.';
+    return;
+  }
+
+  if (!caixas || !caixas.length) {
+    document.getElementById('lista-sua-cobranca').innerHTML = '<div style="text-align:center;padding:2rem;color:#888;"><div style="font-size:48px;margin-bottom:.75rem;">📋</div><div style="font-size:14px;">Nenhuma caixa aberta no momento.</div></div>';
+    return;
+  }
+
+  let html = '';
+  for (const caixa of caixas) {
+    const resumo = await calcularResumoCaixa(caixa.id);
+    const nomeEsc = escJs(caixa.funcionarios?.nome || '');
+    html += '<div onclick="abrirDetalhePrestacao(\'' + caixa.id + '\',\'' + nomeEsc + '\')"'
+      + ' style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;margin-bottom:10px;cursor:pointer;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+      + '<div style="font-size:16px;font-weight:600;">' + escHtml((caixa.funcionarios?.nome || '—')) + '</div>'
+      + '<span class="badge ' + (caixa.status === 'aberto' ? 'azul' : 'amarelo') + '">'
+      + (caixa.status === 'aberto' ? 'Aberta' : 'Aguardando') + '</span>'
+      + '</div>'
+      + '<div style="font-size:12px;color:#888;margin-bottom:10px;">Ciclo: '
+      + new Date(caixa.ciclo_inicio + 'T12:00:00').toLocaleDateString('pt-BR')
+      + ' a ' + new Date(caixa.ciclo_fim + 'T12:00:00').toLocaleDateString('pt-BR')
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+      + '<div style="grid-column:1 / -1;background:#F1EFE8;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#5F5E5A;">TOTAL RECEBIDO</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#5F5E5A;">R$ ' + resumo.totalRecebido.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '<div style="background:#EAF3DE;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#3B6D11;">ESPÉCIE</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">R$ ' + resumo.recebidoDinheiro.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '<div style="background:#EEEDFE;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#3C3489;">PIX</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#3C3489;">R$ ' + resumo.recebidoPix.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '<div style="background:#FAEEDA;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#854F0B;">GASTOS</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#854F0B;">R$ ' + resumo.totalGastos.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '<div style="background:#E6F1FB;border-radius:8px;padding:8px;text-align:center;">'
+      + '<div style="font-size:10px;color:#185FA5;">EM MÃOS</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#185FA5;">R$ ' + resumo.saldoEmMaos.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+  document.getElementById('lista-sua-cobranca').innerHTML = html;
+}
+
 async function calcularPendentesRemarcados(caixaId) {
   const { data: caixaInfo } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
   const cobradorId = caixaInfo.cobrador_id;
@@ -9715,6 +9794,12 @@ function diasDoCiclo(inicio, fim) {
 async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   if (window._caixaPrestacaoAtual !== caixaId) window._prestacaoFiltroDia = null;
   window._caixaPrestacaoAtual = caixaId;
+  // Este modal é reaproveitado tanto pelo gestor (Prestação de contas, com
+  // ações de correção) quanto pelo cobrador (Sua Cobrança, só leitura do
+  // próprio ciclo) — as RPCs de correção/edição já são gestor-only no
+  // backend de qualquer forma, mas esconder os botões evita mostrar ação
+  // que só vai dar erro de permissão pro cobrador.
+  const souGestor = perfilAtivo.perfil === 'gestor';
 
   const { data: caixa } = await sb.from('caixa_cobrador').select('*').eq('id', caixaId).single();
   const resumoTotal = await calcularResumoCaixa(caixaId);
@@ -9779,7 +9864,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
       + '<div style="font-size:14px;font-weight:600;color:#3B6D11;">' + fmtR(b.valor_recebido) + '</div>'
       + '<div style="display:flex;gap:4px;justify-content:flex-end;margin-top:2px;">'
       + (b.comprovante_pix ? '<button class="btn" style="font-size:10px;padding:2px 8px;" onclick="abrirAssinado(event,\'comprovantes\',\'' + b.comprovante_pix + '\')">📎 Comprovante</button>' : '')
-      + '<button class="btn" style="font-size:10px;padding:2px 8px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\')">Corrigir</button>'
+      + (souGestor ? '<button class="btn" style="font-size:10px;padding:2px 8px;" onclick="abrirCorrigirBaixa(\'' + b.id + '\',' + b.valor_recebido + ',\'' + (b.tipo_baixa || 'completo') + '\',\'' + (b.forma_pagamento || 'dinheiro') + '\',\'' + escJs(b.clientes?.nome || '') + '\')">Corrigir</button>' : '')
       + '</div>'
       + '</div></div></div>';
   };
@@ -9805,7 +9890,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + (g.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + g.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="text-align:right;">'
         + '<div style="font-size:14px;font-weight:600;color:#854F0B;">' + fmtR(g.valor) + '</div>'
-        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + g.id + '\',\'gasto\',' + g.valor + ',\'' + escJs(g.descricao || '') + '\',' + (g.foto_comprovante ? '\'' + g.foto_comprovante + '\'' : 'null') + ')">Editar</button>'
+        + (souGestor ? '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + g.id + '\',\'gasto\',' + g.valor + ',\'' + escJs(g.descricao || '') + '\',' + (g.foto_comprovante ? '\'' + g.foto_comprovante + '\'' : 'null') + ')">Editar</button>' : '')
         + '</div>'
         + '</div>';
     });
@@ -9823,7 +9908,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
         + (d.foto_comprovante ? '<img data-img-bucket="comprovantes" data-img-src="' + d.foto_comprovante + '" src="" onclick="abrirAssinado(event,\'comprovantes\',this.dataset.imgSrc)" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;margin-right:8px;">' : '')
         + '<div style="text-align:right;">'
         + '<div style="font-size:14px;font-weight:600;color:#185FA5;">' + fmtR(d.valor) + '</div>'
-        + '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + d.id + '\',\'deposito\',' + d.valor + ',\'' + escJs(d.descricao || '') + '\',' + (d.foto_comprovante ? '\'' + d.foto_comprovante + '\'' : 'null') + ')">Editar</button>'
+        + (souGestor ? '<button class="btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="abrirEditarMovimentacao(\'' + d.id + '\',\'deposito\',' + d.valor + ',\'' + escJs(d.descricao || '') + '\',' + (d.foto_comprovante ? '\'' + d.foto_comprovante + '\'' : 'null') + ')">Editar</button>' : '')
         + '</div>'
         + '</div>';
     });
@@ -9899,31 +9984,32 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
 
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">'
     + '<span style="font-size:13px;font-weight:600;color:#854F0B;">Gastos (' + gastos.length + ')</span>'
-    + '<button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirAdicionarMovimentacao(\'gasto\')">+ Adicionar</button>'
+    + (souGestor ? '<button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirAdicionarMovimentacao(\'gasto\')">+ Adicionar</button>' : '')
     + '</div>'
     + '<div style="margin-bottom:1rem;">' + gastosHtml + '</div>'
 
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">'
     + '<span style="font-size:13px;font-weight:600;color:#555;">Depósitos (' + depositos.length + ')</span>'
-    + '<button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirAdicionarMovimentacao(\'deposito\')">+ Adicionar</button>'
+    + (souGestor ? '<button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirAdicionarMovimentacao(\'deposito\')">+ Adicionar</button>' : '')
     + '</div>'
     + '<div style="margin-bottom:1rem;">' + depositosHtml + '</div>'
 
-    + '<div style="background:#f9f9f9;border-radius:10px;padding:1rem;margin-bottom:1rem;">'
-    + '<div style="font-size:13px;font-weight:600;margin-bottom:.75rem;">Conferência de caixa (ciclo completo)</div>'
-    + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">'
-    + '<span style="color:#888;">Saldo esperado em mãos:</span>'
-    + '<strong>' + fmtR(resumoTotal.saldoEmMaos) + '</strong></div>'
-    + '<div class="campo" style="margin-bottom:6px;">'
-    + '<label>Saldo físico entregue pelo cobrador (R$)</label>'
-    + '<input id="prestacao-saldo-entregue" type="number"'
-    + ' style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"'
-    + ' placeholder="0,00" oninput="conferirSaldoPrestacao(' + resumoTotal.saldoEmMaos + ')">'
-    + '</div>'
-    + '<div id="prestacao-diferenca"></div>'
-    + '</div>'
-
-    + '<button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-bottom:8px;" onclick="autorizarCaixa()">✓ Autorizar caixa completa</button>';
+    + (souGestor
+        ? '<div style="background:#f9f9f9;border-radius:10px;padding:1rem;margin-bottom:1rem;">'
+          + '<div style="font-size:13px;font-weight:600;margin-bottom:.75rem;">Conferência de caixa (ciclo completo)</div>'
+          + '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">'
+          + '<span style="color:#888;">Saldo esperado em mãos:</span>'
+          + '<strong>' + fmtR(resumoTotal.saldoEmMaos) + '</strong></div>'
+          + '<div class="campo" style="margin-bottom:6px;">'
+          + '<label>Saldo físico entregue pelo cobrador (R$)</label>'
+          + '<input id="prestacao-saldo-entregue" type="number"'
+          + ' style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"'
+          + ' placeholder="0,00" oninput="conferirSaldoPrestacao(' + resumoTotal.saldoEmMaos + ')">'
+          + '</div>'
+          + '<div id="prestacao-diferenca"></div>'
+          + '</div>'
+          + '<button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;margin-bottom:8px;" onclick="autorizarCaixa()">✓ Autorizar caixa completa</button>'
+        : '');
 
   document.getElementById('modal-prestacao').style.display = 'flex';
   assinarImagens(document.getElementById('prestacao-conteudo'));
