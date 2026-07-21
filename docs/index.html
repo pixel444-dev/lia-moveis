@@ -7754,6 +7754,43 @@ function renderResumoParcelasCard(resumo, tituloTotal) {
     + '</div></div>';
 }
 
+// Uma parcela pode acumular mais de uma baixa PIX (pagamentos parciais
+// sucessivos); cada baixa já guarda seu próprio comprovante em
+// baixas_pendentes (nunca sobrescrito — cada uma é uma linha nova).
+// `parcelas.comprovante_pix` é só um atalho pro comprovante mais recente
+// (preenchido por registrar_recebimento(), migration 0033) e por isso
+// telas que liam só esse campo escondiam os comprovantes anteriores. Junta
+// os dois aqui: usa as baixas embutidas na consulta e garante que o
+// atalho mais recente sempre apareça mesmo se a baixa de origem não vier
+// na lista (RLS de baixas_pendentes só libera as próprias baixas pro
+// cobrador, ex.: cliente repassado a outro cobrador no meio do ciclo).
+function _comprovantesPixDaParcela(parcela) {
+  const lista = (parcela.baixas_pendentes || [])
+    .filter(function(b) { return b.comprovante_pix && b.status !== 'cancelada'; });
+  const jaListados = lista.map(function(b) { return b.comprovante_pix; });
+  if (parcela.comprovante_pix && jaListados.indexOf(parcela.comprovante_pix) === -1) {
+    lista.push({ comprovante_pix: parcela.comprovante_pix, valor_recebido: null, criado_em: parcela.data_pagamento || null });
+  }
+  return lista.sort(function(a, b) { return new Date(a.criado_em || 0) - new Date(b.criado_em || 0); });
+}
+
+// Sufixo pra distinguir comprovantes quando a parcela tem mais de um —
+// vazio se só tem um (mantém o texto igual ao de antes desta mudança).
+function _sufixoComprovantePix(baixa, indice, total) {
+  if (total <= 1) return '';
+  const valor = baixa.valor_recebido != null
+    ? ' — R$ ' + Number(baixa.valor_recebido).toLocaleString('pt-BR', {minimumFractionDigits: 2})
+    : '';
+  return ' ' + (indice + 1) + '/' + total + valor;
+}
+
+function _htmlLinksComprovantesPix(parcela) {
+  const comprovantes = _comprovantesPixDaParcela(parcela);
+  return comprovantes.map(function(b, i) {
+    return '<a href="#" onclick="abrirAssinado(event,\'comprovantes\',\'' + b.comprovante_pix + '\');" style="font-size:12px;color:#185FA5;text-decoration:none;display:flex;align-items:center;gap:4px;margin-top:6px;">📎 Ver comprovante PIX' + _sufixoComprovantePix(b, i, comprovantes.length) + '</a>';
+  }).join('');
+}
+
 // Lista única (paga + em aberto) na ordem recebida — sem separar as pagas no final.
 function renderParcelasMobileUnificado(parcelas, nomeCliente) {
   const hoje = new Date();
@@ -7765,9 +7802,7 @@ function renderParcelasMobileUnificado(parcelas, nomeCliente) {
     const codigoBadge = codigoVenda ? '<div style="font-size:12px;color:#888;margin-bottom:4px;"><span class="codigo-badge">' + escHtml(codigoVenda) + '</span></div>' : '';
 
     if (p.pago) {
-      const comprovante = p.comprovante_pix
-        ? '<a href="#" onclick="abrirAssinado(event,\'comprovantes\',\'' + p.comprovante_pix + '\');" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:6px;">📎 Ver comprovante PIX</a>'
-        : '';
+      const comprovante = _htmlLinksComprovantesPix(p);
       let html = '<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:12px;padding:1rem;margin-bottom:8px;">';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
       html += '<span style="font-size:15px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>';
@@ -7816,7 +7851,7 @@ function renderParcelasMobileUnificado(parcelas, nomeCliente) {
 
 async function verDetalhesParcela(parcelaId) {
   const { data: p, error } = await sb.from('parcelas')
-    .select('*, vendas(codigo, produto), funcionarios(nome), clientes(nome)')
+    .select('*, vendas(codigo, produto), funcionarios(nome), clientes(nome), baixas_pendentes(comprovante_pix, valor_recebido, criado_em, status)')
     .eq('id', parcelaId).single();
 
   if (error || !p) { alert('Erro ao carregar parcela.'); return; }
@@ -7825,16 +7860,23 @@ async function verDetalhesParcela(parcelaId) {
   const pagamento = p.data_pagamento ? new Date(p.data_pagamento).toLocaleDateString('pt-BR') : '—';
   const fmtR = function(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2}); };
 
+  // Uma parcela paga em mais de uma baixa PIX tem um comprovante por baixa
+  // (ver _comprovantesPixDaParcela) — mostra uma prévia pra cada um, não só
+  // a mais recente.
   let comprovanteHtml = '';
-  if (p.comprovante_pix) {
-    const comprovanteUrl = await urlAssinada('comprovantes', p.comprovante_pix);
-    const isPdf = p.comprovante_pix.endsWith('.pdf');
-    comprovanteHtml = '<div style="background:#E6F1FB;border-radius:8px;padding:.75rem;">'
-      + '<div style="font-size:10px;color:#185FA5;margin-bottom:6px;">COMPROVANTE PIX</div>'
-      + (isPdf
-        ? '<a href="' + (comprovanteUrl||p.comprovante_pix) + '" target="_blank" style="color:#185FA5;font-size:13px;">📄 Abrir comprovante PDF</a>'
-        : '<img src="' + (comprovanteUrl||p.comprovante_pix) + '" onclick="window.open(\'' + (comprovanteUrl||p.comprovante_pix) + '\',\'_blank\')" style="width:100%;max-height:250px;object-fit:contain;border-radius:6px;cursor:pointer;border:1px solid #c0dd97;">')
-      + '</div>';
+  const comprovantesPix = _comprovantesPixDaParcela(p);
+  if (comprovantesPix.length) {
+    const boxes = await Promise.all(comprovantesPix.map(async function(b, i) {
+      const comprovanteUrl = await urlAssinada('comprovantes', b.comprovante_pix);
+      const isPdf = b.comprovante_pix.endsWith('.pdf');
+      return '<div style="background:#E6F1FB;border-radius:8px;padding:.75rem;margin-bottom:8px;">'
+        + '<div style="font-size:10px;color:#185FA5;margin-bottom:6px;">COMPROVANTE PIX' + _sufixoComprovantePix(b, i, comprovantesPix.length) + '</div>'
+        + (isPdf
+          ? '<a href="' + (comprovanteUrl||b.comprovante_pix) + '" target="_blank" style="color:#185FA5;font-size:13px;">📄 Abrir comprovante PDF</a>'
+          : '<img src="' + (comprovanteUrl||b.comprovante_pix) + '" onclick="window.open(\'' + (comprovanteUrl||b.comprovante_pix) + '\',\'_blank\')" style="width:100%;max-height:250px;object-fit:contain;border-radius:6px;cursor:pointer;border:1px solid #c0dd97;">')
+        + '</div>';
+    }));
+    comprovanteHtml = boxes.join('');
   }
 
   document.getElementById('detalhe-parcela-conteudo').innerHTML =
@@ -7889,7 +7931,10 @@ function _linhaParcelaDesktop(p, hoje, nomeCliente) {
   const valorPago = p.valor_pago || 0;
   const codigoVenda = p.vendas?.codigo || '';
   if (p.pago) {
-    const comprovante = p.comprovante_pix ? `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${p.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante</a>` : '';
+    const comprovantesPix = _comprovantesPixDaParcela(p);
+    const comprovante = comprovantesPix.map(function(b, i) {
+      return `<br><a href="#" onclick="abrirAssinado(event,'comprovantes','${b.comprovante_pix}');" style="font-size:11px;color:#185FA5;text-decoration:none;">📎 Comprovante${_sufixoComprovantePix(b, i, comprovantesPix.length)}</a>`;
+    }).join('');
     return `<tr style="background:#EAF3DE;">
       <td><span class="codigo-badge">${escHtml(codigoVenda||'—')}</span></td>
       <td>${escHtml(p.vendas?.produto||'—')}</td>
@@ -7997,7 +8042,7 @@ async function salvarCobradorCobranca(clienteId) {
 async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
   let [{ data, error }, infoCliente] = await Promise.all([
     sb.from('parcelas')
-      .select('*, vendas(codigo, produto, entrada), funcionarios(nome)')
+      .select('*, vendas(codigo, produto, entrada), funcionarios(nome), baixas_pendentes(comprovante_pix, valor_recebido, criado_em, status)')
       .eq('venda_id', vendaId)
       .order('numero'),
     _infoClienteCobranca(clienteId),
@@ -8046,7 +8091,7 @@ async function verParcelasVenda(vendaId, clienteId, nomeCliente, codigoVenda) {
 
 async function verParcelasCliente(clienteId, nomeCliente) {
   let [{ data, error }, infoCliente] = await Promise.all([
-    sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').eq('cliente_id', clienteId).order('data_vencimento'),
+    sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome), baixas_pendentes(comprovante_pix, valor_recebido, criado_em, status)').eq('cliente_id', clienteId).order('data_vencimento'),
     _infoClienteCobranca(clienteId),
   ]);
   let avisoOffline = '';
@@ -8637,9 +8682,7 @@ function _htmlParcelasCobrador(dataParcelas, clienteId, nomeCliente) {
   if (pagas.length) {
     html += '<div style="font-size:13px;font-weight:600;color:#888;margin:1rem 0 .5rem;">' + pagas.length + ' parcela(s) paga(s)</div>';
     pagas.forEach(function(p) {
-      const comprovante = p.comprovante_pix
-        ? '<a href="#" onclick="abrirAssinado(event,\'comprovantes\',\'' + p.comprovante_pix + '\');" style="font-size:12px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:6px;">📎 Ver comprovante PIX</a>'
-        : '';
+      const comprovante = _htmlLinksComprovantesPix(p);
       html += '<div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:12px;padding:1rem;margin-bottom:8px;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
         + '<span style="font-size:14px;font-weight:600;">' + p.numero + '/' + p.total_parcelas + '</span>'
@@ -8658,7 +8701,7 @@ function _htmlParcelasCobrador(dataParcelas, clienteId, nomeCliente) {
 
 async function _buscarParcelasClienteCobrador(clienteId) {
   let { data, error } = await sb.from('parcelas')
-    .select('*, vendas(codigo, produto), funcionarios(nome)')
+    .select('*, vendas(codigo, produto), funcionarios(nome), baixas_pendentes(comprovante_pix, valor_recebido, criado_em, status)')
     .eq('cliente_id', clienteId)
     .neq('status', 'devolvida')
     .order('numero');
