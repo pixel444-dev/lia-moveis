@@ -10048,6 +10048,8 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     + '<div style="font-size:18px;font-weight:700;color:#185FA5;">' + fmtR(resumo.saldoEmMaos) + '</div></div>'
     + '</div>'
 
+    + (souGestor ? '<div style="text-align:right;margin-bottom:8px;"><button class="btn" style="font-size:11px;padding:3px 10px;" onclick="abrirAdicionarRecebimento(\'' + caixa.cobrador_id + '\')">+ Adicionar recebimento</button></div>' : '')
+
     + '<div onclick="togglePrestacaoSecao(\'sec-recebidas-especie\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:#EAF3DE;border-radius:8px;padding:.75rem 1rem;margin-bottom:8px;">'
     + '<span style="font-size:13px;font-weight:600;color:#3B6D11;">💵 Recebidos em espécie (' + baixasEspecie.length + ')</span>'
     + '<span id="seta-sec-recebidas-especie" style="font-size:14px;color:#3B6D11;">▸</span></div>'
@@ -10412,6 +10414,229 @@ async function salvarAdicionarMovimentacao() {
   Logger.info('prestacao', 'ADICIONAR_MOVIMENTACAO', 'Gasto/depósito adicionado pelo gestor', { caixaId, tipo, valor });
   removerNovoComprovanteAdicionarMov();
   fecharModal('modal-adicionar-movimentacao');
+  abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
+}
+
+function abrirAdicionarRecebimento(cobradorId) {
+  window._addRecebCobradorId = cobradorId;
+  window._addRecebClienteId = null;
+  window._addRecebClienteNome = null;
+  window._addRecebParcelaId = null;
+  document.getElementById('addreceb-busca-input').value = '';
+  document.getElementById('addreceb-clientes-resultado').innerHTML = '';
+  document.getElementById('addreceb-parcelas-resultado').innerHTML = '';
+  removerComprovanteAdicionarRecebimento();
+  mostrarSecaoAdicionarRecebimento('busca');
+  document.getElementById('modal-adicionar-recebimento').style.display = 'flex';
+}
+
+function mostrarSecaoAdicionarRecebimento(secao) {
+  document.getElementById('addreceb-sec-busca').style.display = secao === 'busca' ? 'block' : 'none';
+  document.getElementById('addreceb-sec-parcelas').style.display = secao === 'parcelas' ? 'block' : 'none';
+  document.getElementById('addreceb-sec-pagamento').style.display = secao === 'pagamento' ? 'block' : 'none';
+}
+
+async function buscarClienteAdicionarRecebimento() {
+  const termo = document.getElementById('addreceb-busca-input').value.trim();
+  const container = document.getElementById('addreceb-clientes-resultado');
+  if (!termo) { container.innerHTML = '<p style="font-size:12px;color:#888;">Digite um nome para buscar.</p>'; return; }
+  container.innerHTML = '<p style="font-size:12px;color:#888;">Buscando...</p>';
+
+  const { data, error } = await sb.from('clientes')
+    .select('id, nome, telefone')
+    .eq('cobrador_id', window._addRecebCobradorId)
+    .ilike('nome', '%' + termo + '%')
+    .order('nome')
+    .limit(20);
+
+  if (error) {
+    Logger.error('prestacao', 'BUSCAR_CLIENTE_RECEBIMENTO', 'Erro ao buscar cliente', { supabase_code: error.code });
+    container.innerHTML = '<p style="font-size:12px;color:#A32D2D;">Erro ao buscar.</p>';
+    return;
+  }
+
+  if (!data || !data.length) {
+    container.innerHTML = '<p style="font-size:12px;color:#888;">Nenhum cliente encontrado para este cobrador.</p>';
+    return;
+  }
+
+  container.innerHTML = data.map(function(c) {
+    const nomeEsc = escJs(c.nome || '');
+    return '<div onclick="selecionarClienteAdicionarRecebimento(\'' + c.id + '\',\'' + nomeEsc + '\')" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;cursor:pointer;">'
+      + '<div style="font-size:13px;font-weight:500;">' + escHtml(c.nome || '') + '</div>'
+      + (c.telefone ? '<div style="font-size:11px;color:#888;">' + escHtml(c.telefone) + '</div>' : '')
+      + '</div>';
+  }).join('');
+}
+
+async function selecionarClienteAdicionarRecebimento(clienteId, nomeCliente) {
+  window._addRecebClienteId = clienteId;
+  window._addRecebClienteNome = nomeCliente;
+  document.getElementById('addreceb-cliente-nome').textContent = nomeCliente;
+
+  const container = document.getElementById('addreceb-parcelas-resultado');
+  container.innerHTML = '<p style="font-size:12px;color:#888;">Carregando parcelas...</p>';
+  mostrarSecaoAdicionarRecebimento('parcelas');
+
+  const { data, error } = await sb.from('parcelas')
+    .select('id, numero, total_parcelas, valor, valor_pago, data_vencimento, vendas(codigo)')
+    .eq('cliente_id', clienteId).eq('pago', false).neq('status', 'devolvida')
+    .order('numero');
+
+  if (error) {
+    Logger.error('prestacao', 'BUSCAR_PARCELAS_RECEBIMENTO', 'Erro ao buscar parcelas', { supabase_code: error.code });
+    container.innerHTML = '<p style="font-size:12px;color:#A32D2D;">Erro ao carregar parcelas.</p>';
+    return;
+  }
+
+  if (!data || !data.length) {
+    container.innerHTML = '<p style="font-size:12px;color:#888;">Nenhuma parcela em aberto para este cliente.</p>';
+    return;
+  }
+
+  container.innerHTML = data.map(function(p) {
+    const saldo = Number(p.valor) - Number(p.valor_pago || 0);
+    return '<div onclick="selecionarParcelaAdicionarRecebimento(\'' + p.id + '\',' + p.numero + ',' + p.total_parcelas + ',' + saldo + ')" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
+      + '<div>'
+      + '<div style="font-size:13px;font-weight:500;">Venda ' + (p.vendas?.codigo || '—') + ' · Parcela ' + p.numero + '/' + p.total_parcelas + '</div>'
+      + '<div style="font-size:11px;color:#888;">Vence ' + new Date(p.data_vencimento + 'T12:00:00').toLocaleDateString('pt-BR') + '</div>'
+      + '</div>'
+      + '<div style="font-size:14px;font-weight:600;color:#185FA5;">R$ ' + saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function voltarBuscaAdicionarRecebimento() {
+  mostrarSecaoAdicionarRecebimento('busca');
+}
+
+function selecionarParcelaAdicionarRecebimento(parcelaId, numero, total, saldo) {
+  window._addRecebParcelaId = parcelaId;
+  document.getElementById('addreceb-valor-total').value = saldo;
+  document.getElementById('addreceb-parcela-info').textContent = window._addRecebClienteNome + ' — Parcela ' + numero + '/' + total;
+  document.getElementById('addreceb-valor-display').textContent = 'R$ ' + saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+  document.getElementById('addreceb-tipo').value = 'completo';
+  document.getElementById('addreceb-valor-parcial').value = '';
+  document.getElementById('campo-addreceb-valor-parcial').style.display = 'none';
+  document.getElementById('addreceb-msg-saldo').innerHTML = '';
+  selecionarFormaAdicionarRecebimento('dinheiro');
+  removerComprovanteAdicionarRecebimento();
+  mostrarSecaoAdicionarRecebimento('pagamento');
+}
+
+function voltarParcelasAdicionarRecebimento() {
+  mostrarSecaoAdicionarRecebimento('parcelas');
+}
+
+function atualizarTipoAdicionarRecebimento() {
+  const tipo = document.getElementById('addreceb-tipo').value;
+  document.getElementById('campo-addreceb-valor-parcial').style.display = tipo === 'parcial' ? 'block' : 'none';
+  document.getElementById('addreceb-msg-saldo').innerHTML = '';
+}
+
+function atualizarSaldoAdicionarRecebimento() {
+  const total = parseFloat(document.getElementById('addreceb-valor-total').value) || 0;
+  const recebido = parseFloat(document.getElementById('addreceb-valor-parcial').value) || 0;
+  const msg = document.getElementById('addreceb-msg-saldo');
+  if (recebido <= 0) { msg.innerHTML = ''; return; }
+  if (recebido >= total) {
+    msg.innerHTML = '<span style="color:#A32D2D;">Valor maior ou igual ao total — use pagamento completo.</span>';
+    return;
+  }
+  const saldo = total - recebido;
+  msg.innerHTML = 'Saldo restante: <strong>R$ ' + saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2}) + '</strong>';
+}
+
+function selecionarFormaAdicionarRecebimento(forma) {
+  document.getElementById('addreceb-forma').value = forma;
+  const btnDinheiro = document.getElementById('btn-addreceb-dinheiro');
+  const btnPix = document.getElementById('btn-addreceb-pix');
+  const campoComprovante = document.getElementById('addreceb-comprovante-campo');
+
+  if (forma === 'dinheiro') {
+    btnDinheiro.style.borderColor = '#185FA5';
+    btnDinheiro.style.background = '#E6F1FB';
+    btnDinheiro.style.color = '#185FA5';
+    btnPix.style.borderColor = '#ddd';
+    btnPix.style.background = '#fff';
+    btnPix.style.color = '#888';
+    campoComprovante.style.display = 'none';
+  } else {
+    btnPix.style.borderColor = '#185FA5';
+    btnPix.style.background = '#E6F1FB';
+    btnPix.style.color = '#185FA5';
+    btnDinheiro.style.borderColor = '#ddd';
+    btnDinheiro.style.background = '#fff';
+    btnDinheiro.style.color = '#888';
+    campoComprovante.style.display = 'block';
+  }
+}
+
+async function processarComprovanteAdicionarRecebimento(input) {
+  if (!input.files || !input.files[0]) return;
+  input.disabled = true;
+  try {
+    const blob = await comprimirArquivo(input.files[0]);
+    window._addRecebComprovante = blob.dados;
+    window._addRecebComprovanteExt = blob.ext;
+    document.getElementById('addreceb-comprovante-preview').style.display = 'block';
+    document.getElementById('addreceb-comprovante-nome').textContent = blob.ext === 'pdf' ? 'PDF anexado' : 'Comprovante anexado';
+  } catch (e) {
+    Logger.warn('prestacao', 'PROCESSAR_COMPROVANTE_ADICIONAR_RECEB', 'Erro ao processar comprovante', { msg: e.message });
+    alert('Erro ao processar o comprovante. Tente novamente ou escolha um arquivo menor.');
+  } finally {
+    input.disabled = false;
+  }
+}
+
+function removerComprovanteAdicionarRecebimento() {
+  window._addRecebComprovante = null;
+  window._addRecebComprovanteExt = null;
+  const preview = document.getElementById('addreceb-comprovante-preview');
+  if (preview) preview.style.display = 'none';
+  const camera = document.getElementById('addreceb-comprovante-camera');
+  const arquivo = document.getElementById('addreceb-comprovante-arquivo');
+  if (camera) camera.value = '';
+  if (arquivo) arquivo.value = '';
+}
+
+async function salvarAdicionarRecebimento() {
+  const caixaId = window._caixaPrestacaoAtual;
+  const parcelaId = window._addRecebParcelaId;
+  const tipo = document.getElementById('addreceb-tipo').value;
+  const valorTotal = parseFloat(document.getElementById('addreceb-valor-total').value) || 0;
+  const valorRecebido = tipo === 'completo' ? valorTotal : parseFloat(document.getElementById('addreceb-valor-parcial').value) || 0;
+  const forma = document.getElementById('addreceb-forma').value;
+
+  if (tipo === 'parcial' && valorRecebido <= 0) { alert('Digite o valor recebido!'); return; }
+  if (tipo === 'parcial' && valorRecebido >= valorTotal) { alert('Para pagamento total use "Pagamento completo"!'); return; }
+  if (forma === 'pix' && !window._addRecebComprovante) { alert('Anexe o comprovante do PIX antes de confirmar!'); return; }
+
+  let comprovanteUrl = null;
+  if (window._addRecebComprovante) {
+    const nomeArquivo = 'gestor_recebimento_' + crypto.randomUUID() + '.' + window._addRecebComprovanteExt;
+    comprovanteUrl = await uploadArquivoComprovante('comprovantes', nomeArquivo, window._addRecebComprovante, window._addRecebComprovanteExt);
+    if (!comprovanteUrl) { alert('Erro ao enviar o comprovante. Tente novamente.'); return; }
+  }
+
+  const { error } = await sb.rpc('gestor_registrar_recebimento', {
+    p_caixa_id: caixaId,
+    p_parcela_id: parcelaId,
+    p_tipo: tipo,
+    p_valor_recebido: valorRecebido,
+    p_forma: forma,
+    p_comprovante_url: comprovanteUrl
+  });
+
+  if (error) {
+    Logger.error('prestacao', 'ADICIONAR_RECEBIMENTO', 'Erro ao adicionar recebimento', { supabase_code: error.code, error_message: error.message });
+    alert(error.message || 'Erro ao salvar!');
+    return;
+  }
+
+  Logger.info('prestacao', 'ADICIONAR_RECEBIMENTO', 'Recebimento adicionado pelo gestor', { caixaId, parcelaId, tipo, valorRecebido, forma });
+  removerComprovanteAdicionarRecebimento();
+  fecharModal('modal-adicionar-recebimento');
   abrirDetalhePrestacao(window._caixaPrestacaoAtual, document.getElementById('prestacao-titulo').textContent);
 }
 
@@ -14726,6 +14951,114 @@ async function gerarProximoMes() {
     </button>
     <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
       Lançado direto na caixa deste cobrador — o dinheiro em mãos é recalculado automaticamente.
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADICIONAR RECEBIMENTO (gestor, Prestação de contas) -->
+<div class="modal-bg" id="modal-adicionar-recebimento">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <div><strong>Adicionar recebimento</strong></div>
+      <button onclick="fecharModal('modal-adicionar-recebimento')">×</button>
+    </div>
+
+    <div id="addreceb-sec-busca">
+      <div class="campo">
+        <label>Buscar cliente deste cobrador</label>
+        <div style="display:flex;gap:8px;">
+          <input id="addreceb-busca-input" type="text"
+            style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+            placeholder="Nome do cliente" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClienteAdicionarRecebimento();}">
+          <button class="btn primario" style="padding:0 16px;" onclick="buscarClienteAdicionarRecebimento()">🔍</button>
+        </div>
+      </div>
+      <div id="addreceb-clientes-resultado"></div>
+    </div>
+
+    <div id="addreceb-sec-parcelas" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <strong id="addreceb-cliente-nome"></strong>
+        <a href="#" onclick="event.preventDefault();voltarBuscaAdicionarRecebimento()" style="font-size:12px;color:#185FA5;">‹ Trocar cliente</a>
+      </div>
+      <div style="font-size:12px;color:#888;margin-bottom:8px;">Selecione a parcela em aberto:</div>
+      <div id="addreceb-parcelas-resultado"></div>
+    </div>
+
+    <div id="addreceb-sec-pagamento" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <span style="font-size:12px;color:#888;" id="addreceb-parcela-info"></span>
+        <a href="#" onclick="event.preventDefault();voltarParcelasAdicionarRecebimento()" style="font-size:12px;color:#185FA5;">‹ Trocar parcela</a>
+      </div>
+      <input type="hidden" id="addreceb-valor-total">
+      <input type="hidden" id="addreceb-forma" value="dinheiro">
+
+      <div style="background:#E6F1FB;border-radius:10px;padding:1rem;margin-bottom:1rem;text-align:center;">
+        <div style="font-size:12px;color:#185FA5;margin-bottom:4px;">VALOR DA PARCELA</div>
+        <div style="font-size:28px;font-weight:700;color:#0C447C;" id="addreceb-valor-display">R$ 0,00</div>
+      </div>
+
+      <div class="campo">
+        <label>Tipo de recebimento</label>
+        <select id="addreceb-tipo" onchange="atualizarTipoAdicionarRecebimento()"
+          style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;">
+          <option value="completo">Pagamento completo</option>
+          <option value="parcial">Pagamento parcial</option>
+        </select>
+      </div>
+
+      <div id="campo-addreceb-valor-parcial" style="display:none;">
+        <div class="campo">
+          <label>Valor recebido (R$)</label>
+          <input id="addreceb-valor-parcial" type="number"
+            style="width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
+            placeholder="0,00" oninput="atualizarSaldoAdicionarRecebimento()">
+          <div id="addreceb-msg-saldo" style="font-size:12px;margin-top:4px;color:#854F0B;"></div>
+        </div>
+      </div>
+
+      <div class="campo">
+        <label>Forma de pagamento</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+          <button type="button" id="btn-addreceb-dinheiro" onclick="selecionarFormaAdicionarRecebimento('dinheiro')"
+            style="padding:14px;border-radius:10px;border:2px solid #185FA5;background:#E6F1FB;color:#185FA5;font-size:14px;font-weight:600;cursor:pointer;">
+            💵 Dinheiro
+          </button>
+          <button type="button" id="btn-addreceb-pix" onclick="selecionarFormaAdicionarRecebimento('pix')"
+            style="padding:14px;border-radius:10px;border:2px solid #ddd;background:#fff;color:#888;font-size:14px;font-weight:600;cursor:pointer;">
+            📱 PIX
+          </button>
+        </div>
+      </div>
+
+      <div id="addreceb-comprovante-campo" style="display:none;margin-bottom:1rem;">
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:6px;">Comprovante do PIX *</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+          <button type="button" onclick="document.getElementById('addreceb-comprovante-camera').click()"
+            style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <span style="font-size:24px;">📷</span> Tirar foto
+          </button>
+          <button type="button" onclick="document.getElementById('addreceb-comprovante-arquivo').click()"
+            style="padding:14px;border-radius:10px;border:2px dashed #185FA5;background:#E6F1FB;color:#185FA5;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <span style="font-size:24px;">📎</span> Escolher arquivo
+          </button>
+        </div>
+        <input type="file" id="addreceb-comprovante-camera" accept="image/*" capture="environment" style="display:none;" onchange="processarComprovanteAdicionarRecebimento(this)">
+        <input type="file" id="addreceb-comprovante-arquivo" accept="image/png,image/jpeg,image/jpg,application/pdf" style="display:none;" onchange="processarComprovanteAdicionarRecebimento(this)">
+        <div id="addreceb-comprovante-preview" style="display:none;">
+          <div style="background:#EAF3DE;border:1px solid #c0dd97;border-radius:8px;padding:10px;display:flex;align-items:center;justify-content:space-between;">
+            <span id="addreceb-comprovante-nome" style="font-size:12px;color:#3B6D11;font-weight:500;">Comprovante anexado</span>
+            <button type="button" onclick="removerComprovanteAdicionarRecebimento()" style="background:none;border:none;color:#A32D2D;cursor:pointer;font-size:18px;">×</button>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn primario" style="width:100%;padding:14px;font-size:15px;border-radius:10px;" onclick="salvarAdicionarRecebimento()">
+        ✓ Confirmar recebimento
+      </button>
+      <div style="font-size:11px;color:#888;text-align:center;margin-top:8px;">
+        Lançado direto na caixa deste cobrador — o dinheiro em mãos é recalculado automaticamente.
+      </div>
     </div>
   </div>
 </div>
