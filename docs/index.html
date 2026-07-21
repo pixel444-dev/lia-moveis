@@ -9738,13 +9738,26 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
   const recebidoPixF = baixas.filter(function(b) { return b.forma_pagamento === 'pix'; }).reduce(function(a, b) { return a + Number(b.valor_recebido); }, 0);
   const totalGastosF = gastos.reduce(function(a, g) { return a + Number(g.valor); }, 0);
   const totalDepositosF = depositos.reduce(function(a, d) { return a + Number(d.valor); }, 0);
+
+  // "Dinheiro em mãos" é saldo acumulado (quanto o cobrador está segurando
+  // fisicamente), não uma métrica isolada do dia — dia 21 sem nenhum
+  // recebimento novo continua carregando o saldo negativo/positivo que
+  // sobrou do dia 20. Por isso usa o acumulado do início do ciclo até o
+  // fim do dia filtrado (ou o ciclo inteiro, se "Cobrança total"), e não o
+  // subconjunto só daquele dia usado nos outros boxes/listas.
+  const baixasAteDia = filtroDia ? (baixasTodas || []).filter(function(b) { return diaLocal(b.criado_em) <= filtroDia; }) : (baixasTodas || []);
+  const movsAteDia = filtroDia ? (movsTodas || []).filter(function(m) { return diaLocal(m.criado_em) <= filtroDia; }) : (movsTodas || []);
+  const recebidoDinheiroAteDia = baixasAteDia.filter(function(b) { return b.forma_pagamento === 'dinheiro'; }).reduce(function(a, b) { return a + Number(b.valor_recebido); }, 0);
+  const totalGastosAteDia = movsAteDia.filter(function(m) { return m.tipo === 'gasto'; }).reduce(function(a, m) { return a + Number(m.valor); }, 0);
+  const totalDepositosAteDia = movsAteDia.filter(function(m) { return m.tipo === 'deposito'; }).reduce(function(a, m) { return a + Number(m.valor); }, 0);
+
   const resumo = {
     totalRecebido: recebidoDinheiroF + recebidoPixF,
     recebidoDinheiro: recebidoDinheiroF,
     recebidoPix: recebidoPixF,
     totalGastos: totalGastosF,
     totalDepositos: totalDepositosF,
-    saldoEmMaos: recebidoDinheiroF - totalGastosF - totalDepositosF
+    saldoEmMaos: recebidoDinheiroAteDia - totalGastosAteDia - totalDepositosAteDia
   };
 
   const { pendentes, remarcados, mapaNome } = await calcularPendentesRemarcados(caixaId);
@@ -9842,7 +9855,7 @@ async function abrirDetalhePrestacao(caixaId, nomeCobrador) {
     + '<div style="font-size:11px;color:#555;">DEPÓSITOS</div>'
     + '<div style="font-size:16px;font-weight:700;color:#555;">' + fmtR(resumo.totalDepositos) + '</div></div>'
     + '<div style="background:#E6F1FB;border-radius:10px;padding:1rem;text-align:center;">'
-    + '<div style="font-size:11px;color:#185FA5;">SALDO EM MÃOS</div>'
+    + '<div style="font-size:11px;color:#185FA5;">SALDO EM MÃOS' + (filtroDia ? ' (até este dia)' : '') + '</div>'
     + '<div style="font-size:18px;font-weight:700;color:#185FA5;">' + fmtR(resumo.saldoEmMaos) + '</div></div>'
     + '</div>'
 
