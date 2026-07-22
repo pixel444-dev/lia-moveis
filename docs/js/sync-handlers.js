@@ -334,18 +334,187 @@
     return String(valor || '').toLowerCase().indexOf(termo) !== -1;
   }
 
-  // Busca de clientes offline (tela Clientes): filtra o cache pelo termo
-  // em nome/código/cpf/telefone/cidade. Devolve null quando não há cache
-  // utilizável — o chamador mostra o erro normal nesse caso.
-  async function buscarClientesNoCache(termo) {
+  // ─── Dados auxiliares para a busca por tipo de filtro, offline ───
+
+  // Município → UF, pra resolver o filtro "estado" sem rede: mesma fonte
+  // estática do autocomplete de cidade em index.html (docs/data/
+  // municipios-br.json, dataset do IBGE — nunca vem do Supabase, então já
+  // funciona offline). Carregado e indexado por município uma única vez,
+  // sob demanda.
+  var _municipiosPorIdPromise = null;
+  function _municipiosPorId() {
+    if (!_municipiosPorIdPromise) {
+      _municipiosPorIdPromise = fetch('data/municipios-br.json')
+        .then(function (resp) { return resp.ok ? resp.json() : []; })
+        .catch(function () { return []; })
+        .then(function (lista) {
+          var mapa = new Map();
+          (lista || []).forEach(function (m) { mapa.set(String(m.codigo_ibge), m); });
+          return mapa;
+        });
+    }
+    return _municipiosPorIdPromise;
+  }
+  // Aquece cedo (mesma ideia do _carregarMunicipiosBundle em index.html):
+  // pelo tempo em que o cobrador realmente usar o filtro "Estado" offline,
+  // o arquivo (312KB, ~5600 municípios) já deve estar buscado e indexado —
+  // sem isso, o custo inteiro cairia na primeira busca por estado. Só no
+  // app nativo — na versão web (gestor) ninguém usa a busca offline, e
+  // index.html já busca o mesmo arquivo pra outra finalidade (autocomplete
+  // de cidade) quando for o caso.
+  if (_nativo()) _municipiosPorId();
+
+  var UF_NOME = {
+    AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará',
+    DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão',
+    MT: 'Mato Grosso', MS: 'Mato Grosso do Sul', MG: 'Minas Gerais', PA: 'Pará',
+    PB: 'Paraíba', PR: 'Paraná', PE: 'Pernambuco', PI: 'Piauí', RJ: 'Rio de Janeiro',
+    RN: 'Rio Grande do Norte', RS: 'Rio Grande do Sul', RO: 'Rondônia', RR: 'Roraima',
+    SC: 'Santa Catarina', SP: 'São Paulo', SE: 'Sergipe', TO: 'Tocantins'
+  };
+
+  function _nsRotas() {
+    var id = (typeof funcionarioLogado !== 'undefined' && funcionarioLogado && funcionarioLogado.id) || 'anon';
+    return 'rotas_cobrador:' + id;
+  }
+
+  async function salvarRotasNoCache(lista) {
+    if (!_nativo() || !window.DbLocal || !Array.isArray(lista) || !lista.length) return;
+    try { await DbLocal.salvarNoCache(_nsRotas(), lista); } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function rotasDoCache() {
+    if (!_nativo() || !window.DbLocal) return null;
+    var lista = await DbLocal.lerDoCache(_nsRotas());
+    return lista.length ? lista : null;
+  }
+
+  // município_id → nomes das rotas que o cobrem (uma rota cobre vários
+  // municípios; um município, na prática, só cai numa rota ativa por vez,
+  // mas a lista suporta o caso raro de sobreposição sem perder nome nenhum).
+  function _municipiosPorRota(rotas) {
+    var mapa = new Map();
+    (rotas || []).forEach(function (r) {
+      (r.rotas_municipios || []).forEach(function (rm) {
+        var chave = String(rm.municipio_id);
+        if (!mapa.has(chave)) mapa.set(chave, []);
+        mapa.get(chave).push(r.nome);
+      });
+    });
+    return mapa;
+  }
+
+  async function salvarVendedoresNoCache(lista) {
+    if (!_nativo() || !window.DbLocal || !Array.isArray(lista) || !lista.length) return;
+    try { await DbLocal.salvarNoCache('funcionarios:vendedores', lista); } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  async function vendedoresDoCache() {
+    if (!_nativo() || !window.DbLocal) return null;
+    var lista = await DbLocal.lerDoCache('funcionarios:vendedores');
+    if (!lista.length) return null;
+    lista.sort(function (a, b) { return String(a.nome || '').localeCompare(String(b.nome || '')); });
+    return lista;
+  }
+
+  // Resumo de vendas (código + vendedor por cliente), num namespace só
+  // dele — NÃO reaproveita o cache de parcelas porque outras telas
+  // regravam parcela com um select mais enxuto (sem vendedor_id), e o
+  // merge raso de _salvarMesclandoNoCache (Object.assign) substitui o
+  // objeto `vendas` inteiro, apagando o vendedor_id que o prefetch tinha
+  // salvo ali. Como só o prefetch escreve aqui, o dado nunca é degradado
+  // por uma consulta mais enxuta de outra tela.
+  function _nsVendasResumo() {
+    var id = (typeof funcionarioLogado !== 'undefined' && funcionarioLogado && funcionarioLogado.id) || 'anon';
+    return 'vendas_resumo_cobrador:' + id;
+  }
+
+  async function salvarVendasResumoNoCache(lista) {
+    if (!_nativo() || !window.DbLocal || !Array.isArray(lista) || !lista.length) return;
+    try { await DbLocal.salvarNoCache(_nsVendasResumo(), lista); } catch (e) { /* cache é melhor esforço */ }
+  }
+
+  // Código da venda e vendedor não ficam no registro do cliente — vêm do
+  // resumo de vendas acima. Uma passada só pelo cache já monta os dois
+  // índices de uma vez.
+  async function _vendasPorClienteDoCache() {
+    var vendas = window.DbLocal ? await DbLocal.lerDoCache(_nsVendasResumo()) : [];
+    var codigos = new Map();    // cliente_id → Set(código da venda, minúsculo)
+    var vendedores = new Map(); // cliente_id → Set(vendedor_id)
+    (vendas || []).forEach(function (v) {
+      if (!v || v.cliente_id == null) return;
+      var cid = String(v.cliente_id);
+      if (v.codigo) {
+        if (!codigos.has(cid)) codigos.set(cid, new Set());
+        codigos.get(cid).add(String(v.codigo).toLowerCase());
+      }
+      if (v.vendedor_id) {
+        if (!vendedores.has(cid)) vendedores.set(cid, new Set());
+        vendedores.get(cid).add(String(v.vendedor_id));
+      }
+    });
+    return { codigos: codigos, vendedores: vendedores };
+  }
+
+  // Busca de clientes offline (tela Clientes): mesmo contrato da consulta
+  // online (buscar_clientes) — termo + tipo de filtro escolhido no select.
+  // Devolve null quando não há cache utilizável — o chamador mostra o erro
+  // normal nesse caso.
+  async function buscarClientesNoCache(termo, tipo) {
     if (!_nativo() || !window.DbLocal) return null;
     var todos = await _clientesDoCacheUnificado();
     if (!todos.length) return null;
-    var t = String(termo || '').trim().toLowerCase();
-    var filtrados = !t ? todos : todos.filter(function (c) {
-      return _contem(c.nome, t) || _contem(c.codigo, t) || _contem(c.cpf, t)
-        || _contem(c.telefone, t) || _contem(c.cidade, t);
-    });
+    var termoOriginal = String(termo || '').trim();
+    var t = termoOriginal.toLowerCase();
+    var filtro = tipo || 'tudo';
+
+    var filtrados;
+    if (!t) {
+      filtrados = todos;
+    } else if (filtro === 'nome') {
+      filtrados = todos.filter(function (c) { return _contem(c.nome, t); });
+    } else if (filtro === 'cpf') {
+      filtrados = todos.filter(function (c) { return _contem(c.cpf, t); });
+    } else if (filtro === 'celular') {
+      filtrados = todos.filter(function (c) { return _contem(c.telefone, t); });
+    } else if (filtro === 'endereco') {
+      filtrados = todos.filter(function (c) { return _contem(c.endereco, t); });
+    } else if (filtro === 'municipio') {
+      filtrados = todos.filter(function (c) { return _contem(c.cidade, t); });
+    } else if (filtro === 'codigo') {
+      filtrados = todos.filter(function (c) { return _contem(c.codigo, t); });
+    } else if (filtro === 'estado') {
+      var municipios = await _municipiosPorId();
+      filtrados = todos.filter(function (c) {
+        var m = c.municipio_id != null ? municipios.get(String(c.municipio_id)) : null;
+        var uf = m ? String(m.uf || '') : '';
+        return _contem(uf, t) || _contem(UF_NOME[uf.toUpperCase()], t);
+      });
+    } else if (filtro === 'rota') {
+      var porMunicipio = _municipiosPorRota(await rotasDoCache());
+      filtrados = todos.filter(function (c) {
+        var nomes = c.municipio_id != null ? porMunicipio.get(String(c.municipio_id)) : null;
+        return !!nomes && nomes.some(function (nome) { return _contem(nome, t); });
+      });
+    } else if (filtro === 'codigo_venda') {
+      var porCodigo = (await _vendasPorClienteDoCache()).codigos;
+      filtrados = todos.filter(function (c) {
+        var codigos = porCodigo.get(String(c.id));
+        return !!codigos && Array.from(codigos).some(function (cod) { return cod.indexOf(t) !== -1; });
+      });
+    } else if (filtro === 'vendedor') {
+      var porVendedor = (await _vendasPorClienteDoCache()).vendedores;
+      filtrados = todos.filter(function (c) {
+        var vends = porVendedor.get(String(c.id));
+        return !!vends && vends.has(termoOriginal);
+      });
+    } else {
+      filtrados = todos.filter(function (c) {
+        return _contem(c.nome, t) || _contem(c.codigo, t) || _contem(c.cpf, t)
+          || _contem(c.telefone, t) || _contem(c.cidade, t) || _contem(c.endereco, t);
+      });
+    }
+
     filtrados.sort(function (a, b) { return String(a.nome || '').localeCompare(String(b.nome || '')); });
     return filtrados;
   }
@@ -1138,6 +1307,11 @@
     sessaoOfflineFallback: sessaoOfflineFallback,
     salvarCobradoresNoCache: salvarCobradoresNoCache,
     cobradoresDoCache: cobradoresDoCache,
+    salvarVendedoresNoCache: salvarVendedoresNoCache,
+    vendedoresDoCache: vendedoresDoCache,
+    salvarRotasNoCache: salvarRotasNoCache,
+    rotasDoCache: rotasDoCache,
+    salvarVendasResumoNoCache: salvarVendasResumoNoCache,
     salvarCarteiraNoCache: salvarCarteiraNoCache,
     carteiraDoCache: carteiraDoCache,
     salvarParcelasNoCache: salvarParcelasNoCache,
