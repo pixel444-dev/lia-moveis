@@ -10446,32 +10446,58 @@ function mostrarSecaoAdicionarRecebimento(secao) {
 async function buscarClienteAdicionarRecebimento() {
   const termo = document.getElementById('addreceb-busca-input').value.trim();
   const container = document.getElementById('addreceb-clientes-resultado');
-  if (!termo) { container.innerHTML = '<p style="font-size:12px;color:#888;">Digite um nome para buscar.</p>'; return; }
+  if (!termo) { container.innerHTML = '<p style="font-size:12px;color:#888;">Digite um nome, código do cliente ou código da venda.</p>'; return; }
   container.innerHTML = '<p style="font-size:12px;color:#888;">Buscando...</p>';
 
-  const { data, error } = await sb.from('clientes')
-    .select('id, nome, telefone')
-    .eq('cobrador_id', window._addRecebCobradorId)
-    .ilike('nome', '%' + termo + '%')
-    .order('nome')
-    .limit(20);
+  const cobradorId = window._addRecebCobradorId;
 
-  if (error) {
-    Logger.error('prestacao', 'BUSCAR_CLIENTE_RECEBIMENTO', 'Erro ao buscar cliente', { supabase_code: error.code });
+  // Busca por nome/código do cliente e por código da venda em paralelo —
+  // vendas não guarda cobrador_id direto, então resolve os cliente_id da
+  // venda encontrada e filtra pelo cobrador desta caixa antes de mesclar
+  // com o resultado direto (mesmo cuidado de nunca vazar cliente de outro
+  // cobrador que já existe na busca por nome).
+  const [porTexto, porVenda] = await Promise.all([
+    sb.from('clientes')
+      .select('id, nome, telefone, codigo')
+      .eq('cobrador_id', cobradorId)
+      .or('nome.ilike.%' + termo + '%,codigo.ilike.%' + termo + '%')
+      .limit(20),
+    sb.from('vendas').select('cliente_id').ilike('codigo', '%' + termo + '%').limit(20)
+  ]);
+
+  if (porTexto.error) {
+    Logger.error('prestacao', 'BUSCAR_CLIENTE_RECEBIMENTO', 'Erro ao buscar cliente', { supabase_code: porTexto.error.code });
     container.innerHTML = '<p style="font-size:12px;color:#A32D2D;">Erro ao buscar.</p>';
     return;
   }
 
-  if (!data || !data.length) {
+  const mapa = new Map();
+  (porTexto.data || []).forEach(function(c) { mapa.set(c.id, c); });
+
+  const idsVenda = Array.from(new Set((porVenda.data || []).map(function(v) { return v.cliente_id; }).filter(Boolean)));
+  if (idsVenda.length) {
+    const { data: clientesDaVenda, error: erroClientesVenda } = await sb.from('clientes')
+      .select('id, nome, telefone, codigo')
+      .eq('cobrador_id', cobradorId)
+      .in('id', idsVenda);
+    if (!erroClientesVenda) (clientesDaVenda || []).forEach(function(c) { mapa.set(c.id, c); });
+  }
+
+  const data = Array.from(mapa.values());
+
+  if (!data.length) {
     container.innerHTML = '<p style="font-size:12px;color:#888;">Nenhum cliente encontrado para este cobrador.</p>';
     return;
   }
 
   container.innerHTML = data.map(function(c) {
     const nomeEsc = escJs(c.nome || '');
-    return '<div onclick="selecionarClienteAdicionarRecebimento(\'' + c.id + '\',\'' + nomeEsc + '\')" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;cursor:pointer;">'
+    return '<div onclick="selecionarClienteAdicionarRecebimento(\'' + c.id + '\',\'' + nomeEsc + '\')" style="background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+      + '<div>'
       + '<div style="font-size:13px;font-weight:500;">' + escHtml(c.nome || '') + '</div>'
       + (c.telefone ? '<div style="font-size:11px;color:#888;">' + escHtml(c.telefone) + '</div>' : '')
+      + '</div>'
+      + (c.codigo ? '<span class="codigo-badge">' + escHtml(c.codigo) + '</span>' : '')
       + '</div>';
   }).join('');
 }
@@ -14976,7 +15002,7 @@ async function gerarProximoMes() {
         <div style="display:flex;gap:8px;">
           <input id="addreceb-busca-input" type="text"
             style="flex:1;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:16px;"
-            placeholder="Nome do cliente" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClienteAdicionarRecebimento();}">
+            placeholder="Nome, código do cliente ou código da venda" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClienteAdicionarRecebimento();}">
           <button class="btn primario" style="padding:0 16px;" onclick="buscarClienteAdicionarRecebimento()">🔍</button>
         </div>
       </div>
