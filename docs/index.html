@@ -1605,31 +1605,69 @@ const SUPABASE_URL = 'https://nfqvcihoxntaklzccjrv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tI13EmDQ_4DrTcWHinqdsQ_5b_xGelt';
 
 // Fetch com consciência de rede, usado por TODAS as chamadas do supabase-js:
-// 1. Se o sistema já sabe que está offline (NetStatus), rejeita NA HORA com o
-//    mesmo formato de erro de um fetch real falhando ("Failed to fetch") — as
-//    telas caem no cache local imediatamente, em vez de cada consulta esperar
-//    o timeout do sistema operacional (no campo, com o rádio ligado mas sem
-//    dados, isso chegava a dezenas de segundos POR CONSULTA — era a causa da
-//    lentidão do app do cobrador offline).
-// 2. Online, limita leituras (GET/HEAD) a 15s: sinal "conectado mas sem
-//    internet" (torre sem dados, portal cativo) deixa o fetch pendurado sem
-//    nunca virar erro. Gravações (POST/PATCH/...) ficam SEM timeout de
-//    propósito — abortar um upload de foto ou uma RPC de venda no meio pode
-//    duplicar a operação no retry.
+// 1. Se o sistema já sabe que está efetivamente offline (NetStatus) — seja
+//    por falta de rede de fato, seja pelo DISJUNTOR aberto (zona morta
+//    detectada por falhas recentes, ver net-status.js) — rejeita NA HORA com
+//    o mesmo formato de erro de um fetch real falhando ("Failed to fetch"),
+//    então as telas caem no cache local imediatamente, em vez de cada
+//    consulta esperar o timeout. No campo, com o rádio ligado mas sem dados
+//    (o plugin ainda reporta "connected"), isso chegava a dezenas de segundos
+//    POR CONSULTA e, como abrir uma ficha/parcelas dispara várias consultas,
+//    o app parecia travar — era a causa central da lentidão offline. Com o
+//    disjuntor, só a PRIMEIRA leitura ao entrar na zona morta paga o timeout
+//    (e abre o disjuntor); todas as seguintes caem no cache instantaneamente.
+// 2. Cada resposta/falha realimenta o disjuntor (registrarResultadoRede):
+//    resposta = rede OK (fecha o disjuntor e descarrega a fila); falha de
+//    rede = conta pra abrir o disjuntor.
+// 3. Leituras (GET/HEAD) têm timeout curto: sinal "conectado mas sem internet"
+//    deixa o fetch pendurado sem nunca virar erro. Gravações (POST/PATCH/...)
+//    ficam SEM timeout de propósito — abortar um upload de foto ou uma RPC de
+//    venda no meio pode duplicar a operação no retry (mas o disjuntor, quando
+//    aberto, curto-circuita a gravação ANTES de sair: ela nunca tocou o
+//    servidor, então é seguro e cai no fluxo offline normal, sem pendurar).
 const _fetchOriginal = window.fetch.bind(window);
+const _TIMEOUT_LEITURA_MS = 8000; // leitura sem resposta em 8s = rede inutilizável → cai no cache
 function _fetchComRede(input, init) {
-  if (window.NetStatus && !NetStatus.estaOnline()) {
-    return Promise.reject(new TypeError('Failed to fetch (sem conexão — curto-circuito offline)'));
+  if (window.NetStatus) {
+    // Usa deveCurtoCircuitarRede quando disponível (inclui o disjuntor);
+    // cai no estaOnline() antigo se rodar com um net-status.js sem a função.
+    const curto = NetStatus.deveCurtoCircuitarRede
+      ? NetStatus.deveCurtoCircuitarRede()
+      : !NetStatus.estaOnline();
+    if (curto) return Promise.reject(new TypeError('Failed to fetch (sem conexão — curto-circuito offline)'));
   }
   const metodo = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
   if ((metodo === 'GET' || metodo === 'HEAD') && typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
-    const sinais = [AbortSignal.timeout(15000)];
+    const sinais = [AbortSignal.timeout(_TIMEOUT_LEITURA_MS)];
     if (init && init.signal) sinais.push(init.signal);
     init = Object.assign({}, init, { signal: AbortSignal.any ? AbortSignal.any(sinais) : sinais[0] });
   }
-  return _fetchOriginal(input, init);
+  const promessa = _fetchOriginal(input, init);
+  if (!(window.NetStatus && NetStatus.registrarResultadoRede)) return promessa;
+  // Realimenta o disjuntor: resposta (qualquer status) = transporte OK;
+  // rejeição = falha de rede (timeout/DNS/conexão).
+  return promessa.then(function (resp) {
+    NetStatus.registrarResultadoRede(true);
+    return resp;
+  }, function (err) {
+    NetStatus.registrarResultadoRede(false);
+    throw err;
+  });
 }
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { global: { fetch: _fetchComRede } });
+
+// Sondagem de conectividade em segundo plano para o disjuntor de rede (ver
+// net-status.js). Enquanto o disjuntor está aberto, as telas caem no cache na
+// hora (sem esperar timeout) e ESTA sonda — fora do caminho do usuário — é
+// quem descobre quando a internet voltou. Usa o fetch ORIGINAL (não o
+// _fetchComRede) pra não ser curto-circuitada pelo próprio disjuntor, com
+// no-store pra um "OK" cacheado não mascarar uma queda. Qualquer RESPOSTA
+// (mesmo 4xx) = rede OK; só falha de transporte = ainda sem internet.
+window._sondarConectividade = function () {
+  const init = { method: 'HEAD', cache: 'no-store', headers: { apikey: SUPABASE_KEY } };
+  if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) init.signal = AbortSignal.timeout(_TIMEOUT_LEITURA_MS);
+  return _fetchOriginal(SUPABASE_URL + '/rest/v1/', init).then(function () { return true; }, function () { return false; });
+};
 
 // Rede voltou: renova o token da sessão (o access token pode ter expirado
 // enquanto o app estava offline) e só então descarrega a fila offline.
@@ -2718,8 +2756,12 @@ async function _capturarLocalizacaoComIds(ids) {
     document.getElementById(ids.lng).value = lng;
 
     try {
+      // Cortesia (nome da rua) fora do supabase-js: não pode pendurar a tela.
+      // Pula na hora se já estamos efetivamente offline e limita a 6s.
+      if (window.NetStatus && NetStatus.estaEfetivamenteOffline && NetStatus.estaEfetivamenteOffline()) throw new Error('offline');
       var resp = await fetch(
-        'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&accept-language=pt-BR'
+        'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&accept-language=pt-BR',
+        (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(6000) } : undefined
       );
       var data = await resp.json();
       var endereco = data.display_name || (lat.toFixed(6) + ', ' + lng.toFixed(6));
@@ -2806,8 +2848,12 @@ async function _confirmarLocalizacaoManualComIds(ids) {
   statusEl.style.color = '#854F0B';
 
   try {
+    // Cortesia (nome da rua) fora do supabase-js: não pode pendurar a tela.
+    // Pula na hora se já estamos efetivamente offline e limita a 6s.
+    if (window.NetStatus && NetStatus.estaEfetivamenteOffline && NetStatus.estaEfetivamenteOffline()) throw new Error('offline');
     var resp = await fetch(
-      'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&accept-language=pt-BR'
+      'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&accept-language=pt-BR',
+      (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(6000) } : undefined
     );
     var data = await resp.json();
     var endereco = data.display_name || (lat.toFixed(6) + ', ' + lng.toFixed(6));

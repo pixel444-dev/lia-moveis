@@ -12,6 +12,28 @@
   var qtdTravadas = 0;
   var sincronizando = false;
 
+  // ─── Disjuntor de rede ("circuit breaker") ──────────────────
+  // O plugin de rede diz "connected" sempre que há rádio ligado — inclusive
+  // em zona morta / torre congestionada / portal cativo, onde NÃO existe
+  // internet utilizável. Nesse estado estaOnline() é true, então cada leitura
+  // do Supabase esperava o timeout INTEIRO antes de cair no cache, e abrir uma
+  // ficha/parcelas (que dispara VÁRIAS leituras) parecia travar o app — era a
+  // causa central da lentidão offline do cobrador em campo.
+  //
+  // O disjuntor aprende com a primeira falha de rede: a partir daí TODA
+  // chamada é curto-circuitada na hora (cai no cache instantâneo, igual ao
+  // offline de verdade), então só a PRIMEIRA leitura ao entrar na zona morta
+  // paga o timeout — todas as seguintes são instantâneas. Enquanto o disjuntor
+  // está aberto, uma sondagem leve roda em SEGUNDO PLANO (fora do caminho do
+  // usuário, ver _sondarConectividade em index.html) só pra descobrir quando a
+  // internet voltar; aí o disjuntor fecha, os dados voltam a ser ao vivo e a
+  // fila offline é descarregada.
+  var LIMITE_FALHAS_REDE = 1;        // falhas de rede seguidas até presumir offline
+  var INTERVALO_SONDAGEM_MS = 4000;  // intervalo entre sondagens de reconexão em segundo plano
+  var falhasSeguidasRede = 0;
+  var disjuntorAberto = false;       // true = presumido offline (curto-circuita tudo)
+  var timerSondagem = null;          // setTimeout da próxima sondagem
+
   function estaOnline() {
     return online;
   }
@@ -20,15 +42,89 @@
     if (typeof cb === 'function') callbacks.push(cb);
   }
 
+  function _notificar(estado) {
+    for (var i = 0; i < callbacks.length; i++) {
+      try { callbacks[i](estado); } catch (e) { console.error('[NET] Callback de mudança falhou.', e); }
+    }
+  }
+
   function _mudou(novoEstado) {
     novoEstado = !!novoEstado;
     if (novoEstado === online) return;
     online = novoEstado;
     console.log('[NET] Conexão mudou: ' + (online ? 'ONLINE' : 'OFFLINE'));
+    // Reconexão real (plugin/navegador): fecha o disjuntor pra recomeçar limpo
+    // (a notificação de reconexão sai logo abaixo, no _notificar).
+    if (online) _fecharDisjuntor(false);
     atualizarIndicador();
-    for (var i = 0; i < callbacks.length; i++) {
-      try { callbacks[i](online); } catch (e) { console.error('[NET] Callback de mudança falhou.', e); }
+    _notificar(online);
+  }
+
+  // ─── Decisões e realimentação do disjuntor ──────────────────
+  // Chamado por _fetchComRede (index.html) ANTES de cada requisição: true =
+  // rejeita na hora sem tocar na rede (cai no cache). Cobre tanto o offline
+  // de fato quanto a zona morta detectada pelo disjuntor.
+  function deveCurtoCircuitarRede() {
+    return !online || disjuntorAberto;
+  }
+
+  function _abrirDisjuntor() {
+    if (disjuntorAberto) return;
+    disjuntorAberto = true;
+    atualizarIndicador();  // reflete "modo offline" pro cobrador
+    _agendarSondagem();    // passa a sondar a volta da internet em segundo plano
+  }
+
+  function _fecharDisjuntor(notificarReconexao) {
+    var estavaAberto = disjuntorAberto;
+    disjuntorAberto = false;
+    falhasSeguidasRede = 0;
+    if (timerSondagem) { clearTimeout(timerSondagem); timerSondagem = null; }
+    if (estavaAberto) {
+      atualizarIndicador();
+      // Recuperação de zona morta: a internet voltou sem o plugin nunca ter
+      // mudado de estado (ficou "connected" o tempo todo). Dispara a rotina de
+      // reconexão (renovar sessão + descarregar a fila), a mesma do onMudanca.
+      if (notificarReconexao) _notificar(true);
     }
+  }
+
+  // Sondagem de reconexão em segundo plano: enquanto o disjuntor está aberto,
+  // pergunta ao index.html (que tem o endpoint) se a rede voltou. NUNCA fica
+  // no caminho de uma tela — as telas já caíram no cache instantaneamente, e
+  // é só esta sondagem que paga o custo de descobrir a volta da internet.
+  function _agendarSondagem() {
+    if (timerSondagem || !disjuntorAberto) return;
+    timerSondagem = setTimeout(function () {
+      timerSondagem = null;
+      if (!disjuntorAberto || !online) return;
+      var sondar = (typeof window !== 'undefined') && window._sondarConectividade;
+      if (typeof sondar !== 'function') { _agendarSondagem(); return; } // endpoint ainda não pronto
+      Promise.resolve().then(sondar).then(function (redeOk) {
+        if (redeOk) _fecharDisjuntor(true);
+        else _agendarSondagem();
+      }).catch(function () { _agendarSondagem(); });
+    }, INTERVALO_SONDAGEM_MS);
+  }
+
+  // Chamado por _fetchComRede DEPOIS de cada requisição real. sucesso=true
+  // quando a rede respondeu (qualquer status HTTP, inclusive 4xx/5xx — o
+  // transporte funcionou); sucesso=false quando o fetch falhou por rede
+  // (timeout/DNS/conexão recusada).
+  function registrarResultadoRede(sucesso) {
+    if (sucesso) {
+      _fecharDisjuntor(true);
+    } else {
+      falhasSeguidasRede++;
+      if (falhasSeguidasRede >= LIMITE_FALHAS_REDE) _abrirDisjuntor();
+    }
+  }
+
+  // Offline pro que interessa à tela: sem rede de fato OU disjuntor aberto.
+  // O indicador visual usa isto pra ser honesto com o cobrador (mostrar
+  // "modo offline" na zona morta em vez de um spinner de sincronização).
+  function estaEfetivamenteOffline() {
+    return !online || disjuntorAberto;
   }
 
   // Heurística para "essa falha foi por falta de rede?". Cobre o formato
@@ -39,7 +135,9 @@
   // consulta é tratado como erro de rede — offline não existe resposta
   // parcial confiável.
   function ehErroDeRede(err) {
-    if (!online) return true;
+    // Efetivamente offline (sem rede de fato OU disjuntor aberto): qualquer
+    // erro de consulta é tratado como erro de rede — cai no cache na hora.
+    if (estaEfetivamenteOffline()) return true;
     if (!err) return false;
     var msg = (typeof err === 'string') ? err : (err.message || err.msg || '');
     if (err.name === 'AuthRetryableFetchError') return true;
@@ -98,7 +196,7 @@
     }
     el.style.cursor = qtdPendentes > 0 ? 'pointer' : 'default';
     el.style.pointerEvents = qtdPendentes > 0 ? 'auto' : 'none';
-    if (!online) {
+    if (estaEfetivamenteOffline()) {
       el.textContent = '📴 Sem conexão — modo offline'
         + (qtdPendentes > 0 ? ' · ' + qtdPendentes + ' operação(ões) na fila' : '');
       el.style.background = '#A32D2D';
@@ -156,6 +254,9 @@
     onMudanca: onMudanca,
     ehErroDeRede: ehErroDeRede,
     atualizarFila: atualizarFila,
-    atualizarIndicador: atualizarIndicador
+    atualizarIndicador: atualizarIndicador,
+    deveCurtoCircuitarRede: deveCurtoCircuitarRede,
+    registrarResultadoRede: registrarResultadoRede,
+    estaEfetivamenteOffline: estaEfetivamenteOffline
   };
 })();
