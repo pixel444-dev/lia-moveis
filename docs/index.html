@@ -570,7 +570,7 @@ tr:hover td{background:#fafafa;}
         <div class="page-title" style="margin:0">Clientes</div>
         <button class="btn primario" onclick="abrirCadastroCliente()">+ Novo cliente</button>
       </div>
-      <div class="busca-wrap" id="busca-wrap-clientes-gestor" style="display:none;">
+      <div class="busca-wrap" id="busca-wrap-clientes">
         <select id="clientes-filtro-tipo" onchange="trocarFiltroClientes()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:170px;">
           <option value="tudo">Pesquisar por: Tudo</option>
           <option value="nome">Nome</option>
@@ -582,7 +582,7 @@ tr:hover td{background:#fafafa;}
           <option value="codigo_venda">Código da venda</option>
           <option value="estado">Estado</option>
           <option value="rota">Rota</option>
-          <option value="cobrador">Cobrador</option>
+          <option id="cf-opt-cobrador" value="cobrador">Cobrador</option>
           <option value="vendedor">Vendedor</option>
         </select>
         <input class="busca" type="text" id="clientes-filtro-texto" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClientesManual();}">
@@ -590,13 +590,6 @@ tr:hover td{background:#fafafa;}
           <option value="">Selecione...</option>
         </select>
         <button class="btn primario" onclick="buscarClientesManual()" style="padding:8px 16px;" title="Buscar">🔍</button>
-      </div>
-      <div class="busca-wrap" id="busca-wrap-clientes-padrao">
-        <input class="busca" type="text" id="busca-clientes" placeholder="Buscar por nome, CPF, código, endereço, cidade ou celular..." onkeydown="if(event.key==='Enter'){event.preventDefault();buscarClientesManual();}">
-        <button class="btn primario" onclick="buscarClientesManual()" style="padding:8px 16px;" title="Buscar">🔍</button>
-        <select id="filtro-cobrador-clientes" onchange="buscarClientesManual()" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:180px;">
-          <option value="">Todos os cobradores</option>
-        </select>
       </div>
       <div id="lista-clientes">Carregando...</div>
       <div id="lista-clientes-sentinela" style="height:1px;"></div>
@@ -3291,18 +3284,8 @@ async function trocarFiltroClientes() {
 
 async function carregarClientes() {
   const ehGestor = perfilAtivo.perfil === 'gestor';
-  const wrapGestor = document.getElementById('busca-wrap-clientes-gestor');
-  const wrapPadrao = document.getElementById('busca-wrap-clientes-padrao');
-  if (wrapGestor) wrapGestor.style.display = ehGestor ? '' : 'none';
-  if (wrapPadrao) wrapPadrao.style.display = ehGestor ? 'none' : '';
-  if (!ehGestor) {
-    const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
-    const sel = document.getElementById('filtro-cobrador-clientes');
-    const valorAtual = sel.value;
-    sel.innerHTML = '<option value="">Todos os cobradores</option>' +
-      (cobradores || []).map(f => `<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
-    sel.value = valorAtual;
-  }
+  const optCobrador = document.getElementById('cf-opt-cobrador');
+  if (optCobrador) optCobrador.style.display = ehGestor ? '' : 'none';
   _configurarScrollClientes();
   await buscarClientesManual();
 }
@@ -3325,20 +3308,11 @@ async function _executarBuscaClientes(append) {
   } else {
     status.textContent = '⏳ Carregando mais...';
   }
-  const params = { p_limite: CLIENTES_PAGINA, p_offset: _clientesOffset };
-  if (perfilAtivo.perfil === 'gestor') {
-    const tipo = document.getElementById('clientes-filtro-tipo').value || 'tudo';
-    const termo = (tipo === 'cobrador' || tipo === 'vendedor')
-      ? (document.getElementById('clientes-filtro-pessoa').value || null)
-      : ((document.getElementById('clientes-filtro-texto').value || '').trim() || null);
-    params.p_termo = termo;
-    params.p_filtro = tipo;
-  } else {
-    const termo = (document.getElementById('busca-clientes').value || '').trim();
-    const cobradorId = document.getElementById('filtro-cobrador-clientes').value || null;
-    params.p_termo = termo || null;
-    params.p_cobrador = cobradorId;
-  }
+  const tipo = document.getElementById('clientes-filtro-tipo').value || 'tudo';
+  const termo = (tipo === 'cobrador' || tipo === 'vendedor')
+    ? (document.getElementById('clientes-filtro-pessoa').value || null)
+    : ((document.getElementById('clientes-filtro-texto').value || '').trim() || null);
+  const params = { p_limite: CLIENTES_PAGINA, p_offset: _clientesOffset, p_termo: termo, p_filtro: tipo };
   const { data, error } = await sb.rpc('buscar_clientes', params);
   _clientesCarregando = false;
   if (error) {
@@ -3436,7 +3410,8 @@ function _htmlListaVendasGenerica(vendas, onClickFn) {
 }
 
 function renderClientes(lista) {
-  const termo = (document.getElementById('busca-clientes').value || '').trim();
+  const tipo = document.getElementById('clientes-filtro-tipo').value || 'tudo';
+  const termo = (tipo === 'cobrador' || tipo === 'vendedor') ? '' : (document.getElementById('clientes-filtro-texto').value || '').trim();
   if (!lista.length) {
     document.getElementById('lista-clientes').innerHTML = termo
       ? '<p style="color:#888;padding:1rem;">Nenhum cliente encontrado para "' + escHtml(termo) + '".</p>'
