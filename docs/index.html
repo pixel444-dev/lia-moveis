@@ -3270,7 +3270,13 @@ async function trocarFiltroClientes() {
     campoTexto.value = '';
     campoPessoa.style.display = '';
     campoPessoa.innerHTML = '<option value="">Carregando...</option>';
-    const { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', tipo).eq('ativo', true).order('nome');
+    let { data } = await sb.from('funcionarios').select('id, nome').eq('tipo', tipo).eq('ativo', true).order('nome');
+    if (data && data.length) {
+      if (window.OfflineFlow && tipo === 'vendedor') OfflineFlow.salvarVendedoresNoCache(data);
+    } else if (window.OfflineFlow && window.NetStatus && !NetStatus.estaOnline()) {
+      // Sem rede o select viria vazio — usa a lista salva no aparelho.
+      data = tipo === 'cobrador' ? await OfflineFlow.cobradoresDoCache() : await OfflineFlow.vendedoresDoCache();
+    }
     campoPessoa.innerHTML = `<option value="">Selecione o ${tipo === 'cobrador' ? 'cobrador' : 'vendedor'}...</option>` +
       (data || []).map(f => `<option value="${f.id}">${escHtml(f.nome)}</option>`).join('');
   } else {
@@ -3318,12 +3324,19 @@ async function _executarBuscaClientes(append) {
   if (error) {
     // Sem rede (app instalado): busca nos clientes salvos no aparelho.
     if (window.OfflineFlow && NetStatus.ehErroDeRede(error)) {
-      const doCache = await OfflineFlow.buscarClientesNoCache(params.p_termo);
+      const doCache = await OfflineFlow.buscarClientesNoCache(params.p_termo, params.p_filtro);
       if (doCache) {
-        todosClientes = doCache;
-        _clientesFim = true;
+        // Mesma paginação da busca online — sem isso, um filtro amplo (ex.:
+        // "Tudo" vazio) renderizaria a carteira inteira de uma vez só, o que
+        // fica visivelmente lento numa carteira grande.
+        const pagina = doCache.slice(_clientesOffset, _clientesOffset + CLIENTES_PAGINA);
+        todosClientes = append ? todosClientes.concat(pagina) : pagina;
+        _clientesOffset += pagina.length;
+        _clientesFim = _clientesOffset >= doCache.length;
         renderClientes(todosClientes);
-        status.textContent = '📴 Sem conexão — mostrando clientes salvos no aparelho.';
+        status.textContent = _clientesFim && todosClientes.length
+          ? '📴 Sem conexão — mostrando clientes salvos no aparelho. Fim da lista.'
+          : '📴 Sem conexão — mostrando clientes salvos no aparelho.';
         return;
       }
     }
@@ -6780,13 +6793,39 @@ async function prefetchOfflineCobrador(onProgress) {
 
       marcar(55, 'Atualizando parcelas em aberto (' + clientes.length + ' clientes)...');
       const parcelas = await buscarInLotes(clientes.map(c => c.id), lote =>
-        sb.from('parcelas').select('*, vendas(codigo, produto), funcionarios(nome)').in('cliente_id', lote).neq('status', 'devolvida'));
+        sb.from('parcelas').select('*, vendas(codigo, produto, vendedor_id), funcionarios(nome)').in('cliente_id', lote).neq('status', 'devolvida'));
       OfflineFlow.salvarParcelasNoCache(parcelas);
       _marcarSincCobrador('parcelas');
 
-      marcar(90, 'Atualizando lista de cobradores...');
-      const { data: cobradores } = await sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome');
+      // Resumo de vendas (código + vendedor) num cache à parte — ver nota em
+      // _nsVendasResumo (sync-handlers.js) sobre por que não dá pra tirar
+      // isso do cache de parcelas na hora da busca.
+      const vendasPorId = new Map();
+      parcelas.forEach(p => {
+        if (p.venda_id != null && !vendasPorId.has(p.venda_id)) {
+          vendasPorId.set(p.venda_id, {
+            id: p.venda_id,
+            cliente_id: p.cliente_id,
+            codigo: p.vendas?.codigo || null,
+            vendedor_id: p.vendas?.vendedor_id || null,
+          });
+        }
+      });
+      OfflineFlow.salvarVendasResumoNoCache(Array.from(vendasPorId.values()));
+
+      // Cobradores/vendedores (pro seletor de pessoa do filtro de busca) e
+      // rotas do próprio cobrador (pro filtro "Rota") — baixados junto pra
+      // essas opções da busca de clientes funcionarem sem rede também, não
+      // só o texto livre.
+      marcar(90, 'Atualizando cobradores, vendedores e rotas...');
+      const [{ data: cobradores }, { data: vendedores }, { data: rotas }] = await Promise.all([
+        sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome'),
+        sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
+        sb.from('rotas').select('id, nome, rotas_municipios(municipio_id)').eq('cobrador_id', funcionarioLogado.id).eq('ativa', true),
+      ]);
       if (cobradores) OfflineFlow.salvarCobradoresNoCache(cobradores);
+      if (vendedores) OfflineFlow.salvarVendedoresNoCache(vendedores);
+      if (rotas) OfflineFlow.salvarRotasNoCache(rotas);
 
       marcar(100, 'Tudo pronto para trabalhar offline!');
     } catch (e) {
