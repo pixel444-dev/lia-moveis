@@ -8,6 +8,11 @@
   var db = null;
   var sqliteConn = null;
   var initPromise = null;
+  // Resultado da última inicialização, pra UI avisar o cobrador quando o banco
+  // local não abre: 'na' = não se aplica (web/online puro), 'ok' = abriu,
+  // 'falha' = tentou no nativo e falhou (offline fica indisponível).
+  var statusInit = 'na';
+  var erroInit = null;
 
   function ehPlataformaNativa() {
     return typeof Capacitor !== 'undefined'
@@ -142,10 +147,14 @@
           throw new Error('CREATE TABLE não surtiu efeito — faltando: ' + faltando.join(', '));
         }
 
+        statusInit = 'ok';
+        erroInit = null;
         console.log('[DB LOCAL] Banco local "' + DB_NAME + '" inicializado.');
       } catch (err) {
         console.error('[DB LOCAL] Falha ao inicializar banco local — seguindo 100% online.', err);
         db = null;
+        statusInit = 'falha';
+        erroInit = err;
       }
     })();
 
@@ -155,6 +164,20 @@
   function getDb() {
     if (!db) console.warn('[DB LOCAL] Banco local indisponível (não inicializado ou falhou). Operação ignorada.');
     return db;
+  }
+
+  // Status da última inicialização, pra UI decidir se avisa o cobrador.
+  function statusInicializacao() { return statusInit; }
+
+  // Detalhes serializáveis do erro de inicialização (ou null se abriu / web),
+  // para virar log enviável ao servidor. Stack limitado pra não estourar.
+  function erroInicializacao() {
+    if (!erroInit) return null;
+    return {
+      message: (erroInit && erroInit.message) || String(erroInit),
+      name: (erroInit && erroInit.name) || null,
+      stack: (erroInit && erroInit.stack) ? String(erroInit.stack).substring(0, 800) : null
+    };
   }
 
   // ─── Camada de memória sobre cache_registros ────────────────
@@ -401,6 +424,8 @@
 
   window.DbLocal = {
     initDbLocal: initDbLocal,
+    statusInicializacao: statusInicializacao,
+    erroInicializacao: erroInicializacao,
     salvarNoCache: salvarNoCache,
     lerDoCache: lerDoCache,
     enfileirarOperacao: enfileirarOperacao,
