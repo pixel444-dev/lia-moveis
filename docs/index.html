@@ -3637,30 +3637,61 @@ function renderClientes(lista) {
 }
 
 async function verDetalhesCliente(clienteId) {
-  let { data: c, error } = await sb.from('clientes').select('*').eq('id', clienteId).single();
-  let fichaOffline = false;
-  if (error || !c) {
-    c = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.clienteDoCache(clienteId) : null;
-    if (!c) {
-      console.error('Erro ao carregar cliente:', error);
-      if (window.NetStatus && !NetStatus.estaOnline()) alert('Sem conexão e este cliente não está salvo no aparelho.');
-      return;
-    }
-    fichaOffline = true;
-  }
+  // Abre o modal e mostra o spinner ANTES de qualquer await: o toque no botão
+  // dá resposta imediata (nunca mais parece que "não fez nada"), tanto online
+  // quanto offline.
+  const modal = document.getElementById('modal-detalhes-cliente');
+  const loading = document.getElementById('det-loading');
+  const box = modal.querySelector('.modal-box');
+  if (box) box.scrollTop = 0;
+  if (loading) loading.style.display = 'flex';
+  modal.style.display = 'flex';
 
-  let parcelas = null, cobradorData = null;
-  if (fichaOffline) {
-    parcelas = await OfflineFlow.parcelasDoCacheCliente(clienteId);
-  } else {
-    if (window.OfflineFlow) OfflineFlow.salvarClientesNoCache([c]);
-    const [rParcelas, rCobrador] = await Promise.all([
-      sb.from('parcelas').select('pago, valor, data_vencimento, status').eq('cliente_id', clienteId),
-      c.cobrador_id ? sb.from('funcionarios').select('nome').eq('id', c.cobrador_id).single() : Promise.resolve({ data: null }),
-    ]);
-    parcelas = rParcelas.data;
-    cobradorData = rCobrador.data;
-  }
+  try {
+    // Efetivamente offline = sem rede de fato OU zona morta (disjuntor aberto).
+    // Nesse caso vai DIRETO ao cache local, sem disparar a leitura ao vivo que
+    // esperaria o timeout inteiro antes de cair no cache — era isso que fazia a
+    // ficha do cobrador levar 10-15s pra abrir em campo. Agora abre na hora.
+    const offline = (window.NetStatus && NetStatus.estaEfetivamenteOffline)
+      ? NetStatus.estaEfetivamenteOffline()
+      : (window.NetStatus ? !NetStatus.estaOnline() : false);
+
+    let c = null, fichaOffline = false;
+    if (offline) {
+      c = window.OfflineFlow ? await OfflineFlow.clienteDoCache(clienteId) : null;
+      if (!c) {
+        alert('Sem conexão e este cliente não está salvo no aparelho.');
+        modal.style.display = 'none';
+        return;
+      }
+      fichaOffline = true;
+    } else {
+      const { data, error } = await sb.from('clientes').select('*').eq('id', clienteId).single();
+      c = data;
+      if (error || !c) {
+        c = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.clienteDoCache(clienteId) : null;
+        if (!c) {
+          console.error('Erro ao carregar cliente:', error);
+          if (window.NetStatus && !NetStatus.estaOnline()) alert('Sem conexão e este cliente não está salvo no aparelho.');
+          modal.style.display = 'none';
+          return;
+        }
+        fichaOffline = true;
+      }
+    }
+
+    let parcelas = null, cobradorData = null;
+    if (fichaOffline) {
+      parcelas = await OfflineFlow.parcelasDoCacheCliente(clienteId);
+    } else {
+      if (window.OfflineFlow) OfflineFlow.salvarClientesNoCache([c]);
+      const [rParcelas, rCobrador] = await Promise.all([
+        sb.from('parcelas').select('pago, valor, data_vencimento, status').eq('cliente_id', clienteId),
+        c.cobrador_id ? sb.from('funcionarios').select('nome').eq('id', c.cobrador_id).single() : Promise.resolve({ data: null }),
+      ]);
+      parcelas = rParcelas.data;
+      cobradorData = rCobrador.data;
+    }
 
   const emAberto = parcelas?.filter(p => !p.pago && p.status !== 'devolvida') || [];
   const pagas = parcelas?.filter(p => p.pago) || [];
@@ -3668,9 +3699,11 @@ async function verDetalhesCliente(clienteId) {
   const atrasadas = emAberto.filter(p => new Date(p.data_vencimento + 'T12:00:00') < hoje);
   const totalAberto = emAberto.reduce((a, p) => a + Number(p.valor), 0);
 
-  const fotoUrl = c.foto_casa ? await urlAssinada('fotos-clientes', c.foto_casa) : null;
+  // Foto: URL assinada só funciona online. Offline nem tenta assinar (a
+  // imagem não carregaria mesmo) e esconde o quadro pra não virar ícone quebrado.
+  const fotoUrl = (!offline && c.foto_casa) ? await urlAssinada('fotos-clientes', c.foto_casa) : null;
   document.getElementById('det-foto').src = fotoUrl || '';
-  document.getElementById('det-foto-wrap').style.display = c.foto_casa ? 'block' : 'none';
+  document.getElementById('det-foto-wrap').style.display = fotoUrl ? 'block' : 'none';
   document.getElementById('det-nome').textContent = c.nome;
   const detCodigo = document.getElementById('det-codigo');
   detCodigo.textContent = c.codigo || '—';
@@ -3710,8 +3743,10 @@ async function verDetalhesCliente(clienteId) {
   if (btnParcelas) btnParcelas.style.display = perfilAtivo.perfil === 'cobrador' ? 'inline-block' : 'none';
   if (btnEditar) btnEditar.style.display = perfilAtivo.perfil === 'gestor' ? 'inline-block' : 'none';
   window._clienteDetalhesAtual = { id: c.id, nome: c.nome };
-
-  document.getElementById('modal-detalhes-cliente').style.display = 'flex';
+  } finally {
+    // Some com o spinner assim que os dados estão na tela (ou se algo falhou).
+    if (loading) loading.style.display = 'none';
+  }
 }
 
 
@@ -14632,10 +14667,14 @@ async function gerarProximoMes() {
 
 <!-- MODAL DETALHES CLIENTE -->
 <div class="modal-bg" id="modal-detalhes-cliente">
-  <div class="modal-box" style="max-width:500px;">
+  <div class="modal-box" style="max-width:500px;position:relative;">
     <div class="modal-header">
       <strong>Detalhes do cliente</strong>
       <button onclick="fecharModal('modal-detalhes-cliente')">×</button>
+    </div>
+    <div id="det-loading" style="display:none;position:absolute;inset:0;z-index:5;background:#fff;border-radius:12px;flex-direction:column;align-items:center;justify-content:center;gap:12px;">
+      <span class="btn-spinner" style="width:34px;height:34px;border-width:3px;color:#185FA5;margin:0;"></span>
+      <span style="font-size:13px;color:#888;">Carregando detalhes…</span>
     </div>
     <div id="det-foto-wrap" style="margin-bottom:1rem;">
       <img id="det-foto" style="width:100%;height:200px;object-fit:cover;border-radius:10px;border:1px solid #e0e0e0;" alt="Foto da casa">
