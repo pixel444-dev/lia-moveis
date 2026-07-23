@@ -1892,7 +1892,8 @@ function _montarRowFalhaDbLocal(p) {
       user_agent: p.user_agent,
       erro_mensagem: p.erro ? p.erro.message : null,
       erro_nome: p.erro ? p.erro.name : null,
-      erro_stack: p.erro ? p.erro.stack : null
+      erro_stack: p.erro ? p.erro.stack : null,
+      erro_etapa: p.erro ? p.erro.etapa : null
     }
   };
 }
