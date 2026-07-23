@@ -5434,6 +5434,11 @@ async function mostrarFormVenda() {
   document.getElementById('venda-parcelas').value = '';
   document.getElementById('venda-entrada').value = '';
   document.getElementById('venda-data-primeira').value = '';
+  {
+    const lim = limitesDataVencimento();
+    const inp = document.getElementById('venda-data-primeira');
+    inp.min = lim.min; inp.max = lim.max;
+  }
   renderSeletorParcelas();
   window._valorAutoPreenchido = true;
   document.getElementById('msg-estoque-produto').innerHTML = '';
@@ -5706,6 +5711,25 @@ function atualizarFormVenda() {
   if (tipo !== 'entrada') document.getElementById('preview-parcelas').innerHTML = '';
 }
 
+// Trava contra ano digitado errado no <input type="date">: digitar "26" no
+// campo de ano grava "0026-08-30" — uma data ~2000 anos no passado que faz
+// TODAS as parcelas da venda aparecerem como "Atrasada" (data_vencimento <
+// hoje). Aceita só um ano plausível: de 5 anos atrás até 20 anos à frente.
+function anoVencimentoPlausivel(ymd) {
+  const ano = parseInt(String(ymd || '').slice(0, 4), 10);
+  if (!Number.isFinite(ano)) return false;
+  const anoAtual = new Date().getFullYear();
+  return ano >= anoAtual - 5 && ano <= anoAtual + 20;
+}
+
+// Limites min/max para os <input type="date"> de vencimento, no mesmo
+// intervalo aceito por anoVencimentoPlausivel() — o navegador já marca a
+// data como inválida e restringe o seletor nativo.
+function limitesDataVencimento() {
+  const anoAtual = new Date().getFullYear();
+  return { min: (anoAtual - 5) + '-01-01', max: (anoAtual + 20) + '-12-31' };
+}
+
 function atualizarPreviewParcelas() {
   const valor = parseFloat(document.getElementById('venda-valor').value) || 0;
   const entrada = parseFloat(document.getElementById('venda-entrada').value) || 0;
@@ -5717,6 +5741,10 @@ function atualizarPreviewParcelas() {
   if (saldo <= 0) { div.innerHTML = '<div class="parcelas-preview" style="color:#A32D2D;">A entrada não pode ser maior ou igual ao valor total!</div>'; return; }
   const vlrParcela = saldo / parcelas;
   let linhas = '';
+  if (dataPrimeira && !anoVencimentoPlausivel(dataPrimeira)) {
+    div.innerHTML = '<div class="parcelas-preview" style="color:#A32D2D;">Ano da primeira parcela inválido (' + dataPrimeira + '). Digite o ano completo, por exemplo 2026.</div>';
+    return;
+  }
   if (dataPrimeira) {
     for (let i = 0; i < parcelas; i++) {
       const dt = new Date(dataPrimeira + 'T12:00:00');
@@ -5766,6 +5794,12 @@ async function salvarVenda() {
       const diffDias = Math.round((dataParc - hoje) / (1000 * 60 * 60 * 24));
       if (perfilAtivo.perfil === 'vendedor' && diffDias < 0) { alert('A data da primeira parcela não pode ser no passado!'); return; }
       if (perfilAtivo.perfil === 'vendedor' && diffDias > 70) { alert('A data da primeira parcela não pode ser mais de 70 dias a partir de hoje!'); return; }
+      // Trava para TODOS os perfis (o gestor pula as checagens acima): barra
+      // ano implausível, ex.: "0026" gravado quando se digita só "26" no campo.
+      if (!anoVencimentoPlausivel(dataPrimeira)) {
+        alert('A data da primeira parcela tem um ano inválido (' + dataPrimeira + '). Digite o ano completo, por exemplo 2026.');
+        return;
+      }
     }
     const equipeId = perfilAtivo.perfil === 'vendedor'
       ? (equipeAtiva?.id || null)
@@ -13017,6 +13051,11 @@ function abrirEditarParcela(id, numero, total, valor, dataVenc, produto, pago, c
   document.getElementById('edit-valor').disabled = !!pago;
   document.getElementById('msg-edit-parcela-pago').style.display = pago ? 'block' : 'none';
   document.getElementById('edit-data-venc').value = dataVenc;
+  {
+    const lim = limitesDataVencimento();
+    const inp = document.getElementById('edit-data-venc');
+    inp.min = lim.min; inp.max = lim.max;
+  }
   document.getElementById('edit-produto').value = produto;
   document.getElementById('edit-cliente-id').value = clienteId || '';
   document.getElementById('edit-codigo-venda').value = codigoVenda || '';
@@ -13031,6 +13070,7 @@ async function salvarEdicaoParcela() {
   const dataVenc = document.getElementById('edit-data-venc').value;
   const produto = document.getElementById('edit-produto').value.trim();
   if (!dataVenc) { alert('Digite a data de vencimento!'); return; }
+  if (!anoVencimentoPlausivel(dataVenc)) { alert('A data de vencimento tem um ano inválido (' + dataVenc + '). Digite o ano completo, por exemplo 2026.'); return; }
   const atualizacao = { data_vencimento: dataVenc };
   if (!pago) {
     const valor = parseFloat(document.getElementById('edit-valor').value);
