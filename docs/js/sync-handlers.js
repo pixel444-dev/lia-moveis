@@ -870,6 +870,30 @@
     try { await _salvarMesclandoNoCache('parcelas', lista); } catch (e) { /* cache é melhor esforço */ }
   }
 
+  // Remove parcelas do cache por id — usado pelo delta (parcela virou
+  // 'devolvida') e pela poda do download completo (parcela apagada no servidor,
+  // ex.: cancelar_venda faz delete físico).
+  async function removerParcelasDoCache(ids) {
+    if (!_nativo() || !window.DbLocal || !Array.isArray(ids) || !ids.length) return;
+    for (var i = 0; i < ids.length; i++) {
+      try { await DbLocal.removerDoCache('parcelas', String(ids[i])); } catch (e) { /* melhor esforço */ }
+    }
+  }
+
+  // Ids das parcelas em cache de um conjunto de clientes — usado pela poda:
+  // o que está no cache e NÃO veio no download completo foi apagado no servidor.
+  async function idsParcelasDeClientesDoCache(clienteIds) {
+    if (!_nativo() || !window.DbLocal) return [];
+    var ids = new Set((clienteIds || []).map(String));
+    var todas = await DbLocal.lerDoCache('parcelas');
+    var res = [];
+    for (var i = 0; i < todas.length; i++) {
+      var p = todas[i];
+      if (p && p.id != null && ids.has(String(p.cliente_id))) res.push(String(p.id));
+    }
+    return res;
+  }
+
   // Contagem de parcelas por cliente salvas no aparelho — usada pela aba
   // Carteira offline pra mostrar, cliente por cliente, quantas parcelas (e
   // quantas em aberto) baixaram de fato. Devolve { [clienteId]: { total, aberto } }.
@@ -1334,6 +1358,8 @@
     carteiraDoCache: carteiraDoCache,
     salvarParcelasNoCache: salvarParcelasNoCache,
     contagemParcelasPorClienteDoCache: contagemParcelasPorClienteDoCache,
+    removerParcelasDoCache: removerParcelasDoCache,
+    idsParcelasDeClientesDoCache: idsParcelasDeClientesDoCache,
     salvarClientesNoCache: salvarClientesNoCache,
     salvarCaixaCobradorNoCache: salvarCaixaCobradorNoCache,
     caixaCobradorDoCache: caixaCobradorDoCache,

@@ -2430,9 +2430,10 @@ async function baixarCarteiraAgora() {
   if (btn) { btn.disabled = true; btn.style.opacity = '.55'; btn.textContent = '⏳ Baixando...'; }
   if (prog) { prog.style.display = 'block'; prog.textContent = 'Preparando...'; }
   _limparMarcasSincCobrador(); // ignora o TTL: força um download do zero
-  // Apaga a "impressão digital" da última sincronização pra o atalho
-  // "nada mudou" não pular este download forçado pelo usuário.
-  try { const rr = relatorioSincCobrador(); if (rr) { rr.impressao = null; _salvarRelatorioSincCobrador(rr); } } catch (e) { /* melhor esforço */ }
+  // Zera impressão + marca d'água pra este download forçado ser um COMPLETO
+  // com poda (não um delta) e não ser pulado pelo atalho "nada mudou" — é o
+  // que o cobrador espera ao pedir "baixar de novo" pra resolver pendência.
+  try { const rr = relatorioSincCobrador(); if (rr) { rr.impressao = null; rr.watermark = null; rr.ultimaFullEm = null; _salvarRelatorioSincCobrador(rr); } } catch (e) { /* melhor esforço */ }
   try {
     await prefetchOfflineCobrador((pct, texto) => {
       if (prog) prog.textContent = (texto || 'Baixando...') + ' — ' + Math.round(pct) + '%';
@@ -7380,6 +7381,185 @@ function _campoImpressaoIgual(resumo, prev, campo) {
     && Number(resumo['qtd_' + campo]) === Number(prev['qtd_' + campo]);
 }
 
+// ─── Sincronização de parcelas: delta quando dá, completo quando precisa ──
+// Reconciliação completa periódica: mesmo com o delta, de vez em quando um
+// download completo (com poda) é feito pra pegar o que o delta não vê —
+// deleção física de parcela (cancelar_venda apaga a linha) e cliente que saiu
+// da carteira. 24h é folgado; o normal do dia a dia é tudo via delta.
+const _TTL_FULL_PARCELAS_MS = 24 * 60 * 60 * 1000;
+
+// Busca só as parcelas que MUDARAM desde a marca d'água (RPC delta_parcelas_
+// cobrador, migração 0044) e aplica no cache: remove as que viraram
+// 'devolvida', regrava o resto. Confere a contagem contra o servidor — se
+// divergir (deleção física, que o delta não enxerga), devolve precisaFull
+// pra rodada cair no download completo, que poda os fantasmas.
+// Devolve { ok, precisaFull, server_now, hash_parcelas, qtd_parcelas }.
+async function _deltaParcelas(watermark, clientes, marcar) {
+  marcar(45, 'Baixando novidades (só o que mudou)...');
+  let dados;
+  try {
+    const r = await sb.rpc('delta_parcelas_cobrador', { p_desde: watermark });
+    if (!r || r.error || !r.data) return { ok: false }; // servidor sem a função/rede: cai no completo
+    dados = r.data;
+  } catch (e) { return { ok: false }; }
+
+  const parcelas = Array.isArray(dados.parcelas) ? dados.parcelas : [];
+  const upserts = [], removerIds = [];
+  for (let i = 0; i < parcelas.length; i++) {
+    const p = parcelas[i];
+    if (!p || p.id == null) continue;
+    if (String(p.status) === 'devolvida') removerIds.push(String(p.id));
+    else upserts.push(p);
+  }
+  if (upserts.length) await OfflineFlow.salvarParcelasNoCache(upserts);
+  if (removerIds.length) await OfflineFlow.removerParcelasDoCache(removerIds);
+  if (upserts.length) {
+    const vendasPorId = new Map();
+    upserts.forEach(p => {
+      if (p.venda_id != null && !vendasPorId.has(p.venda_id)) {
+        vendasPorId.set(p.venda_id, { id: p.venda_id, cliente_id: p.cliente_id, codigo: p.vendas?.codigo || null, vendedor_id: p.vendas?.vendedor_id || null });
+      }
+    });
+    OfflineFlow.salvarVendasResumoNoCache(Array.from(vendasPorId.values()));
+  }
+
+  // Conferência: o total de parcelas da carteira no cache tem que bater com o
+  // do servidor (mesmo snapshot do delta). Se o cache tem MAIS, sobrou fantasma
+  // de uma deleção física → precisa do completo pra podar.
+  const carteiraIds = new Set(clientes.map(c => String(c.id)));
+  const contagem = await OfflineFlow.contagemParcelasPorClienteDoCache();
+  let cacheCount = 0;
+  Object.keys(contagem).forEach(k => { if (carteiraIds.has(k)) cacheCount += (contagem[k].total || 0); });
+  const servidorCount = dados.qtd_parcelas != null ? Number(dados.qtd_parcelas) : cacheCount;
+  if (cacheCount !== servidorCount) {
+    marcar(50, 'Reconciliando a carteira...');
+    return { ok: false, precisaFull: true };
+  }
+  return { ok: true, server_now: dados.server_now || null, hash_parcelas: dados.hash_parcelas, qtd_parcelas: servidorCount };
+}
+
+// Auxiliares da busca offline (cobradores/vendedores/rotas) — mudam pouco, só
+// atualizados no download completo. Melhor esforço.
+async function _baixarAuxiliaresCobrador(marcar) {
+  marcar(92, 'Atualizando cobradores, vendedores e rotas...');
+  try {
+    const [{ data: cobradores }, { data: vendedores }, { data: rotas }] = await Promise.all([
+      sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome'),
+      sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
+      sb.from('rotas').select('id, nome, rotas_municipios(municipio_id)').eq('cobrador_id', funcionarioLogado.id).eq('ativa', true),
+    ]);
+    if (cobradores) OfflineFlow.salvarCobradoresNoCache(cobradores);
+    if (vendedores) OfflineFlow.salvarVendedoresNoCache(vendedores);
+    if (rotas) OfflineFlow.salvarRotasNoCache(rotas);
+  } catch (e) { /* auxiliares são melhor esforço */ }
+}
+
+// Download COMPLETO e confiável das parcelas (motor em lotes, gravação
+// incremental) + PODA: quando fecha 100%, remove do cache as parcelas da
+// carteira que não vieram no download (apagadas/canceladas no servidor). A
+// marca d'água nova é o relógio do SERVIDOR (resumoServidor.gerado_em), nunca
+// o do celular.
+async function _fullParcelas(clientes, carteiraCompleta, resumoServidor, marcar) {
+  marcar(30, 'Baixando parcelas de ' + clientes.length + ' cliente(s)...');
+  const vendasPorId = new Map();
+  const idsBaixados = new Set();
+  let _cadeiaSalvar = Promise.resolve();
+  const salvarLote = (dadosLote) => {
+    _cadeiaSalvar = _cadeiaSalvar.then(async () => {
+      await OfflineFlow.salvarParcelasNoCache(dadosLote);
+      for (let k = 0; k < dadosLote.length; k++) {
+        const pp = dadosLote[k];
+        if (pp.id != null) idsBaixados.add(String(pp.id));
+        if (pp.venda_id != null && !vendasPorId.has(pp.venda_id)) {
+          vendasPorId.set(pp.venda_id, { id: pp.venda_id, cliente_id: pp.cliente_id, codigo: pp.vendas?.codigo || null, vendedor_id: pp.vendas?.vendedor_id || null });
+        }
+      }
+    }).catch(() => { /* uma gravação que falhe não derruba a rodada */ });
+    return _cadeiaSalvar;
+  };
+  const res = await _baixarParcelasEmLotesConfiavel(
+    clientes.map(c => c.id),
+    (feitos, total) => marcar(30 + Math.round(52 * feitos / Math.max(1, total)), 'Baixando parcelas... (' + feitos + '/' + total + ' grupos)'),
+    salvarLote
+  );
+  await _cadeiaSalvar;
+  const parcelasCompletas = res.lotesFalha === 0 && carteiraCompleta;
+  OfflineFlow.salvarVendasResumoNoCache(Array.from(vendasPorId.values()));
+
+  let watermark = null, ultimaFullEm = null;
+  if (parcelasCompletas) {
+    _marcarSincCobrador('parcelas');
+    // Poda: só quando veio 100% (senão poderíamos apagar parcela de um grupo
+    // que só falhou agora). Remove do cache o que não veio no download.
+    try {
+      const idsCache = await OfflineFlow.idsParcelasDeClientesDoCache(clientes.map(c => c.id));
+      const remover = idsCache.filter(id => !idsBaixados.has(String(id)));
+      if (remover.length) await OfflineFlow.removerParcelasDoCache(remover);
+    } catch (e) { /* poda é melhor esforço */ }
+    ultimaFullEm = Date.now();
+    watermark = (resumoServidor && resumoServidor.gerado_em) || null; // relógio do servidor
+  }
+  await _baixarAuxiliaresCobrador(marcar);
+  return {
+    parcelasCompletas: parcelasCompletas,
+    watermark: watermark,
+    ultimaFullEm: ultimaFullEm,
+    idsFalha: res.idsFalha,
+    totalParcelas: res.totalParcelas,
+    impressaoParcelas: (resumoServidor ? { hash_parcelas: resumoServidor.hash_parcelas, qtd_parcelas: resumoServidor.qtd_parcelas } : null),
+    modo: 'full',
+  };
+}
+
+// Decide COMO sincronizar as parcelas: pular (nada mudou), delta (só o que
+// mudou) ou completo (primeira vez / última incompleta / reconciliação
+// periódica / deleção detectada). Devolve tudo que o relatório precisa.
+async function _sincronizarParcelasCobrador(clientes, carteiraCompleta, relPrev, resumoServidor, marcar) {
+  const ultimaCompleta = !!(relPrev && relPrev.parcelas && relPrev.parcelas.completo);
+  const parcelasIguais = _campoImpressaoIgual(resumoServidor, relPrev && relPrev.impressao, 'parcelas');
+  const watermark = (relPrev && relPrev.watermark) || null;
+
+  // (A) Nada mudou (servidor confirma) ou, sem servidor, TTL de 20min ainda vale.
+  const pular = ultimaCompleta && (
+    (resumoServidor && parcelasIguais) || (!resumoServidor && _sincCobradorRecente('parcelas', _TTL_PARCELAS_COBRADOR_MS))
+  );
+  if (pular) {
+    marcar(90, 'Parcelas já estavam atualizadas.');
+    return {
+      parcelasCompletas: carteiraCompleta,
+      watermark: watermark,
+      ultimaFullEm: (relPrev && relPrev.ultimaFullEm) || null,
+      idsFalha: (relPrev && relPrev.parcelas && relPrev.parcelas.idsFalha) || [],
+      totalParcelas: (relPrev && relPrev.parcelas && Number(relPrev.parcelas.totalParcelas)) || 0,
+      impressaoParcelas: (resumoServidor ? { hash_parcelas: resumoServidor.hash_parcelas, qtd_parcelas: resumoServidor.qtd_parcelas } : null),
+      modo: 'pular',
+    };
+  }
+
+  // (B) Delta — se dá: temos marca d'água, a última foi completa, a carteira
+  //     veio inteira agora, e não está na hora do completo periódico.
+  const fullPeriodicoVenceu = !relPrev || !relPrev.ultimaFullEm || (Date.now() - relPrev.ultimaFullEm > _TTL_FULL_PARCELAS_MS);
+  if (watermark && ultimaCompleta && carteiraCompleta && !fullPeriodicoVenceu) {
+    const d = await _deltaParcelas(watermark, clientes, marcar);
+    if (d.ok) {
+      marcar(90, 'Novidades aplicadas.');
+      return {
+        parcelasCompletas: carteiraCompleta,
+        watermark: d.server_now || watermark,
+        ultimaFullEm: (relPrev && relPrev.ultimaFullEm) || null,
+        idsFalha: [],
+        totalParcelas: d.qtd_parcelas != null ? Number(d.qtd_parcelas) : ((relPrev && relPrev.parcelas && Number(relPrev.parcelas.totalParcelas)) || 0),
+        impressaoParcelas: (d.hash_parcelas != null ? { hash_parcelas: d.hash_parcelas, qtd_parcelas: d.qtd_parcelas } : (resumoServidor ? { hash_parcelas: resumoServidor.hash_parcelas, qtd_parcelas: resumoServidor.qtd_parcelas } : null)),
+        modo: 'delta',
+      };
+    }
+    // d.ok false → erro de RPC ou deleção detectada → cai no completo (poda).
+  }
+
+  // (C) Completo confiável + poda.
+  return await _fullParcelas(clientes, carteiraCompleta, resumoServidor, marcar);
+}
+
 // onProgress(pct, texto) é opcional — usado pela tela de sincronização
 // inicial (_aguardarSincronizacaoInicial) pra mostrar uma barra de
 // progresso de verdade. Sem chamador esperando (ex.: chamada em segundo
@@ -7471,90 +7651,47 @@ async function prefetchOfflineCobrador(onProgress) {
         return;
       }
 
-      // 2) Parcelas. Pula só se já estavam completas E (o servidor diz que não
-      //    mudaram OU, sem servidor, o TTL de 20min ainda vale). Senão, baixa
-      //    em lotes confiáveis, gravando cada lote na hora (fila _cadeiaSalvar):
-      //    a memória fica limitada a poucos lotes por vez (essencial numa
-      //    carteira de milhares de clientes) e o que já baixou sobrevive se o
-      //    app fechar.
-      const pularParcelas = ultimaCompleta && (
-        (resumoServidor && parcelasIguais) || (!resumoServidor && _sincCobradorRecente('parcelas', _TTL_PARCELAS_COBRADOR_MS))
-      );
-      let res = null;
-      let parcelasCompletas;
-      if (pularParcelas) {
-        parcelasCompletas = carteiraCompleta; // parcelas já completas e sem mudança
-        marcar(90, 'Parcelas já estavam atualizadas.');
-      } else {
-        marcar(30, 'Baixando parcelas de ' + clientes.length + ' cliente(s)...');
-        const vendasPorId = new Map();
-        let _cadeiaSalvar = Promise.resolve();
-        const salvarLote = (dados) => {
-          _cadeiaSalvar = _cadeiaSalvar.then(async () => {
-            await OfflineFlow.salvarParcelasNoCache(dados);
-            // Resumo de vendas (código + vendedor) montado junto — ver nota em
-            // _nsVendasResumo (sync-handlers.js) sobre por que fica num cache à parte.
-            for (let k = 0; k < dados.length; k++) {
-              const pp = dados[k];
-              if (pp.venda_id != null && !vendasPorId.has(pp.venda_id)) {
-                vendasPorId.set(pp.venda_id, { id: pp.venda_id, cliente_id: pp.cliente_id, codigo: pp.vendas?.codigo || null, vendedor_id: pp.vendas?.vendedor_id || null });
-              }
-            }
-          }).catch(() => { /* uma gravação que falhe não derruba a rodada */ });
-          return _cadeiaSalvar;
-        };
-        res = await _baixarParcelasEmLotesConfiavel(
-          clientes.map(c => c.id),
-          (feitos, total) => marcar(30 + Math.round(55 * feitos / Math.max(1, total)), 'Baixando parcelas... (' + feitos + '/' + total + ' grupos)'),
-          salvarLote
-        );
-        await _cadeiaSalvar; // garante que a última gravação terminou antes de seguir
-        parcelasCompletas = res.lotesFalha === 0 && carteiraCompleta;
-        if (parcelasCompletas) _marcarSincCobrador('parcelas');
+      // 2) Parcelas: delta quando dá (só o que mudou), completo quando precisa
+      //    (primeira vez, última incompleta, reconciliação periódica ou deleção
+      //    detectada). Ver _sincronizarParcelasCobrador.
+      const rp = await _sincronizarParcelasCobrador(clientes, carteiraCompleta, relPrev, resumoServidor, marcar);
+      const parcelasCompletas = rp.parcelasCompletas;
+      const clientesFalha = (rp.idsFalha || []).length;
 
-        OfflineFlow.salvarVendasResumoNoCache(Array.from(vendasPorId.values()));
+      // Impressão digital combinada (clientes do resumo + parcelas do que rodou),
+      // base da checagem "nada mudou" da próxima vez. Só guarda quando fechou
+      // 100% — senão um estado parcial seria confundido com "atualizado".
+      const impressao = (parcelasCompletas && resumoServidor) ? {
+        hash_clientes: resumoServidor.hash_clientes,
+        qtd_clientes: resumoServidor.qtd_clientes,
+        hash_parcelas: rp.impressaoParcelas ? rp.impressaoParcelas.hash_parcelas : resumoServidor.hash_parcelas,
+        qtd_parcelas: rp.impressaoParcelas ? rp.impressaoParcelas.qtd_parcelas : resumoServidor.qtd_parcelas,
+      } : null;
 
-        // Cobradores/vendedores (pro seletor de pessoa do filtro de busca) e
-        // rotas do próprio cobrador (pro filtro "Rota") — só quando baixamos
-        // parcelas de fato. Melhor esforço: não derruba o relatório se falhar.
-        marcar(92, 'Atualizando cobradores, vendedores e rotas...');
-        try {
-          const [{ data: cobradores }, { data: vendedores }, { data: rotas }] = await Promise.all([
-            sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome'),
-            sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
-            sb.from('rotas').select('id, nome, rotas_municipios(municipio_id)').eq('cobrador_id', funcionarioLogado.id).eq('ativa', true),
-          ]);
-          if (cobradores) OfflineFlow.salvarCobradoresNoCache(cobradores);
-          if (vendedores) OfflineFlow.salvarVendedoresNoCache(vendedores);
-          if (rotas) OfflineFlow.salvarRotasNoCache(rotas);
-        } catch (e) { /* auxiliares são melhor esforço */ }
-      }
-
-      // 3) Relatório honesto do que baixou — base da aba Carteira offline. Só
-      //    guarda a "impressão digital" quando fechou 100% — senão um estado
-      //    parcial poderia ser confundido com "nada mudou" na próxima vez.
-      const clientesFalha = res ? res.idsFalha.length : 0;
-      const totalParcelas = res ? res.totalParcelas : (relPrev && relPrev.parcelas ? (Number(relPrev.parcelas.totalParcelas) || 0) : 0);
-      const idsFalha = res ? res.idsFalha.slice(0, 1000) : ((relPrev && relPrev.parcelas && relPrev.parcelas.idsFalha) || []);
+      // 3) Relatório honesto do que baixou — base da aba Carteira offline.
       _salvarRelatorioSincCobrador({
         em: Date.now(),
         verificadoEm: Date.now(),
         status: (parcelasCompletas ? 'completo' : (carteiraCompleta ? 'parcial' : 'carteira_incompleta')),
-        impressao: (parcelasCompletas && resumoServidor) ? resumoServidor : null,
+        impressao: impressao,
+        watermark: rp.watermark || (relPrev && relPrev.watermark) || null,
+        ultimaFullEm: rp.ultimaFullEm || (relPrev && relPrev.ultimaFullEm) || null,
         carteira: { total: clientes.length, completo: carteiraCompleta },
         parcelas: {
           totalClientes: clientes.length,
           clientesOk: Math.max(0, clientes.length - clientesFalha),
           clientesFalha: clientesFalha,
-          idsFalha: idsFalha,
-          totalParcelas: totalParcelas,
+          idsFalha: (rp.idsFalha || []).slice(0, 1000),
+          totalParcelas: rp.totalParcelas || 0,
           completo: parcelasCompletas,
         },
       });
       _atualizarBadgeSincCarteira();
 
       if (parcelasCompletas) {
-        marcar(100, (pularParcelas && pularCarteira) ? 'Tudo pronto — já estava atualizada!' : '✅ Atualizado — pronto para trabalhar offline!');
+        marcar(100, (rp.modo === 'pular' && pularCarteira) ? 'Tudo pronto — já estava atualizada!'
+          : (rp.modo === 'delta' ? '✅ Atualizado (só as novidades) — pronto para trabalhar offline!'
+          : '✅ Atualizado — pronto para trabalhar offline!'));
       } else if (!carteiraCompleta) {
         marcar(100, '⚠️ A lista de clientes não veio inteira. Toque em "Carteira offline" no menu para conferir e baixar de novo.');
       } else {
