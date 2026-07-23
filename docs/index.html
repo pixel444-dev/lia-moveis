@@ -1032,6 +1032,7 @@ tr:hover td{background:#fafafa;}
           <option value="importacao">importacao</option>
           <option value="exportacao">exportacao</option>
           <option value="global">global</option>
+          <option value="db_local">banco local (offline)</option>
         </select>
         <button class="btn primario" onclick="carregarLogs(document.getElementById('filtro-log-level').value,document.getElementById('filtro-log-modulo').value)">Atualizar</button>
       </div>
@@ -1598,6 +1599,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // sobe — a sincronização em si só roda depois do login (trava
     // window._syncLiberado, ver sync.js).
     if (window.Sync) Sync.atualizarContadorFila();
+    // Banco local não abriu? Avisa o cobrador na tela e registra o erro pra
+    // envio (o modo offline fica indisponível neste aparelho).
+    if (DbLocal.statusInicializacao && DbLocal.statusInicializacao() === 'falha') {
+      mostrarBannerFalhaBancoLocal();
+      _registrarFalhaBancoLocal(DbLocal.erroInicializacao ? DbLocal.erroInicializacao() : null);
+    }
+    // Sempre: tenta reenviar falhas de sessões anteriores que ainda não subiram.
+    _enviarFalhasBancoLocalPendentes();
   });
 });
 
@@ -1676,6 +1685,7 @@ if (window.NetStatus) {
     if (!online) return;
     try { await sb.auth.refreshSession(); } catch (e) { /* sem sessão para renovar */ }
     if (window.Sync) Sync.sincronizarAgora();
+    _enviarFalhasBancoLocalPendentes(); // rede voltou: tenta subir logs de falha do banco local
   });
 }
 
@@ -1841,6 +1851,122 @@ let gestorPollInterval = null;
 let rankingPollInterval = null;
 let autorizacoesVendedorPollInterval = null;
 const isMobile = () => window.innerWidth <= 768;
+
+// ─── FALHA DO BANCO LOCAL (offline indisponível) ──────────────
+// Quando o SQLite local não abre (ver db-local.js), o app perde o modo
+// offline. Antes isso era SILENCIOSO — o cobrador só descobria no campo, sem
+// entender por quê. Aqui: (1) avisa o cobrador na tela e (2) manda o log do
+// erro pro logs_sistema pra análise depois. Como a falha costuma acontecer com
+// o cobrador offline (e o próprio SQLite está morto, então nem dá pra usar a
+// fila offline), o log é guardado no localStorage — que independe do SQLite e
+// sobrevive a reinícios — e reenviado a cada oportunidade (boot, login, volta
+// da internet) até o servidor confirmar o recebimento.
+const _FALHAS_DB_KEY = 'lia_falhas_db_local';
+let _enviandoFalhasDb = false;
+
+function _lerFalhasDbPendentes() {
+  try { return JSON.parse(localStorage.getItem(_FALHAS_DB_KEY) || '[]') || []; }
+  catch (e) { return []; }
+}
+function _gravarFalhasDbPendentes(lista) {
+  try { localStorage.setItem(_FALHAS_DB_KEY, JSON.stringify(lista.slice(-20))); } // teto de 20
+  catch (e) { /* localStorage cheio/indisponível — nada mais a fazer */ }
+}
+
+// Monta a linha no MESMO formato do Logger, pra aparecer no visualizador de
+// logs já existente. A identidade (user_id/perfil) é preenchida na HORA DO
+// ENVIO: se a falha foi no boot (antes do login) e o reenvio acontece depois
+// do login, o log já sai com o cobrador identificado.
+function _montarRowFalhaDbLocal(p) {
+  return {
+    level: 'error',
+    modulo: 'db_local',
+    action: 'INIT_FALHOU',
+    request_id: p.id,
+    user_id: (typeof funcionarioLogado !== 'undefined' && funcionarioLogado) ? funcionarioLogado.id : null,
+    user_perfil: (typeof perfilAtivo !== 'undefined' && perfilAtivo) ? perfilAtivo : null,
+    mensagem: 'Banco de dados local não abriu — modo offline indisponível neste aparelho.',
+    contexto: {
+      ocorrido_em: p.ocorrido_em,
+      plataforma: p.plataforma,
+      user_agent: p.user_agent,
+      erro_mensagem: p.erro ? p.erro.message : null,
+      erro_nome: p.erro ? p.erro.name : null,
+      erro_stack: p.erro ? p.erro.stack : null
+    }
+  };
+}
+
+function _registrarFalhaBancoLocal(detalhesErro) {
+  let plataforma = 'desconhecida';
+  try { if (typeof Capacitor !== 'undefined' && Capacitor.getPlatform) plataforma = Capacitor.getPlatform(); } catch (e) {}
+  const pendente = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    ocorrido_em: new Date().toISOString(),
+    plataforma: plataforma,
+    user_agent: (typeof navigator !== 'undefined' && navigator.userAgent) ? String(navigator.userAgent).substring(0, 300) : null,
+    erro: detalhesErro || null
+  };
+  const lista = _lerFalhasDbPendentes();
+  lista.push(pendente);
+  _gravarFalhasDbPendentes(lista);
+  // console também, pra quem estiver com o device conectado ao Chrome DevTools.
+  console.error('[DB LOCAL] Registro de falha de inicialização enfileirado para envio.', pendente);
+  _enviarFalhasBancoLocalPendentes(); // tenta agora (se houver rede/autorização)
+}
+
+// Descarrega o localStorage no logs_sistema. Só remove uma falha da fila local
+// depois que o servidor confirma (sem error) — assim nada se perde se o
+// cobrador estiver offline ou sem sessão (RLS) no momento.
+async function _enviarFalhasBancoLocalPendentes() {
+  if (_enviandoFalhasDb) return;
+  let lista = _lerFalhasDbPendentes();
+  if (!lista.length) return;
+  // Sem rede efetiva? Nem tenta — espera a próxima oportunidade (evita pagar timeout).
+  if (window.NetStatus && NetStatus.deveCurtoCircuitarRede && NetStatus.deveCurtoCircuitarRede()) return;
+  _enviandoFalhasDb = true;
+  try {
+    const enviados = {}; // ids confirmados pelo servidor
+    for (let i = 0; i < lista.length; i++) {
+      const p = lista[i];
+      try {
+        const res = await sb.from('logs_sistema').insert(_montarRowFalhaDbLocal(p));
+        if (!(res && res.error)) enviados[p.id] = true; // sem error = servidor confirmou
+        // res.error (RLS/validação): não confirma — fica pra próxima tentativa.
+      } catch (e) {
+        // Falha de rede: para de tentar os outros agora (economiza timeout).
+        if (window.NetStatus && NetStatus.ehErroDeRede && NetStatus.ehErroDeRede(e)) break;
+      }
+    }
+    // Remove SÓ os confirmados, relendo o estado atual — assim uma falha nova
+    // que tenha entrado na fila durante o envio (await) não é sobrescrita.
+    const atual = _lerFalhasDbPendentes();
+    _gravarFalhasDbPendentes(atual.filter(function (x) { return !enviados[x.id]; }));
+  } finally {
+    _enviandoFalhasDb = false;
+  }
+}
+
+// Banner fixo, vermelho, no topo — some só quando o app é reaberto e o banco
+// abre. Dá pra fechar (✕) porque a informação já foi passada.
+function mostrarBannerFalhaBancoLocal() {
+  if (document.getElementById('banner-falha-db-local')) return;
+  const el = document.createElement('div');
+  el.id = 'banner-falha-db-local';
+  el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:100000;background:#A32D2D;color:#fff;'
+    + 'padding:11px 42px 11px 14px;font-size:13px;line-height:1.45;font-family:inherit;'
+    + 'box-shadow:0 2px 8px rgba(0,0,0,.3);';
+  el.innerHTML = '⚠️ <strong>O banco de dados local não abriu.</strong> O modo offline está indisponível neste aparelho — '
+    + 'mantenha o celular <strong>conectado à internet</strong> para trabalhar. O erro foi registrado e será enviado para análise.';
+  const fechar = document.createElement('span');
+  fechar.textContent = '✕';
+  fechar.style.cssText = 'position:absolute;top:9px;right:13px;cursor:pointer;font-size:17px;line-height:1;opacity:.85;';
+  fechar.setAttribute('role', 'button');
+  fechar.setAttribute('aria-label', 'Fechar aviso');
+  fechar.onclick = function () { el.style.display = 'none'; };
+  el.appendChild(fechar);
+  if (document.body) document.body.appendChild(el);
+}
 
 // === Logout automático por inatividade ===
 const TEMPO_INATIVIDADE_MS = 30 * 60 * 1000; // 30 minutos
@@ -2268,6 +2394,7 @@ async function iniciarSessao(user, dadosPrefetched) {
   // ver sync.js) e tenta descarregar a fila offline agora.
   window._syncLiberado = true;
   if (window.Sync) { Sync.atualizarContadorFila(); Sync.sincronizarAgora(); }
+  _enviarFalhasBancoLocalPendentes(); // identidade + sessão disponíveis: bom momento pra subir logs pendentes
   if (perfilAtivo.perfil === 'cobrador') {
     aplicarPermissoes(perfilAtivo.perfil);
     if (aguardaSincronizacaoInicial) {
