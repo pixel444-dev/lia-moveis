@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- allowBackup=false de propósito: o backup automático do Android pode
+         restaurar o arquivo do SQLite local (ascend_offlineSQLite.db) de uma
+         instalação anterior, criptografado com uma senha antiga, enquanto o
+         app gera uma senha NOVA no Keystore (que não sobrevive a
+         desinstalar/reinstalar) — o descompasso faz o plugin
+         @capacitor-community/sqlite falhar com "CapacitorSQLitePlugin: null"
+         (bug conhecido do plugin, sem correção deles; ver logs_sistema
+         modulo=db_local). Sem downside desligar: é só um cache/fila local,
+         não precisa sobreviver a reinstalação. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

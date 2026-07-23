@@ -13,6 +13,14 @@
   // 'falha' = tentou no nativo e falhou (offline fica indisponível).
   var statusInit = 'na';
   var erroInit = null;
+  // Última etapa iniciada da sequência de inicialização (ver marcações
+  // "etapaInit = ..." abaixo). Se a inicialização falhar, fica gravada a
+  // etapa que ESTAVA RODANDO — útil porque falhas nativas do plugin SQLite
+  // costumam devolver um erro genérico ("PluginName: null") cujo stack
+  // aponta só para a ponte JS↔nativo, nunca para o app: sem essa marcação,
+  // não dá pra saber qual chamada nativa (createConnection? open? um dos
+  // execute?) foi a culpada só pelo log.
+  var etapaInit = null;
 
   function ehPlataformaNativa() {
     return typeof Capacitor !== 'undefined'
@@ -53,15 +61,18 @@
         } catch (e) { jaConectado = false; }
 
         if (jaConectado) {
+          etapaInit = 'retrieve_connection';
           db = await sqliteConn.retrieveConnection(DB_NAME, false);
         } else {
           // Garante uma senha de criptografia guardada com segurança pelo
           // próprio plugin (Android Keystore / EncryptedSharedPreferences).
           // Só roda uma vez por instalação — depois disso isSecretStored()
           // sempre volta true e este bloco é pulado.
+          etapaInit = 'is_secret_stored';
           var segredo = await CapacitorSQLite.isSecretStored();
           if (!segredo || !segredo.result) {
             var senha = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, '');
+            etapaInit = 'set_encryption_secret';
             await CapacitorSQLite.setEncryptionSecret({ passphrase: senha });
           }
 
@@ -83,6 +94,7 @@
           }
 
           try {
+            etapaInit = 'create_connection';
             db = await sqliteConn.createConnection(DB_NAME, true, modo, 1, false);
           } catch (errCreate) {
             // Segunda rede de segurança: se mesmo depois do
@@ -93,15 +105,18 @@
             var msgCreate = (errCreate && errCreate.message) || String(errCreate);
             if (!/already exists/i.test(msgCreate)) throw errCreate;
             try { await sqliteConn.closeConnection(DB_NAME, false); } catch (e) { /* ignora */ }
+            etapaInit = 'create_connection_retry';
             db = await sqliteConn.createConnection(DB_NAME, true, modo, 1, false);
           }
         }
 
+        etapaInit = 'abrir_conexao';
         await db.open();
 
         // Cada CREATE TABLE roda em sua própria chamada — evita depender do
         // parser nativo de statements múltiplos separados por ";" para
         // confirmar que cada tabela foi de fato criada.
+        etapaInit = 'create_table_cache_registros';
         await db.execute(
           'CREATE TABLE IF NOT EXISTS cache_registros (' +
           'tabela TEXT NOT NULL, ' +
@@ -111,6 +126,7 @@
           'PRIMARY KEY (tabela, registro_id)' +
           ');'
         );
+        etapaInit = 'create_table_fila_operacoes';
         await db.execute(
           'CREATE TABLE IF NOT EXISTS fila_operacoes (' +
           'id TEXT PRIMARY KEY, ' +
@@ -123,6 +139,7 @@
           'sincronizado_em TEXT' +
           ');'
         );
+        etapaInit = 'create_table_fotos_pendentes';
         await db.execute(
           'CREATE TABLE IF NOT EXISTS fotos_pendentes (' +
           'id TEXT PRIMARY KEY, ' +
@@ -138,6 +155,7 @@
         // declarar sucesso — se alguma não aparecer aqui, cai no catch abaixo
         // e o banco local fica desativado (app segue 100% online).
         var TABELAS_ESPERADAS = ['cache_registros', 'fila_operacoes', 'fotos_pendentes'];
+        etapaInit = 'verificar_tabelas';
         var verificacao = await db.query("SELECT name FROM sqlite_master WHERE type='table'");
         var nomesEncontrados = ((verificacao && verificacao.values) || []).map(function (linha) { return linha.name; });
         console.log('[DB LOCAL] Tabelas existentes:', nomesEncontrados);
@@ -149,6 +167,7 @@
 
         statusInit = 'ok';
         erroInit = null;
+        etapaInit = null;
         console.log('[DB LOCAL] Banco local "' + DB_NAME + '" inicializado.');
       } catch (err) {
         console.error('[DB LOCAL] Falha ao inicializar banco local — seguindo 100% online.', err);
@@ -176,7 +195,8 @@
     return {
       message: (erroInit && erroInit.message) || String(erroInit),
       name: (erroInit && erroInit.name) || null,
-      stack: (erroInit && erroInit.stack) ? String(erroInit.stack).substring(0, 800) : null
+      stack: (erroInit && erroInit.stack) ? String(erroInit.stack).substring(0, 800) : null,
+      etapa: etapaInit
     };
   }
 
