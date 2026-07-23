@@ -506,6 +506,7 @@ tr:hover td{background:#fafafa;}
     <div class="nav-grupo" id="nav-grupo-cobrancas">
       <div class="nav-sep">Cobranças</div>
       <div class="nav-item" id="nav-cobrancas" data-page="cobrancas" onclick="pg('cobrancas',this)"><span class="nav-ico">💳</span>Cobranças</div>
+      <div class="nav-item" id="nav-sinc-carteira" data-page="sinc-carteira" onclick="pg('sinc-carteira',this)"><span class="nav-ico">📥</span>Carteira offline<span id="badge-sinc-carteira" style="display:none;background:#A32D2D;color:#fff;font-size:10px;font-weight:700;border-radius:999px;padding:1px 7px;margin-left:6px;"></span></div>
       <div class="nav-item" id="nav-localidades" data-page="localidades" onclick="pg('localidades',this);carregarLocalidades()"><span class="nav-ico">🗺️</span>Localidades</div>
       <div class="nav-item" id="nav-mapa" data-page="mapa" onclick="pg('mapa',this)"><span class="nav-ico">📍</span>Mapa</div>
       <div class="nav-item" id="nav-ciclos" data-page="ciclos" onclick="pg('ciclos',this)"><span class="nav-ico">🔄</span>Ciclos</div>
@@ -1105,6 +1106,17 @@ tr:hover td{background:#fafafa;}
       </div>
       <div id="rotas-limbo-bar" style="display:none;padding:.75rem 1rem;background:#FFF8E1;border:1px solid #FFD600;border-radius:8px;color:#7A5C00;font-size:13px;margin-bottom:1rem;"></div>
       <div id="lista-rotas"></div>
+    </div>
+
+    <div class="page" id="page-sinc-carteira">
+      <div class="page-title">Carteira offline</div>
+      <div style="max-width:720px;">
+        <div style="font-size:13px;color:#555;margin-bottom:1rem;">
+          Confira aqui se a sua <strong>carteira de clientes</strong> e as <strong>parcelas em aberto</strong> foram mesmo baixadas para este celular.
+          É isso que garante que você consegue abrir a ficha e dar baixa em campo mesmo sem internet — se algum cliente não baixou, ele aparece marcado abaixo.
+        </div>
+        <div id="sinc-carteira-conteudo"><p style="color:#888;padding:1rem;">Carregando...</p></div>
+      </div>
     </div>
 
     <div class="page" id="page-pendencias-offline">
@@ -2249,6 +2261,181 @@ async function apagarPendenciaOffline(id, titulo) {
   carregarPendenciasOffline();
 }
 
+// === CARTEIRA OFFLINE (diagnóstico visual do download) ===
+// Mostra, de forma que o cobrador entenda antes de ir pra rua, se a carteira
+// de clientes e as parcelas em aberto foram MESMO baixadas pro aparelho —
+// cliente por cliente — e um botão pra baixar de novo o que faltou. Lê o
+// relatório gravado pelo prefetchOfflineCobrador + o cache local (nada de rede).
+let _sincCarteiraFiltro = 'problemas';
+function setFiltroSincCarteira(f) { _sincCarteiraFiltro = f; carregarSincCarteira(); }
+
+async function carregarSincCarteira() {
+  const cont = document.getElementById('sinc-carteira-conteudo');
+  if (!cont) return;
+  if (!_appEhNativo() || !window.OfflineFlow) {
+    cont.innerHTML = '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:1.25rem;color:#888;font-size:13px;">Esta tela acompanha o download da carteira para uso offline — disponível só no aplicativo instalado no celular.</div>';
+    return;
+  }
+
+  const [carteira, contagem] = await Promise.all([
+    OfflineFlow.carteiraDoCache(),
+    OfflineFlow.contagemParcelasPorClienteDoCache(),
+  ]);
+  const clientes = carteira || [];
+  const rel = relatorioSincCobrador();
+  const idsFalha = new Set(((rel && rel.parcelas && rel.parcelas.idsFalha) || []).map(String));
+
+  const offlineAgora = !!(window.NetStatus && NetStatus.estaEfetivamenteOffline && NetStatus.estaEfetivamenteOffline());
+  const totalParcelasSalvas = Object.keys(contagem).reduce((s, k) => s + (contagem[k].total || 0), 0);
+
+  // Estado geral (cor + rótulo) a partir do relatório da última sincronização.
+  let status = rel && rel.status ? rel.status : (clientes.length ? 'desconhecido' : 'nunca');
+  const carteiraIncompleta = !!(rel && rel.carteira && rel.carteira.completo === false);
+  const paleta = {
+    completo:            { cor: '#3B6D11', bg: '#EAF3E0', ico: '✅', txt: 'Tudo baixado — pronto para trabalhar offline' },
+    parcial:             { cor: '#854F0B', bg: '#FAEEDA', ico: '⚠️', txt: 'Faltaram parcelas de alguns clientes' },
+    carteira_incompleta: { cor: '#A32D2D', bg: '#FCEBEB', ico: '⚠️', txt: 'A lista de clientes não veio inteira' },
+    sem_dados:           { cor: '#555',    bg: '#f0f0f0', ico: 'ℹ️', txt: 'Nenhum cliente na sua carteira' },
+    offline:             { cor: '#A32D2D', bg: '#FCEBEB', ico: '📴', txt: 'Sem conexão na última tentativa' },
+    nunca:               { cor: '#A32D2D', bg: '#FCEBEB', ico: '⬇️', txt: 'Carteira ainda não baixada neste aparelho' },
+    desconhecido:        { cor: '#555',    bg: '#f0f0f0', ico: 'ℹ️', txt: 'Dados salvos no aparelho' },
+  };
+  const p = paleta[status] || paleta.desconhecido;
+
+  const quando = rel && rel.em ? new Date(rel.em).toLocaleString('pt-BR') : '—';
+  const clientesFalha = rel && rel.parcelas ? (Number(rel.parcelas.clientesFalha) || 0) : 0;
+  const clientesOk = Math.max(0, clientes.length - clientesFalha);
+
+  function tile(rotulo, valor, corValor) {
+    return '<div style="flex:1;min-width:120px;background:#fff;border:1px solid #eee;border-radius:10px;padding:10px 12px;">'
+      + '<div style="font-size:11px;color:#888;margin-bottom:2px;">' + rotulo + '</div>'
+      + '<div style="font-size:20px;font-weight:800;color:' + (corValor || '#221F1A') + ';">' + valor + '</div>'
+      + '</div>';
+  }
+
+  let html = '';
+
+  // Card de status geral
+  html += '<div style="background:' + p.bg + ';border:1px solid ' + p.cor + ';border-left-width:5px;border-radius:12px;padding:1rem 1.15rem;margin-bottom:1rem;">'
+    + '<div style="font-size:15px;font-weight:800;color:' + p.cor + ';">' + p.ico + ' ' + escHtml(p.txt) + '</div>'
+    + '<div style="font-size:12px;color:#555;margin-top:4px;">Última sincronização: <strong>' + escHtml(quando) + '</strong></div>'
+    + (rel && rel.ultimaTentativaOffline && (!rel.em || rel.ultimaTentativaOffline > rel.em)
+        ? '<div style="font-size:12px;color:#A32D2D;margin-top:2px;">Última tentativa (sem conexão): ' + escHtml(new Date(rel.ultimaTentativaOffline).toLocaleString('pt-BR')) + '</div>' : '')
+    + '</div>';
+
+  // Contadores
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem;">'
+    + tile('Clientes salvos', clientes.length)
+    + tile('Parcelas salvas', totalParcelasSalvas)
+    + tile('Clientes OK', clientesOk, '#3B6D11')
+    + tile('Sem baixar', clientesFalha, clientesFalha > 0 ? '#A32D2D' : '#3B6D11')
+    + '</div>';
+
+  if (carteiraIncompleta) {
+    html += '<div style="background:#FCEBEB;border:1px solid #A32D2D;border-radius:10px;padding:10px 14px;margin-bottom:1rem;font-size:12.5px;color:#A32D2D;">'
+      + '⚠️ A própria <strong>lista de clientes</strong> não veio inteira na última vez — pode haver clientes que nem aparecem abaixo. Baixe de novo com um sinal melhor.'
+      + '</div>';
+  }
+
+  // Botão de baixar agora + progresso
+  html += '<button id="btn-baixar-carteira" class="btn primario" style="width:100%;padding:12px;font-size:14px;font-weight:700;margin-bottom:6px;" onclick="baixarCarteiraAgora()">🔄 Baixar carteira agora</button>';
+  html += '<div id="sinc-carteira-progresso" style="display:none;font-size:12px;color:#185FA5;text-align:center;margin-bottom:6px;"></div>';
+  if (offlineAgora) {
+    html += '<div style="font-size:12px;color:#A32D2D;text-align:center;margin-bottom:1rem;">📴 Sem conexão agora — conecte-se para baixar. Abaixo está o que já está salvo no aparelho.</div>';
+  } else {
+    html += '<div style="font-size:11px;color:#888;text-align:center;margin-bottom:1rem;">Fica mais rápido no Wi-Fi. Você pode sair desta tela — o download continua.</div>';
+  }
+
+  // Lista por cliente
+  if (!clientes.length) {
+    html += '<div style="text-align:center;padding:2rem;color:#888;background:#fff;border:1px solid #eee;border-radius:12px;">'
+      + '<div style="font-size:36px;margin-bottom:.5rem;">⬇️</div>'
+      + 'Nenhum cliente salvo neste aparelho ainda.<br>Toque em <strong>Baixar carteira agora</strong> com internet.'
+      + '</div>';
+    cont.innerHTML = html;
+    return;
+  }
+
+  const listaProblemas = clientes.filter(c => idsFalha.has(String(c.id)));
+  const mostrarProblemas = _sincCarteiraFiltro === 'problemas';
+  html += '<div style="display:flex;gap:6px;background:#fff;border:1px solid #e0ddd3;border-radius:12px;padding:4px;margin-bottom:12px;">'
+    + '<button onclick="setFiltroSincCarteira(\'problemas\')" style="flex:1;padding:8px 4px;border-radius:9px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:' + (mostrarProblemas ? '#221F1A' : 'transparent') + ';color:' + (mostrarProblemas ? '#fff' : '#2B2822') + ';">Sem baixar (' + listaProblemas.length + ')</button>'
+    + '<button onclick="setFiltroSincCarteira(\'todos\')" style="flex:1;padding:8px 4px;border-radius:9px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:' + (!mostrarProblemas ? '#221F1A' : 'transparent') + ';color:' + (!mostrarProblemas ? '#fff' : '#2B2822') + ';">Todos (' + clientes.length + ')</button>'
+    + '</div>';
+
+  let lista = mostrarProblemas ? listaProblemas : clientes.slice();
+  // Ordena: quem não baixou primeiro, depois por nome.
+  lista.sort((a, b) => {
+    const fa = idsFalha.has(String(a.id)) ? 0 : 1;
+    const fb = idsFalha.has(String(b.id)) ? 0 : 1;
+    if (fa !== fb) return fa - fb;
+    return String(a.nome || '').localeCompare(String(b.nome || ''));
+  });
+
+  if (mostrarProblemas && !lista.length) {
+    html += '<div style="text-align:center;padding:2rem;color:#3B6D11;background:#fff;border:1px solid #eee;border-radius:12px;">'
+      + '<div style="font-size:36px;margin-bottom:.5rem;">✅</div>'
+      + 'Todos os clientes da carteira estão com as parcelas baixadas.'
+      + '</div>';
+    cont.innerHTML = html;
+    return;
+  }
+
+  const LIMITE = 400;
+  const cortada = lista.length > LIMITE;
+  const paraMostrar = cortada ? lista.slice(0, LIMITE) : lista;
+
+  html += '<div>';
+  paraMostrar.forEach(c => {
+    const falhou = idsFalha.has(String(c.id));
+    const cont2 = contagem[String(c.id)] || { total: 0, aberto: 0 };
+    let chipCor, chipBg, chipTxt;
+    if (falhou && cont2.total > 0) {
+      // Falhou AGORA, mas tem parcelas de um download anterior — não sumiu,
+      // só não atualizou nesta rodada (dados podem estar velhos).
+      chipCor = '#854F0B'; chipBg = '#FAEEDA'; chipTxt = '⚠️ Não atualizou (dados antigos)';
+    } else if (falhou) {
+      chipCor = '#A32D2D'; chipBg = '#FCEBEB'; chipTxt = '❌ Parcelas não baixadas';
+    } else if (cont2.aberto > 0) {
+      chipCor = '#3B6D11'; chipBg = '#EAF3E0'; chipTxt = '✅ ' + cont2.aberto + ' em aberto';
+    } else if (cont2.total > 0) {
+      chipCor = '#3B6D11'; chipBg = '#EAF3E0'; chipTxt = '✅ Baixado (em dia)';
+    } else {
+      chipCor = '#3B6D11'; chipBg = '#EAF3E0'; chipTxt = '✅ Sem parcelas';
+    }
+    const cod = c.codigo ? ' <span style="color:#aaa;">#' + escHtml(c.codigo) + '</span>' : '';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff;border:1px solid ' + (falhou ? '#f0c9c9' : '#eee') + ';border-radius:10px;padding:10px 12px;margin-bottom:6px;">'
+      + '<div style="font-size:13px;font-weight:600;color:#221F1A;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(c.nome || 'Cliente sem nome') + cod + '</div>'
+      + '<span style="flex:none;background:' + chipBg + ';color:' + chipCor + ';font-size:11px;font-weight:700;padding:4px 9px;border-radius:6px;white-space:nowrap;">' + chipTxt + '</span>'
+      + '</div>';
+  });
+  html += '</div>';
+  if (cortada) {
+    html += '<div style="text-align:center;font-size:12px;color:#888;padding:.75rem;">Mostrando os primeiros ' + LIMITE + ' de ' + lista.length + '. Use o filtro “Sem baixar” para focar nos que faltaram.</div>';
+  }
+
+  cont.innerHTML = html;
+}
+
+async function baixarCarteiraAgora() {
+  if (!_appEhNativo()) return;
+  if (window.NetStatus && NetStatus.estaEfetivamenteOffline && NetStatus.estaEfetivamenteOffline()) {
+    alert('Sem conexão agora. Conecte-se à internet (de preferência Wi-Fi) para baixar a carteira completa.');
+    return;
+  }
+  const btn = document.getElementById('btn-baixar-carteira');
+  const prog = document.getElementById('sinc-carteira-progresso');
+  if (btn) { btn.disabled = true; btn.style.opacity = '.55'; btn.textContent = '⏳ Baixando...'; }
+  if (prog) { prog.style.display = 'block'; prog.textContent = 'Preparando...'; }
+  _limparMarcasSincCobrador(); // ignora o TTL: força um download do zero
+  try {
+    await prefetchOfflineCobrador((pct, texto) => {
+      if (prog) prog.textContent = (texto || 'Baixando...') + ' — ' + Math.round(pct) + '%';
+    });
+  } catch (e) { /* prefetch é defensivo internamente */ }
+  await carregarSincCarteira(); // re-renderiza com o relatório novo (e botão reabilitado)
+}
+
 // === SEGURANÇA / 2FA ===
 async function carregarPaginaSeguranca() {
   const statusEl = document.getElementById('seg-status');
@@ -2398,6 +2585,7 @@ async function iniciarSessao(user, dadosPrefetched) {
   _enviarFalhasBancoLocalPendentes(); // identidade + sessão disponíveis: bom momento pra subir logs pendentes
   if (perfilAtivo.perfil === 'cobrador') {
     aplicarPermissoes(perfilAtivo.perfil);
+    _atualizarBadgeSincCarteira(); // reflete o relatório salvo da sessão anterior na hora
     if (aguardaSincronizacaoInicial) {
       await _aguardarSincronizacaoInicial(prefetchOfflineCobrador);
       document.getElementById('app').style.display = 'flex';
@@ -2505,6 +2693,7 @@ function aplicarPermissoes(perfil) {
     'imprimir-ficha':    gestor,
     'config-impressao':  gestor,
     cobrancas:           gestorOuCobrador,
+    'sinc-carteira':     cobrador,
     ciclos:              gestorOuCobrador,
     'cobrancas-mes':     gestor,
     'caixa-cobradores':  gestorOuCobrador,
@@ -2554,6 +2743,7 @@ function pg(nome, el) {
   if (nome === 'vendas') carregarEquipeAtivaVendedor().then(() => { atualizarAvisoEquipe(); carregarVendas(); });
   if (nome === 'ranking') { carregarRanking(); rankingPollInterval = setInterval(() => carregarRankingDoMes(rankingMesSelecionadoId), 15000); }
   if (nome === 'cobrancas') carregarCobrancas();
+  if (nome === 'sinc-carteira') carregarSincCarteira();
   if (nome === 'localidades') carregarLocalidades();
   if (nome === 'mapa') carregarMapaClientes();
   if (nome === 'ciclos') carregarCiclos();
@@ -6998,6 +7188,170 @@ function _sincCobradorRecente(tipo, ttlMs) {
 function _marcarSincCobrador(tipo) {
   try { localStorage.setItem(_chaveSincCobrador(tipo), String(Date.now())); } catch (e) { /* melhor esforço */ }
 }
+// Zera as marcas de "baixado recentemente" pra forçar um download do zero na
+// próxima chamada de prefetchOfflineCobrador — usado pelo botão "Baixar agora"
+// da aba Carteira offline.
+function _limparMarcasSincCobrador() {
+  try {
+    localStorage.removeItem(_chaveSincCobrador('carteira'));
+    localStorage.removeItem(_chaveSincCobrador('parcelas'));
+  } catch (e) { /* melhor esforço */ }
+}
+
+// ─── Relatório da última sincronização da carteira ───────────────────
+// Guarda no localStorage (sobrevive a reabrir o app) um retrato honesto do
+// último download: quantos clientes/parcelas vieram, se ficou COMPLETO ou
+// faltou alguém, e QUAIS clientes ainda estão sem parcelas baixadas. É o que
+// alimenta a aba "Carteira offline" (carregarSincCarteira) e o alerta no menu
+// — pra o cobrador enxergar, antes de ir pra rua, se a carteira baixou inteira
+// ou não, em vez de descobrir no cliente que "some".
+function _chaveRelatorioSincCobrador() {
+  return 'relatorio_sinc_cobrador_' + (funcionarioLogado?.id || 'anon');
+}
+function _salvarRelatorioSincCobrador(rel) {
+  try { localStorage.setItem(_chaveRelatorioSincCobrador(), JSON.stringify(rel)); } catch (e) { /* melhor esforço */ }
+}
+function relatorioSincCobrador() {
+  try { const v = localStorage.getItem(_chaveRelatorioSincCobrador()); return v ? JSON.parse(v) : null; }
+  catch (e) { return null; }
+}
+
+// Alerta no item de menu "Carteira offline": número de clientes ainda sem
+// parcelas baixadas (ou "!" quando a própria lista de clientes veio
+// incompleta). Some quando o último download ficou 100%.
+function _atualizarBadgeSincCarteira() {
+  const badge = document.getElementById('badge-sinc-carteira');
+  if (!badge) return;
+  const rel = relatorioSincCobrador();
+  const faltamClientes = rel && rel.parcelas ? (Number(rel.parcelas.clientesFalha) || 0) : 0;
+  const carteiraIncompleta = !!(rel && rel.carteira && rel.carteira.completo === false);
+  if (faltamClientes > 0 || carteiraIncompleta) {
+    badge.textContent = faltamClientes > 0 ? String(faltamClientes) : '!';
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ─── Motor de download confiável (retry + concorrência limitada) ─────
+// Por que reescrever: o supabase-js NÃO lança em falha de rede — devolve
+// { error } com status 0 e message "Failed to fetch"; e o próprio bundle avisa
+// que .in() com centenas de IDs deveria virar RPC. O download antigo disparava
+// TODOS os lotes de uma vez (Promise.all) e, se um lote falhava, ele era
+// silenciosamente descartado (só estourava se TODOS falhassem) — e ainda por
+// cima marcava a carteira como "fresca" por 20min. Resultado em campo: ~100
+// clientes de um lote que piscou simplesmente somiam, e o app nem tentava de
+// novo. Agora: lotes PEQUENOS, POUCOS ao mesmo tempo (gentil com a rede de
+// campo e com o disjuntor — ver net-status.js), cada lote RETENTADO, quem
+// falha é REGISTRADO, e enquanto faltar alguém o download NÃO é marcado fresco.
+const _TAM_LOTE_PARCELAS = 80;      // IDs de cliente por consulta (.in) — URL curta e segura
+const _CONCORRENCIA_PARCELAS = 3;   // lotes simultâneos — não estoura a conexão de campo
+const _TENTATIVAS_LOTE = 5;         // retentativas por lote antes de marcá-lo como falho
+
+function _dormir(ms) { return new Promise(function (r) { setTimeout(r, Math.max(0, ms)); }); }
+
+function _ehErroDeRedeGenerico(e) {
+  if (e && e._rede) return true;
+  return !!(window.NetStatus && NetStatus.ehErroDeRede && NetStatus.ehErroDeRede(e));
+}
+
+// Reexecuta fn() enquanto o erro for de REDE, com espera crescente (1.2s, 2.4s,
+// 4.8s...). O disjuntor de rede tem uma sonda em segundo plano que reabre a
+// conexão em poucos segundos (net-status.js); a espera dá tempo pra ela fechar
+// o disjuntor entre as tentativas. Erro que NÃO é de rede (ex.: consulta
+// recusada) não adianta repetir — sobe na hora.
+async function _comRetentativa(fn, tentativas) {
+  tentativas = tentativas || _TENTATIVAS_LOTE;
+  let ultimo = null;
+  for (let i = 1; i <= tentativas; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      ultimo = e;
+      if (!_ehErroDeRedeGenerico(e) || i === tentativas) throw e;
+      await _dormir(Math.min(8000, 1200 * Math.pow(2, i - 1)));
+    }
+  }
+  throw ultimo;
+}
+
+// Consulta paginada resiliente: sobe erro de REDE como { _rede:true } (pra
+// _comRetentativa tentar de novo) e erro de CONSULTA (não-rede) como erro
+// definitivo. Diferente de buscarTudoPaginado, NUNCA devolve página parcial
+// silenciosa — ou a consulta inteira deu certo, ou estoura.
+async function _consultaPaginadaConfiavel(montarQuery) {
+  const LOTE = 1000;
+  let todas = [];
+  for (let offset = 0; ; offset += LOTE) {
+    const { data, error } = await montarQuery().range(offset, offset + LOTE - 1);
+    if (error) {
+      if (_ehErroDeRedeGenerico(error)) { const e = new Error(error.message || 'rede'); e._rede = true; throw e; }
+      throw new Error('Consulta rejeitada: ' + (error.message || 'erro desconhecido'));
+    }
+    todas = todas.concat(data || []);
+    if (!data || data.length < LOTE) return todas;
+  }
+}
+
+// Baixa as parcelas de TODOS os clientes em lotes, com concorrência limitada e
+// retry por lote. Devolve { parcelas, idsFalha, lotesTotal, lotesFalha }:
+// idsFalha são os IDs de cliente cujos lotes não baixaram nem após as
+// retentativas — exatamente quem "some" da carteira offline. onLote(feitos,
+// total) atualiza o progresso.
+async function _baixarParcelasEmLotesConfiavel(ids, onLote) {
+  const lotes = [];
+  for (let i = 0; i < ids.length; i += _TAM_LOTE_PARCELAS) lotes.push(ids.slice(i, i + _TAM_LOTE_PARCELAS));
+  const resultados = new Array(lotes.length);
+  let proximo = 0, feitos = 0;
+
+  async function trabalhador() {
+    while (true) {
+      const idx = proximo++;
+      if (idx >= lotes.length) return;
+      const lote = lotes[idx];
+      try {
+        const dados = await _comRetentativa(() => _consultaPaginadaConfiavel(() =>
+          sb.from('parcelas').select('*, vendas(codigo, produto, vendedor_id), funcionarios(nome)').in('cliente_id', lote).neq('status', 'devolvida')), _TENTATIVAS_LOTE);
+        resultados[idx] = { ok: true, ids: lote, dados: dados };
+      } catch (e) {
+        resultados[idx] = { ok: false, ids: lote, dados: [] };
+        Logger.warn('cobrador', 'PREFETCH_LOTE', 'Um grupo de clientes não baixou as parcelas nem após retentativas', { qtd_clientes: lote.length, error_message: e && e.message });
+      }
+      feitos++;
+      if (onLote) { try { onLote(feitos, lotes.length); } catch (e) { /* progresso é cosmético */ } }
+    }
+  }
+
+  const trabalhadores = [];
+  const n = Math.min(_CONCORRENCIA_PARCELAS, lotes.length);
+  for (let i = 0; i < n; i++) trabalhadores.push(trabalhador());
+  await Promise.all(trabalhadores);
+
+  const parcelas = [];
+  const idsFalha = [];
+  let lotesFalha = 0;
+  resultados.forEach(function (r) {
+    if (!r) return;
+    if (r.ok) { for (let j = 0; j < r.dados.length; j++) parcelas.push(r.dados[j]); }
+    else { lotesFalha++; for (let j = 0; j < r.ids.length; j++) idsFalha.push(String(r.ids[j])); }
+  });
+  return { parcelas: parcelas, idsFalha: idsFalha, lotesTotal: lotes.length, lotesFalha: lotesFalha };
+}
+
+// Busca a lista de clientes da carteira com retentativa: só aceita como
+// COMPLETA quando veio sem erro. Devolve { clientes, completa }.
+async function _baixarCarteiraConfiavel(tentativas) {
+  tentativas = tentativas || 5;
+  let clientes = null;
+  for (let i = 1; i <= tentativas; i++) {
+    const statusErro = {};
+    const res = await _clientesDoCobrador('*', statusErro);
+    if (Array.isArray(res) && res.length) clientes = res; // guarda o melhor que veio (inclui cache)
+    if (!statusErro.houveErro) return { clientes: res || [], completa: true };
+    if (i < tentativas) await _dormir(Math.min(8000, 1200 * Math.pow(2, i - 1)));
+  }
+  return { clientes: clientes || [], completa: false };
+}
 
 // onProgress(pct, texto) é opcional — usado pela tela de sincronização
 // inicial (_aguardarSincronizacaoInicial) pra mostrar uma barra de
@@ -7007,8 +7361,19 @@ let _prefetchCobradorEmAndamento = null;
 async function prefetchOfflineCobrador(onProgress) {
   const marcar = (pct, texto) => { try { if (onProgress) onProgress(pct, texto); } catch (e) { /* progresso é cosmético */ } };
 
-  if (!window.OfflineFlow || !window.NetStatus || !NetStatus.estaOnline() || !_appEhNativo() || perfilAtivo?.perfil !== 'cobrador') {
+  if (!window.OfflineFlow || !window.NetStatus || !_appEhNativo() || perfilAtivo?.perfil !== 'cobrador') {
     marcar(100, 'Tudo pronto!');
+    return;
+  }
+  // Sem conexão utilizável agora (offline de fato OU disjuntor aberto): nem
+  // começa — o retry só giraria à toa. Marca no relatório que a última
+  // tentativa foi sem rede, sem apagar o retrato do último download bom.
+  if (NetStatus.estaEfetivamenteOffline && NetStatus.estaEfetivamenteOffline()) {
+    const prev = relatorioSincCobrador();
+    if (prev) { prev.ultimaTentativaOffline = Date.now(); _salvarRelatorioSincCobrador(prev); }
+    else _salvarRelatorioSincCobrador({ em: null, status: 'offline', carteira: null, parcelas: null });
+    marcar(100, 'Sem conexão — não deu pra atualizar a carteira agora.');
+    _atualizarBadgeSincCarteira();
     return;
   }
   // Duas chamadas sobrepostas (ex.: tela de login aguardando + renderInterfaceCobrador
@@ -7019,32 +7384,60 @@ async function prefetchOfflineCobrador(onProgress) {
   _prefetchCobradorEmAndamento = (async () => {
     try {
       const carteiraFresca = _sincCobradorRecente('carteira', _TTL_CARTEIRA_COBRADOR_MS);
-      marcar(10, carteiraFresca ? 'Conferindo carteira salva no aparelho...' : 'Baixando carteira de clientes...');
+      marcar(8, carteiraFresca ? 'Conferindo carteira salva no aparelho...' : 'Baixando carteira de clientes...');
 
+      // 1) Lista de clientes (carteira). Se estiver fresca, reaproveita o
+      //    cache; senão baixa com retentativa até vir a carteira inteira.
       let clientes = carteiraFresca ? await OfflineFlow.carteiraDoCache() : null;
+      let carteiraCompleta = true;
       if (!clientes || !clientes.length) {
-        const statusErro = {};
-        clientes = await _clientesDoCobrador('*', statusErro);
-        if (statusErro.houveErro || !clientes.length) { marcar(100, 'Tudo pronto!'); return; }
-        _marcarSincCobrador('carteira');
+        const r = await _baixarCarteiraConfiavel();
+        clientes = r.clientes;
+        carteiraCompleta = r.completa;
+        if (carteiraCompleta && clientes.length) _marcarSincCobrador('carteira');
       }
 
-      if (_sincCobradorRecente('parcelas', _TTL_PARCELAS_COBRADOR_MS)) {
-        marcar(100, 'Tudo pronto — carteira e cobranças já estavam atualizadas!');
+      if (!clientes.length) {
+        // Nem cache nem servidor deram cliente: cobrador sem carteira OU falha
+        // total de rede. Não marca nada; relata honestamente.
+        _salvarRelatorioSincCobrador({
+          em: Date.now(),
+          status: carteiraCompleta ? 'sem_dados' : 'carteira_incompleta',
+          carteira: { total: 0, completo: carteiraCompleta },
+          parcelas: { totalClientes: 0, clientesOk: 0, clientesFalha: 0, idsFalha: [], totalParcelas: 0, completo: carteiraCompleta },
+        });
+        marcar(100, carteiraCompleta ? 'Nenhum cliente na sua carteira.' : 'Não deu pra baixar a lista de clientes — tente de novo com sinal melhor.');
+        _atualizarBadgeSincCarteira();
         return;
       }
 
-      marcar(55, 'Atualizando parcelas em aberto (' + clientes.length + ' clientes)...');
-      const parcelas = await buscarInLotes(clientes.map(c => c.id), lote =>
-        sb.from('parcelas').select('*, vendas(codigo, produto, vendedor_id), funcionarios(nome)').in('cliente_id', lote).neq('status', 'devolvida'));
-      OfflineFlow.salvarParcelasNoCache(parcelas);
-      _marcarSincCobrador('parcelas');
+      // Parcelas frescas E último download completo: já está tudo baixado, não
+      // repete a carga pesada. A marca de 'parcelas' só é gravada quando o
+      // download fecha 100%, então este atalho nunca "pula" um estado parcial.
+      const relPrev = relatorioSincCobrador();
+      if (carteiraCompleta && _sincCobradorRecente('parcelas', _TTL_PARCELAS_COBRADOR_MS) && relPrev && relPrev.parcelas && relPrev.parcelas.completo) {
+        marcar(100, 'Tudo pronto — carteira e cobranças já estavam atualizadas!');
+        _atualizarBadgeSincCarteira();
+        return;
+      }
+
+      // 2) Parcelas em aberto de toda a carteira, em lotes confiáveis.
+      marcar(30, 'Baixando parcelas de ' + clientes.length + ' cliente(s)...');
+      const res = await _baixarParcelasEmLotesConfiavel(clientes.map(c => c.id), (feitos, total) => {
+        marcar(30 + Math.round(55 * feitos / Math.max(1, total)), 'Baixando parcelas... (' + feitos + '/' + total + ' grupos)');
+      });
+      const parcelasCompletas = res.lotesFalha === 0 && carteiraCompleta;
+
+      OfflineFlow.salvarParcelasNoCache(res.parcelas);
+      // Só marca "parcelas frescas" quando TODOS os lotes vieram — senão a
+      // próxima entrada no app tenta de novo os grupos que faltaram.
+      if (parcelasCompletas) _marcarSincCobrador('parcelas');
 
       // Resumo de vendas (código + vendedor) num cache à parte — ver nota em
       // _nsVendasResumo (sync-handlers.js) sobre por que não dá pra tirar
       // isso do cache de parcelas na hora da busca.
       const vendasPorId = new Map();
-      parcelas.forEach(p => {
+      res.parcelas.forEach(p => {
         if (p.venda_id != null && !vendasPorId.has(p.venda_id)) {
           vendasPorId.set(p.venda_id, {
             id: p.venda_id,
@@ -7059,18 +7452,43 @@ async function prefetchOfflineCobrador(onProgress) {
       // Cobradores/vendedores (pro seletor de pessoa do filtro de busca) e
       // rotas do próprio cobrador (pro filtro "Rota") — baixados junto pra
       // essas opções da busca de clientes funcionarem sem rede também, não
-      // só o texto livre.
-      marcar(90, 'Atualizando cobradores, vendedores e rotas...');
-      const [{ data: cobradores }, { data: vendedores }, { data: rotas }] = await Promise.all([
-        sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome'),
-        sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
-        sb.from('rotas').select('id, nome, rotas_municipios(municipio_id)').eq('cobrador_id', funcionarioLogado.id).eq('ativa', true),
-      ]);
-      if (cobradores) OfflineFlow.salvarCobradoresNoCache(cobradores);
-      if (vendedores) OfflineFlow.salvarVendedoresNoCache(vendedores);
-      if (rotas) OfflineFlow.salvarRotasNoCache(rotas);
+      // só o texto livre. Melhor esforço: não derruba o relatório se falhar.
+      marcar(92, 'Atualizando cobradores, vendedores e rotas...');
+      try {
+        const [{ data: cobradores }, { data: vendedores }, { data: rotas }] = await Promise.all([
+          sb.from('funcionarios').select('id, nome').eq('tipo', 'cobrador').eq('ativo', true).order('nome'),
+          sb.from('funcionarios').select('id, nome').eq('tipo', 'vendedor').eq('ativo', true).order('nome'),
+          sb.from('rotas').select('id, nome, rotas_municipios(municipio_id)').eq('cobrador_id', funcionarioLogado.id).eq('ativa', true),
+        ]);
+        if (cobradores) OfflineFlow.salvarCobradoresNoCache(cobradores);
+        if (vendedores) OfflineFlow.salvarVendedoresNoCache(vendedores);
+        if (rotas) OfflineFlow.salvarRotasNoCache(rotas);
+      } catch (e) { /* auxiliares são melhor esforço */ }
 
-      marcar(100, 'Tudo pronto para trabalhar offline!');
+      // 3) Relatório honesto do que baixou — base da aba Carteira offline.
+      const clientesFalha = res.idsFalha.length;
+      _salvarRelatorioSincCobrador({
+        em: Date.now(),
+        status: (parcelasCompletas ? 'completo' : (carteiraCompleta ? 'parcial' : 'carteira_incompleta')),
+        carteira: { total: clientes.length, completo: carteiraCompleta },
+        parcelas: {
+          totalClientes: clientes.length,
+          clientesOk: Math.max(0, clientes.length - clientesFalha),
+          clientesFalha: clientesFalha,
+          idsFalha: res.idsFalha.slice(0, 1000),
+          totalParcelas: res.parcelas.length,
+          completo: parcelasCompletas,
+        },
+      });
+      _atualizarBadgeSincCarteira();
+
+      if (parcelasCompletas) {
+        marcar(100, '✅ Carteira e parcelas baixadas — pronto para trabalhar offline!');
+      } else if (!carteiraCompleta) {
+        marcar(100, '⚠️ A lista de clientes não veio inteira. Toque em "Carteira offline" no menu para conferir e baixar de novo.');
+      } else {
+        marcar(100, '⚠️ ' + clientesFalha + ' cliente(s) ficaram sem parcelas. Abra "Carteira offline" no menu para baixar os que faltaram.');
+      }
     } catch (e) {
       // Melhor esforço: uma falha aqui não deve incomodar o cobrador (a tela
       // já carregou normalmente antes desta chamada) — só registra pra

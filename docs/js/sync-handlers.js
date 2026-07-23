@@ -870,6 +870,24 @@
     try { await _salvarMesclandoNoCache('parcelas', lista); } catch (e) { /* cache é melhor esforço */ }
   }
 
+  // Contagem de parcelas por cliente salvas no aparelho — usada pela aba
+  // Carteira offline pra mostrar, cliente por cliente, quantas parcelas (e
+  // quantas em aberto) baixaram de fato. Devolve { [clienteId]: { total, aberto } }.
+  async function contagemParcelasPorClienteDoCache() {
+    if (!_nativo() || !window.DbLocal) return {};
+    var todas = await DbLocal.lerDoCache('parcelas');
+    var mapa = {};
+    for (var i = 0; i < todas.length; i++) {
+      var p = todas[i];
+      if (!p || p.cliente_id == null) continue;
+      var k = String(p.cliente_id);
+      if (!mapa[k]) mapa[k] = { total: 0, aberto: 0 };
+      mapa[k].total++;
+      if (!p.pago && p.status !== 'devolvida') mapa[k].aberto++;
+    }
+    return mapa;
+  }
+
   async function salvarClientesNoCache(lista) {
     if (!_nativo() || !window.DbLocal || !Array.isArray(lista) || !lista.length) return;
     try { await _salvarMesclandoNoCache('clientes', lista); } catch (e) { /* cache é melhor esforço */ }
@@ -1315,6 +1333,7 @@
     salvarCarteiraNoCache: salvarCarteiraNoCache,
     carteiraDoCache: carteiraDoCache,
     salvarParcelasNoCache: salvarParcelasNoCache,
+    contagemParcelasPorClienteDoCache: contagemParcelasPorClienteDoCache,
     salvarClientesNoCache: salvarClientesNoCache,
     salvarCaixaCobradorNoCache: salvarCaixaCobradorNoCache,
     caixaCobradorDoCache: caixaCobradorDoCache,
