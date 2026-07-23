@@ -590,6 +590,18 @@ tr:hover td{background:#fafafa;}
           <option value="">Selecione...</option>
         </select>
         <button class="btn primario" onclick="buscarClientesManual()" style="padding:8px 16px;" title="Buscar">🔍</button>
+        <select id="clientes-ordenar-campo" onchange="_ajustarDirOrdenacao();reordenarClientes()" title="Ordenar a lista" style="padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:150px;">
+          <option value="">Ordenar por: padrão</option>
+          <option value="nome">Ordenar por: Nome</option>
+          <option value="codigo">Ordenar por: Código</option>
+          <option value="cidade">Ordenar por: Cidade</option>
+          <option value="cpf">Ordenar por: CPF</option>
+          <option value="telefone">Ordenar por: Celular</option>
+        </select>
+        <select id="clientes-ordenar-dir" onchange="reordenarClientes()" title="Sentido da ordenação" style="display:none;padding:8px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;min-width:170px;">
+          <option value="asc">Crescente (A→Z, 0→9)</option>
+          <option value="desc">Decrescente (Z→A, 9→0)</option>
+        </select>
       </div>
       <div id="lista-clientes">Carregando...</div>
       <div id="lista-clientes-sentinela" style="height:1px;"></div>
@@ -3420,6 +3432,41 @@ let _clientesOffset = 0;
 let _clientesFim = false;
 let _clientesCarregando = false;
 let _clientesObserver = null;
+// Ordenação: quando ativa, a busca traz o conjunto INTEIRO, ordena no
+// cliente e pagina localmente (o servidor não sabe ordenar por campo
+// escolhido). _clientesBrutosCache guarda o conjunto completo já baixado
+// por (tipo|termo) pra trocar só o campo/sentido re-ordenar de memória, sem
+// rebaixar tudo; _clientesOrdenados é a view já ordenada que está sendo
+// paginada.
+let _clientesBrutosCache = null;
+let _clientesOrdenados = null;
+
+// Ordena natural: texto em ordem alfabética e código em ordem numérica
+// (numeric:true faz "10" vir depois de "9"), com o mesmo comparador. Vazios
+// sempre no fim, independente do sentido.
+function _ordenarClientes(lista, campo, dir) {
+  const fator = dir === 'desc' ? -1 : 1;
+  const val = c => String(c[campo] == null ? '' : c[campo]).trim();
+  return lista.slice().sort((a, b) => {
+    const va = val(a), vb = val(b);
+    if (!va && !vb) return 0;
+    if (!va) return 1;
+    if (!vb) return -1;
+    return fator * va.localeCompare(vb, 'pt-BR', { numeric: true, sensitivity: 'base' });
+  });
+}
+
+function _ordenacaoClientesAtiva() {
+  const campo = document.getElementById('clientes-ordenar-campo');
+  if (!campo || !campo.value) return null;
+  return { campo: campo.value, dir: (document.getElementById('clientes-ordenar-dir').value || 'asc') };
+}
+
+function _ajustarDirOrdenacao() {
+  const campo = document.getElementById('clientes-ordenar-campo');
+  const dir = document.getElementById('clientes-ordenar-dir');
+  if (campo && dir) dir.style.display = campo.value ? '' : 'none';
+}
 
 const CLIENTES_FILTRO_PLACEHOLDER = {
   tudo: 'Buscar por nome, CPF, código, endereço, cidade ou celular...',
@@ -3465,13 +3512,24 @@ async function carregarClientes() {
   const ehGestor = perfilAtivo.perfil === 'gestor';
   const optCobrador = document.getElementById('cf-opt-cobrador');
   if (optCobrador) optCobrador.style.display = ehGestor ? '' : 'none';
+  _ajustarDirOrdenacao();
   _configurarScrollClientes();
   await buscarClientesManual();
 }
 
+// Busca nova (Enter, botão, troca de filtro/pessoa): invalida o conjunto
+// bruto em cache pra buscar dados frescos.
 function buscarClientesManual() {
+  _clientesBrutosCache = null;
+  reordenarClientes();
+}
+
+// Só troca a ordenação (campo/sentido): reaproveita o conjunto bruto já
+// baixado — reordenar não precisa rebaixar tudo do servidor.
+function reordenarClientes() {
   _clientesOffset = 0;
   _clientesFim = false;
+  _clientesOrdenados = null;
   todosClientes = [];
   _executarBuscaClientes(false);
 }
@@ -3491,6 +3549,39 @@ async function _executarBuscaClientes(append) {
   const termo = (tipo === 'cobrador' || tipo === 'vendedor')
     ? (document.getElementById('clientes-filtro-pessoa').value || null)
     : ((document.getElementById('clientes-filtro-texto').value || '').trim() || null);
+
+  // ── Modo ordenado: baixa o conjunto inteiro uma vez, ordena e pagina no
+  // cliente. Só o campo/sentido mudou? Reusa o conjunto bruto em cache. ──
+  const ord = _ordenacaoClientesAtiva();
+  if (ord) {
+    if (!append) {
+      const sig = tipo + '|' + (termo || '');
+      if (!_clientesBrutosCache || _clientesBrutosCache.assinatura !== sig) {
+        const res = await _buscarTodosClientesParaOrdenar(tipo, termo, status);
+        if (!res) {
+          _clientesCarregando = false;
+          lista.innerHTML = '<p style="color:#A32D2D;padding:1rem;">Erro ao buscar clientes.</p>';
+          status.textContent = '';
+          return;
+        }
+        _clientesBrutosCache = { assinatura: sig, dados: res.dados, offline: res.offline };
+      }
+      _clientesOrdenados = _ordenarClientes(_clientesBrutosCache.dados, ord.campo, ord.dir);
+    }
+    const base = _clientesOrdenados || [];
+    const pagina = base.slice(_clientesOffset, _clientesOffset + CLIENTES_PAGINA);
+    todosClientes = append ? todosClientes.concat(pagina) : pagina;
+    _clientesOffset += pagina.length;
+    _clientesFim = _clientesOffset >= base.length;
+    renderClientes(todosClientes);
+    const semRede = _clientesBrutosCache && _clientesBrutosCache.offline;
+    const fim = _clientesFim && todosClientes.length;
+    status.textContent = (semRede ? '📴 Sem conexão — ordenando clientes salvos no aparelho. ' : '')
+      + (fim ? 'Fim da lista.' : '');
+    _clientesCarregando = false;
+    return;
+  }
+
   const params = { p_limite: CLIENTES_PAGINA, p_offset: _clientesOffset, p_termo: termo, p_filtro: tipo };
   const { data, error } = await sb.rpc('buscar_clientes', params);
   _clientesCarregando = false;
@@ -3525,6 +3616,39 @@ async function _executarBuscaClientes(append) {
   _clientesFim = pagina.length < CLIENTES_PAGINA;
   renderClientes(todosClientes);
   status.textContent = _clientesFim && todosClientes.length ? 'Fim da lista.' : '';
+}
+
+// Ordenar por um campo escolhido exige conhecer TODOS os resultados (não dá
+// pra saber o 1º em ordem alfabética vendo só uma página), e a RPC pagina no
+// servidor sem ordenar por campo. Então, no modo ordenado, baixa o conjunto
+// inteiro em lotes grandes (poucos round-trips) uma única vez. Offline, cai
+// pra carteira salva no aparelho (que já vem completa). Devolve
+// { dados, offline } ou null em erro que não seja de rede.
+async function _buscarTodosClientesParaOrdenar(tipo, termo, status) {
+  const LOTE = 200;
+  let todos = [];
+  let offset = 0;
+  // Guarda anti-loop: 500 lotes * 200 = 100 mil clientes, teto de segurança
+  // muito acima de qualquer carteira/base real.
+  for (let i = 0; i < 500; i++) {
+    const { data, error } = await sb.rpc('buscar_clientes', { p_limite: LOTE, p_offset: offset, p_termo: termo, p_filtro: tipo });
+    if (error) {
+      // Sem rede: a carteira salva no aparelho já é o conjunto completo.
+      if (window.OfflineFlow && NetStatus.ehErroDeRede(error)) {
+        const doCache = await OfflineFlow.buscarClientesNoCache(termo, tipo);
+        if (doCache) return { dados: doCache, offline: true };
+      }
+      Logger.error('clientes', 'BUSCAR_CLIENTES', 'Falha ao baixar tudo para ordenar', { error_message: error.message });
+      return null;
+    }
+    const pagina = data || [];
+    if (window.OfflineFlow) OfflineFlow.salvarClientesNoCache(pagina);
+    todos = todos.concat(pagina);
+    offset += pagina.length;
+    if (status) status.textContent = 'Carregando para ordenar... (' + todos.length + ')';
+    if (pagina.length < LOTE) break;
+  }
+  return { dados: todos, offline: false };
 }
 
 async function _carregarMaisClientes() {
