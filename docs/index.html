@@ -7294,15 +7294,19 @@ async function _consultaPaginadaConfiavel(montarQuery) {
 }
 
 // Baixa as parcelas de TODOS os clientes em lotes, com concorrência limitada e
-// retry por lote. Devolve { parcelas, idsFalha, lotesTotal, lotesFalha }:
-// idsFalha são os IDs de cliente cujos lotes não baixaram nem após as
-// retentativas — exatamente quem "some" da carteira offline. onLote(feitos,
-// total) atualiza o progresso.
-async function _baixarParcelasEmLotesConfiavel(ids, onLote) {
+// retry por lote. NÃO acumula as parcelas em memória: chama onLoteOk(dados)
+// assim que cada lote chega, e o chamador grava na hora (gravação serializada).
+// Isso é o que faz escalar pra carteiras de milhares de clientes — dezenas de
+// milhares de parcelas nunca ficam vivas de uma vez — e, se o app for morto no
+// meio, o que já baixou fica salvo em vez de se perder. Devolve
+// { idsFalha, lotesTotal, lotesFalha, totalParcelas }: idsFalha são os IDs de
+// cliente cujos lotes não baixaram nem após as retentativas — exatamente quem
+// "some" da carteira offline. onProgresso(feitos, total) atualiza a barra.
+async function _baixarParcelasEmLotesConfiavel(ids, onProgresso, onLoteOk) {
   const lotes = [];
   for (let i = 0; i < ids.length; i += _TAM_LOTE_PARCELAS) lotes.push(ids.slice(i, i + _TAM_LOTE_PARCELAS));
-  const resultados = new Array(lotes.length);
-  let proximo = 0, feitos = 0;
+  const idsFalha = [];
+  let proximo = 0, feitos = 0, lotesFalha = 0, totalParcelas = 0;
 
   async function trabalhador() {
     while (true) {
@@ -7312,13 +7316,18 @@ async function _baixarParcelasEmLotesConfiavel(ids, onLote) {
       try {
         const dados = await _comRetentativa(() => _consultaPaginadaConfiavel(() =>
           sb.from('parcelas').select('*, vendas(codigo, produto, vendedor_id), funcionarios(nome)').in('cliente_id', lote).neq('status', 'devolvida')), _TENTATIVAS_LOTE);
-        resultados[idx] = { ok: true, ids: lote, dados: dados };
+        totalParcelas += dados.length;
+        // Grava já (o chamador serializa e faz backpressure): o trabalhador só
+        // segue pro próximo lote depois que este foi salvo, então no máximo
+        // ~poucos lotes ficam vivos em memória a qualquer momento.
+        if (onLoteOk) await onLoteOk(dados);
       } catch (e) {
-        resultados[idx] = { ok: false, ids: lote, dados: [] };
+        lotesFalha++;
+        for (let j = 0; j < lote.length; j++) idsFalha.push(String(lote[j]));
         Logger.warn('cobrador', 'PREFETCH_LOTE', 'Um grupo de clientes não baixou as parcelas nem após retentativas', { qtd_clientes: lote.length, error_message: e && e.message });
       }
       feitos++;
-      if (onLote) { try { onLote(feitos, lotes.length); } catch (e) { /* progresso é cosmético */ } }
+      if (onProgresso) { try { onProgresso(feitos, lotes.length); } catch (e) { /* progresso é cosmético */ } }
     }
   }
 
@@ -7327,15 +7336,7 @@ async function _baixarParcelasEmLotesConfiavel(ids, onLote) {
   for (let i = 0; i < n; i++) trabalhadores.push(trabalhador());
   await Promise.all(trabalhadores);
 
-  const parcelas = [];
-  const idsFalha = [];
-  let lotesFalha = 0;
-  resultados.forEach(function (r) {
-    if (!r) return;
-    if (r.ok) { for (let j = 0; j < r.dados.length; j++) parcelas.push(r.dados[j]); }
-    else { lotesFalha++; for (let j = 0; j < r.ids.length; j++) idsFalha.push(String(r.ids[j])); }
-  });
-  return { parcelas: parcelas, idsFalha: idsFalha, lotesTotal: lotes.length, lotesFalha: lotesFalha };
+  return { idsFalha: idsFalha, lotesTotal: lotes.length, lotesFalha: lotesFalha, totalParcelas: totalParcelas };
 }
 
 // Busca a lista de clientes da carteira com retentativa: só aceita como
@@ -7421,32 +7422,40 @@ async function prefetchOfflineCobrador(onProgress) {
         return;
       }
 
-      // 2) Parcelas em aberto de toda a carteira, em lotes confiáveis.
+      // 2) Parcelas em aberto de toda a carteira, em lotes confiáveis. Cada
+      //    lote é GRAVADO assim que chega, com as gravações serializadas numa
+      //    fila (_cadeiaSalvar): a memória fica limitada a poucos lotes por vez
+      //    (essencial numa carteira de milhares de clientes, que tem dezenas de
+      //    milhares de parcelas) e o que já baixou sobrevive se o app fechar.
       marcar(30, 'Baixando parcelas de ' + clientes.length + ' cliente(s)...');
-      const res = await _baixarParcelasEmLotesConfiavel(clientes.map(c => c.id), (feitos, total) => {
-        marcar(30 + Math.round(55 * feitos / Math.max(1, total)), 'Baixando parcelas... (' + feitos + '/' + total + ' grupos)');
-      });
+      const vendasPorId = new Map();
+      let _cadeiaSalvar = Promise.resolve();
+      const salvarLote = (dados) => {
+        _cadeiaSalvar = _cadeiaSalvar.then(async () => {
+          await OfflineFlow.salvarParcelasNoCache(dados);
+          // Resumo de vendas (código + vendedor) montado junto — ver nota em
+          // _nsVendasResumo (sync-handlers.js) sobre por que fica num cache à parte.
+          for (let k = 0; k < dados.length; k++) {
+            const pp = dados[k];
+            if (pp.venda_id != null && !vendasPorId.has(pp.venda_id)) {
+              vendasPorId.set(pp.venda_id, { id: pp.venda_id, cliente_id: pp.cliente_id, codigo: pp.vendas?.codigo || null, vendedor_id: pp.vendas?.vendedor_id || null });
+            }
+          }
+        }).catch(() => { /* uma gravação que falhe não derruba a rodada */ });
+        return _cadeiaSalvar;
+      };
+      const res = await _baixarParcelasEmLotesConfiavel(
+        clientes.map(c => c.id),
+        (feitos, total) => marcar(30 + Math.round(55 * feitos / Math.max(1, total)), 'Baixando parcelas... (' + feitos + '/' + total + ' grupos)'),
+        salvarLote
+      );
+      await _cadeiaSalvar; // garante que a última gravação terminou antes de seguir
       const parcelasCompletas = res.lotesFalha === 0 && carteiraCompleta;
 
-      OfflineFlow.salvarParcelasNoCache(res.parcelas);
       // Só marca "parcelas frescas" quando TODOS os lotes vieram — senão a
       // próxima entrada no app tenta de novo os grupos que faltaram.
       if (parcelasCompletas) _marcarSincCobrador('parcelas');
 
-      // Resumo de vendas (código + vendedor) num cache à parte — ver nota em
-      // _nsVendasResumo (sync-handlers.js) sobre por que não dá pra tirar
-      // isso do cache de parcelas na hora da busca.
-      const vendasPorId = new Map();
-      res.parcelas.forEach(p => {
-        if (p.venda_id != null && !vendasPorId.has(p.venda_id)) {
-          vendasPorId.set(p.venda_id, {
-            id: p.venda_id,
-            cliente_id: p.cliente_id,
-            codigo: p.vendas?.codigo || null,
-            vendedor_id: p.vendas?.vendedor_id || null,
-          });
-        }
-      });
       OfflineFlow.salvarVendasResumoNoCache(Array.from(vendasPorId.values()));
 
       // Cobradores/vendedores (pro seletor de pessoa do filtro de busca) e
@@ -7476,7 +7485,7 @@ async function prefetchOfflineCobrador(onProgress) {
           clientesOk: Math.max(0, clientes.length - clientesFalha),
           clientesFalha: clientesFalha,
           idsFalha: res.idsFalha.slice(0, 1000),
-          totalParcelas: res.parcelas.length,
+          totalParcelas: res.totalParcelas,
           completo: parcelasCompletas,
         },
       });
