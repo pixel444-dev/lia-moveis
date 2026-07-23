@@ -8886,7 +8886,32 @@ function _htmlParcelasCobrador(dataParcelas, clienteId, nomeCliente) {
   return html;
 }
 
+// Placeholder de carregamento com spinner animado — reaproveita o keyframe
+// btnSpin/estilo do .btn-spinner. Usado enquanto a ficha/parcelas carregam.
+function _htmlCarregandoSpinner(texto) {
+  return '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:2rem 1rem;color:#888;">'
+    + '<span class="btn-spinner" style="width:28px;height:28px;border-width:3px;color:#185FA5;margin:0;"></span>'
+    + '<span style="font-size:13px;">' + escHtml(texto || 'Carregando…') + '</span>'
+    + '</div>';
+}
+
 async function _buscarParcelasClienteCobrador(clienteId) {
+  // Efetivamente offline (sem rede ou zona morta): lê direto do cache local,
+  // sem disparar a consulta ao vivo que esperaria o timeout inteiro. É o que
+  // fazia a ficha em cobrança demorar a abrir em campo.
+  const offline = (window.NetStatus && NetStatus.estaEfetivamenteOffline)
+    ? NetStatus.estaEfetivamenteOffline()
+    : (window.NetStatus ? !NetStatus.estaOnline() : false);
+  if (offline && window.OfflineFlow) {
+    const doCache = await OfflineFlow.parcelasDoCacheCliente(clienteId);
+    if (doCache && doCache.length) {
+      const data = doCache.filter(function(p) { return p.status !== 'devolvida'; })
+        .sort(function(a, b) { return (Number(a.numero) || 0) - (Number(b.numero) || 0); });
+      return { data: data, avisoOffline: OfflineFlow.avisoOfflineHtml() };
+    }
+    return { data: [], avisoOffline: OfflineFlow.avisoOfflineHtml() };
+  }
+
   let { data, error } = await sb.from('parcelas')
     .select('*, vendas(codigo, produto), funcionarios(nome)')
     .eq('cliente_id', clienteId)
@@ -8919,7 +8944,7 @@ async function verParcelasDoCliente() {
 
   document.getElementById('modal-parcelas-cobrador-titulo').textContent = nome;
   const lista = document.getElementById('lista-parcelas-cobrador');
-  lista.innerHTML = '<p style="color:#888;padding:1rem;">Carregando...</p>';
+  lista.innerHTML = _htmlCarregandoSpinner('Carregando parcelas…');
   document.getElementById('modal-parcelas-cobrador').style.display = 'flex';
 
   const { data, avisoOffline } = await _buscarParcelasClienteCobrador(id);
@@ -8943,20 +8968,37 @@ async function abrirSheetClienteCobrador(clienteId) {
   document.getElementById('sheet-cliente-detalhes-completos').style.display = 'none';
   document.getElementById('sheet-cliente-detalhes-completos').innerHTML = '';
   document.getElementById('btn-toggle-detalhes-cobrador').textContent = 'Ver detalhes completos ▾';
-  document.getElementById('lista-parcelas-sheet-cobrador').innerHTML = '<p style="color:#888;padding:1rem;text-align:center;">Carregando...</p>';
+  document.getElementById('lista-parcelas-sheet-cobrador').innerHTML = _htmlCarregandoSpinner('Carregando parcelas…');
   document.getElementById('sheet-cliente-localidade-select').innerHTML = '<option value="">Carregando...</option>';
   document.getElementById('sheet-cliente-cobrador').style.display = 'flex';
 
-  let { data: c, error } = await sb.from('clientes').select('*').eq('id', clienteId).single();
-  if (error || !c) {
-    c = (window.OfflineFlow && NetStatus.ehErroDeRede(error)) ? await OfflineFlow.clienteDoCache(clienteId) : null;
+  // Efetivamente offline (sem rede ou zona morta): dados vêm direto do cache
+  // local, sem esperar o timeout da consulta ao vivo — abre na hora em campo.
+  const offline = (window.NetStatus && NetStatus.estaEfetivamenteOffline)
+    ? NetStatus.estaEfetivamenteOffline()
+    : (window.NetStatus ? !NetStatus.estaOnline() : false);
+
+  let c = null;
+  if (offline) {
+    c = window.OfflineFlow ? await OfflineFlow.clienteDoCache(clienteId) : null;
     if (!c) {
       fecharModal('sheet-cliente-cobrador');
       alert('Não foi possível carregar os dados deste cliente.');
       return;
     }
-  } else if (window.OfflineFlow) {
-    OfflineFlow.salvarClientesNoCache([c]);
+  } else {
+    const r = await sb.from('clientes').select('*').eq('id', clienteId).single();
+    c = r.data;
+    if (r.error || !c) {
+      c = (window.OfflineFlow && NetStatus.ehErroDeRede(r.error)) ? await OfflineFlow.clienteDoCache(clienteId) : null;
+      if (!c) {
+        fecharModal('sheet-cliente-cobrador');
+        alert('Não foi possível carregar os dados deste cliente.');
+        return;
+      }
+    } else if (window.OfflineFlow) {
+      OfflineFlow.salvarClientesNoCache([c]);
+    }
   }
 
   const { data: parcelas, avisoOffline } = await _buscarParcelasClienteCobrador(clienteId);
